@@ -10,16 +10,14 @@ export default function NovoMembro() {
   const [fotoArquivo, setFotoArquivo] = useState<File | null>(null);
   const [mostrarModalSucesso, setMostrarModalSucesso] = useState(false);
   
-  // ESTADO DO CPF PARA A MÁSCARA
   const [cpfFormatado, setCpfFormatado] = useState("");
   const [isDragging, setIsDragging] = useState(false);
 
-  // --- FUNÇÃO PARA FORMATAR O CPF ---
   const handleCpfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let valor = e.target.value.replace(/\D/g, ""); // Remove tudo que não for número
-    valor = valor.replace(/(\d{3})(\d)/, "$1.$2"); // Coloca o primeiro ponto
-    valor = valor.replace(/(\d{3})(\d)/, "$1.$2"); // Coloca o segundo ponto
-    valor = valor.replace(/(\d{3})(\d{1,2})$/, "$1-$2"); // Coloca o traço
+    let valor = e.target.value.replace(/\D/g, ""); 
+    valor = valor.replace(/(\d{3})(\d)/, "$1.$2"); 
+    valor = valor.replace(/(\d{3})(\d)/, "$1.$2"); 
+    valor = valor.replace(/(\d{3})(\d{1,2})$/, "$1-$2"); 
     setCpfFormatado(valor);
   };
 
@@ -57,7 +55,7 @@ export default function NovoMembro() {
 
       const dadosMembro = {
         nome_completo: formData.get("nome_completo"), genero: generoSelecionado, 
-        cpf: cpfFormatado, // Salvamos o CPF já formatado
+        cpf: cpfFormatado,
         data_nascimento: formData.get("data_nascimento") || null, estado_civil: formData.get("estado_civil"),
         telefone: formData.get("telefone"), endereco_rua: formData.get("endereco_rua"), endereco_numero: formData.get("endereco_numero"),
         endereco_bairro: formData.get("endereco_bairro"), endereco_cidade_uf: formData.get("endereco_cidade_uf"),
@@ -100,7 +98,6 @@ export default function NovoMembro() {
               <input name="data_nascimento" type="date" className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
             
-            {/* CAMPO DE CPF ATUALIZADO */}
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">
                 CPF <span className="text-xs font-normal text-gray-500 ml-1">(Apenas números)</span>
@@ -109,7 +106,7 @@ export default function NovoMembro() {
                 name="cpf" 
                 value={cpfFormatado}
                 onChange={handleCpfChange}
-                maxLength={14} // Trava em 14 caracteres (11 números + 2 pontos + 1 traço)
+                maxLength={14}
                 type="text" 
                 className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500" 
                 placeholder="000.000.000-00" 
@@ -207,9 +204,13 @@ export default function NovoMembro() {
             </div>
           </div>
 
-          <div className="pt-6 border-t mt-8">
+          <div className="pt-6 border-t mt-8 flex flex-col md:flex-row items-center gap-4">
             <button type="submit" disabled={carregando} className="w-full md:w-auto px-10 py-4 bg-blue-600 text-white font-bold rounded-md hover:bg-blue-700 transition duration-300 shadow-lg disabled:bg-gray-400">
               {carregando ? "Enviando Dados..." : "Finalizar Cadastro"}
+            </button>
+            
+            <button type="button" onClick={() => router.back()} disabled={carregando} className="w-full md:w-auto px-10 py-4 bg-white border border-gray-300 text-gray-700 font-bold rounded-md hover:bg-gray-50 transition duration-300 shadow-sm disabled:opacity-50">
+              Cancelar
             </button>
           </div>
         </form>

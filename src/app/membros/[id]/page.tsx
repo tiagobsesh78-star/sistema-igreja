@@ -11,11 +11,6 @@ export default function VerMembro() {
   const [membro, setMembro] = useState<any>(null);
   const [carregando, setCarregando] = useState(true);
 
-  // --- NOVOS ESTADOS PARA AS JANELAS FLUTUANTES (MODAIS) ---
-  const [mostrarModalExclusao, setMostrarModalExclusao] = useState(false);
-  const [mostrarModalSucesso, setMostrarModalSucesso] = useState(false);
-  const [mensagemSucesso, setMensagemSucesso] = useState("");
-
   useEffect(() => {
     async function buscarDetalhes() {
       const { data, error } = await supabase.from("membros").select("*").eq("id", id).single();
@@ -28,33 +23,6 @@ export default function VerMembro() {
     }
     if (id) buscarDetalhes();
   }, [id]);
-
-  // Função que APENAS abre a caixinha de pergunta
-  const pedirConfirmacaoExclusao = () => {
-    setMostrarModalExclusao(true);
-  };
-
-  // Função que REALMENTE vai no banco e apaga
-  const confirmarEExcluir = async () => {
-    setMostrarModalExclusao(false); // Fecha a pergunta
-    setCarregando(true); // Mostra que está processando
-
-    const { error } = await supabase.from("membros").delete().eq("id", id);
-
-    if (error) {
-      alert("Erro ao excluir: " + error.message);
-      setCarregando(false);
-    } else {
-      // Em vez do alert feio, abrimos nossa modal bonita
-      setMensagemSucesso("Membro excluído permanentemente.");
-      setMostrarModalSucesso(true);
-    }
-  };
-
-  // Função para quando a pessoa clicar em "OK" na tela de sucesso
-  const finalizarERedirecionar = () => {
-    router.push("/membros");
-  };
 
   if (carregando && !membro) {
     return <div className="text-center py-20 text-gray-500 font-medium">Carregando perfil...</div>;
@@ -96,19 +64,18 @@ export default function VerMembro() {
                 </div>
               </div>
 
-{/* BOTÕES */}
-<div className="flex flex-wrap gap-2">
-  <Link href="/membros" className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition font-medium text-sm">Voltar</Link>
-  
-  {/* NOVO BOTÃO DA CARTEIRINHA */}
-  <Link href={`/membros/${membro.id}/carteirinha`} className="px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 transition font-medium shadow-sm text-sm flex items-center gap-2">
-    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2"></path></svg>
-    Carteirinha
-  </Link>
-  
-  <Link href={`/membros/${membro.id}/editar`} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-medium shadow-sm text-sm">Editar</Link>
-  <button onClick={pedirConfirmacaoExclusao} className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition font-medium shadow-sm text-sm">Excluir</button>
-</div>
+              {/* BOTÕES */}
+              <div className="flex flex-wrap gap-2">
+                <Link href="/membros" className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition font-medium text-sm">Voltar</Link>
+                
+                {/* NOVO BOTÃO DA CARTEIRINHA */}
+                <Link href={`/membros/${membro.id}/carteirinha`} className="px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 transition font-medium shadow-sm text-sm flex items-center gap-2">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2"></path></svg>
+                  Carteirinha
+                </Link>
+                
+                <Link href={`/membros/${membro.id}/editar`} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-medium shadow-sm text-sm">Editar</Link>
+              </div>
             </div>
           </div>
         </div>
@@ -142,55 +109,6 @@ export default function VerMembro() {
           </section>
         </div>
       </div>
-
-      {/* ========================================== */}
-      {/* NOSSAS CAIXINHAS FLUTUANTES (MODAIS) AQUI! */}
-      {/* ========================================== */}
-
-      {/* 1. MODAL DE CONFIRMAÇÃO DE EXCLUSÃO */}
-      {mostrarModalExclusao && (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 text-center transform transition-all">
-            {/* Ícone de Alerta */}
-            <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100 mb-4">
-              <svg className="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-            </div>
-            <h3 className="text-lg font-bold text-gray-900 mb-2">Confirmar Exclusão</h3>
-            <p className="text-sm text-gray-500 mb-6">
-              Tem certeza que deseja excluir <strong>{membro.nome_completo}</strong>? Todos os dados serão perdidos e esta ação não pode ser desfeita.
-            </p>
-            <div className="flex gap-3 justify-center">
-              <button onClick={() => setMostrarModalExclusao(false)} className="px-4 py-2 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition">
-                Cancelar
-              </button>
-              <button onClick={confirmarEExcluir} className="px-4 py-2 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 transition shadow-md">
-                Sim, excluir
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 2. MODAL DE SUCESSO */}
-      {mostrarModalSucesso && (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 text-center transform transition-all">
-            {/* Ícone de Sucesso */}
-            <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100 mb-4">
-              <svg className="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-              </svg>
-            </div>
-            <h3 className="text-lg font-bold text-gray-900 mb-2">Ação Concluída</h3>
-            <p className="text-sm text-gray-500 mb-6">{mensagemSucesso}</p>
-            <button onClick={finalizarERedirecionar} className="w-full px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition shadow-md">
-              OK, voltar para lista
-            </button>
-          </div>
-        </div>
-      )}
     </>
   );
 }

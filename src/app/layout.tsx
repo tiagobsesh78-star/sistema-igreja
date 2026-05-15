@@ -22,14 +22,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           }`}
         >
           <div className="flex items-center justify-between p-5 border-b border-gray-800 h-16">
-            <span className="text-xl font-bold tracking-wide"><span className="text-blue-500">Igreja</span>Admin</span>
+            {/* LOGO DO MENU LATERAL (Agora é um link) */}
+            <Link href="/" onClick={fecharMenu} className="text-xl font-bold tracking-wide hover:opacity-80 transition-opacity">
+              <span className="text-blue-500">Igreja</span>Admin
+            </Link>
+            
             <button onClick={fecharMenu} className="text-gray-400 hover:text-white transition-colors">
               <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
             </button>
           </div>
 
           <nav className="p-4 space-y-3 mt-2 flex-1">
-            <Link href="/" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname === '/' ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Dashboard</Link>
+            <Link href="/" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname === '/' ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Início</Link>
             <Link href="/membros" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/membros') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Membros</Link>
           </nav>
         </aside>
@@ -45,7 +49,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <button onClick={() => setMenuAberto(!menuAberto)} className="text-white hover:text-blue-400 focus:outline-none transition-colors">
                 <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
               </button>
-              <span className="text-xl font-bold tracking-wide"><span className="text-blue-500">Igreja</span>Admin</span>
+              
+              {/* LOGO DO CABEÇALHO SUPERIOR (Agora é um link) */}
+              <Link href="/" className="text-xl font-bold tracking-wide hover:opacity-80 transition-opacity">
+                <span className="text-blue-500">Igreja</span>Admin
+              </Link>
             </div>
           </header>
 

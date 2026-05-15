@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import Link from "next/link";
 import { supabase } from "../../../../../src/lib/supabase"; 
 
 export default function EditarMembro() {
@@ -14,11 +13,15 @@ export default function EditarMembro() {
   const [mostrarModalSucesso, setMostrarModalSucesso] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
+  // --- NOVOS ESTADOS PARA EXCLUSÃO ---
+  const [mostrarModalExclusao, setMostrarModalExclusao] = useState(false);
+  const [mostrarModalExclusaoSucesso, setMostrarModalExclusaoSucesso] = useState(false);
+
   const [dadosMembro, setDadosMembro] = useState({
     nome_completo: "", genero: "Masculino", cpf: "", data_nascimento: "", estado_civil: "Solteiro(a)",
     telefone: "", endereco_rua: "", endereco_numero: "", endereco_bairro: "", endereco_cidade_uf: "",
     endereco_cep: "", data_batismo: "", igreja_batismo: "", cargo: "Membro", 
-    status: "Ativo", // ADICIONADO O STATUS AQUI
+    status: "Ativo", 
     foto_url: "",
   });
 
@@ -41,13 +44,14 @@ export default function EditarMembro() {
           endereco_bairro: data.endereco_bairro || "", endereco_cidade_uf: data.endereco_cidade_uf || "",
           endereco_cep: data.endereco_cep || "", data_batismo: data.data_batismo || "", igreja_batismo: data.igreja_batismo || "",
           cargo: cargoParaExibir || "Membro", 
-          status: data.status || "Ativo", // PUXANDO DO BANCO
+          status: data.status || "Ativo", 
           foto_url: data.foto_url || "",
         });
       }
       setCarregando(false);
     }
-    if (id) buscarMembro();
+    if (id && id !== "novo") buscarMembro();
+    else setCarregando(false);
   }, [id, router]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -97,8 +101,14 @@ export default function EditarMembro() {
         data_batismo: dadosMembro.data_batismo || null, foto_url: novaFotoUrl,
       };
 
-      const { error } = await supabase.from("membros").update(dadosParaSalvar).eq("id", id);
-      if (error) throw error;
+      if (id === "novo") {
+        const { error } = await supabase.from("membros").insert([dadosParaSalvar]);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("membros").update(dadosParaSalvar).eq("id", id);
+        if (error) throw error;
+      }
+      
       setMostrarModalSucesso(true);
     } catch (error: any) {
       alert("Erro ao atualizar: " + error.message);
@@ -106,7 +116,33 @@ export default function EditarMembro() {
     }
   };
 
-  const finalizarERedirecionar = () => { router.push(`/membros/${id}`); };
+  // --- FUNÇÕES DE EXCLUSÃO ---
+  const pedirConfirmacaoExclusao = () => {
+    setMostrarModalExclusao(true);
+  };
+
+  const confirmarEExcluir = async () => {
+    setMostrarModalExclusao(false);
+    setCarregando(true);
+
+    const { error } = await supabase.from("membros").delete().eq("id", id);
+
+    if (error) {
+      alert("Erro ao excluir: " + error.message);
+      setCarregando(false);
+    } else {
+      setMostrarModalExclusaoSucesso(true);
+    }
+  };
+
+  const finalizarERedirecionarAtualizacao = () => { 
+    if (id === "novo") router.push("/membros");
+    else router.push(`/membros/${id}`); 
+  };
+  
+  const finalizarERedirecionarExclusao = () => { 
+    router.push("/membros"); 
+  };
 
   if (carregando) return <div className="text-center py-20 text-gray-500 font-medium">Carregando formulário...</div>;
 
@@ -115,12 +151,12 @@ export default function EditarMembro() {
   return (
     <>
       <div className="max-w-4xl mx-auto bg-white p-8 rounded-lg shadow-md relative">
-      <div className="flex justify-between items-center mb-8 border-b pb-4">
-  <h1 className="text-3xl font-bold text-gray-800">Editar Cadastro</h1>
-  <button type="button" onClick={() => router.back()} className="text-gray-500 hover:text-gray-800 font-medium">
-    Cancelar
-  </button>
-</div>
+        <div className="flex justify-between items-center mb-8 border-b pb-4">
+          <h1 className="text-3xl font-bold text-gray-800">{id === "novo" ? "Novo Cadastro" : "Editar Cadastro"}</h1>
+          <button type="button" onClick={() => router.back()} className="text-gray-500 hover:text-gray-800 font-medium">
+            Cancelar
+          </button>
+        </div>
 
         <form onSubmit={atualizarMembro} className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -186,7 +222,6 @@ export default function EditarMembro() {
             </div>
           </div>
 
-          
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end mt-6">
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">Data de Batismo</label>
@@ -242,14 +277,28 @@ export default function EditarMembro() {
             </div>
           </div>
 
-          <div className="pt-6 border-t mt-8">
+          {/* ÁREA DOS BOTÕES ATUALIZADA COM O BOTÃO DE EXCLUIR */}
+          <div className="pt-6 border-t mt-8 flex flex-col md:flex-row items-center justify-between gap-4">
             <button type="submit" disabled={salvando} className="w-full md:w-auto px-10 py-4 bg-green-600 text-white font-bold rounded-md hover:bg-green-700 transition duration-300 shadow-lg disabled:bg-gray-400">
               {salvando ? "Salvando Alterações..." : "Atualizar Cadastro"}
             </button>
+
+            {/* A REGRA DE OURO AQUI: Só mostra se for edição */}
+            {id && id !== "novo" && (
+              <button 
+                type="button" 
+                onClick={pedirConfirmacaoExclusao} 
+                className="w-full md:w-auto px-6 py-4 bg-red-600 text-white font-bold rounded-md hover:bg-red-700 transition duration-300 shadow-sm flex items-center justify-center gap-2"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                Excluir Membro
+              </button>
+            )}
           </div>
         </form>
       </div>
 
+      {/* MODAL 1: SUCESSO AO ATUALIZAR */}
       {mostrarModalSucesso && (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 text-center transform transition-all">
@@ -258,8 +307,47 @@ export default function EditarMembro() {
             </div>
             <h3 className="text-lg font-bold text-gray-900 mb-2">Atualização Concluída!</h3>
             <p className="text-sm text-gray-500 mb-6">Os dados do membro foram atualizados com sucesso.</p>
-            <button onClick={finalizarERedirecionar} className="w-full px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition shadow-md">
-              OK, voltar para o perfil
+            <button onClick={finalizarERedirecionarAtualizacao} className="w-full px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition shadow-md">
+              OK, voltar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: CONFIRMAR EXCLUSÃO */}
+      {mostrarModalExclusao && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 text-center transform transition-all">
+            <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100 mb-4">
+              <svg className="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+            </div>
+            <h3 className="text-lg font-bold text-gray-900 mb-2">Confirmar Exclusão</h3>
+            <p className="text-sm text-gray-500 mb-6">
+              Tem certeza que deseja excluir este membro? Todos os dados serão perdidos e esta ação não pode ser desfeita.
+            </p>
+            <div className="flex gap-3 justify-center">
+              <button onClick={() => setMostrarModalExclusao(false)} className="px-4 py-2 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition">
+                Cancelar
+              </button>
+              <button onClick={confirmarEExcluir} className="px-4 py-2 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 transition shadow-md">
+                Sim, excluir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: SUCESSO AO EXCLUIR */}
+      {mostrarModalExclusaoSucesso && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 text-center transform transition-all">
+            <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100 mb-4">
+              <svg className="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
+            </div>
+            <h3 className="text-lg font-bold text-gray-900 mb-2">Ação Concluída</h3>
+            <p className="text-sm text-gray-500 mb-6">Membro excluído permanentemente.</p>
+            <button onClick={finalizarERedirecionarExclusao} className="w-full px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition shadow-md">
+              OK, voltar para lista
             </button>
           </div>
         </div>
