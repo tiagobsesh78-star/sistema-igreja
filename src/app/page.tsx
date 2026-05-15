@@ -157,7 +157,7 @@ export default function Dashboard() {
                       </span>
                     </td>
                     <td className="p-4 text-right">
-                      <Link href="{`/membros/${membro.id}`}" className="text-blue-600 hover:text-blue-800 text-sm font-semibold">Ver Perfil</Link>
+                      <Link href={`/membros/${membro.id}`} className="text-blue-600 hover:text-blue-800 text-sm font-semibold">Ver Perfil</Link>
                     </td>
                   </tr>
                 ))

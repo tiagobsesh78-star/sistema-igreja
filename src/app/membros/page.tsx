@@ -2,179 +2,175 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { supabase } from "../../lib/supabase";
+import { supabase } from "../../../src/lib/supabase";
 
-export default function ListaMembros() {
+export default function MembrosPage() {
   const [membros, setMembros] = useState<any[]>([]);
   const [carregando, setCarregando] = useState(true);
-
-  // --- NOVOS ESTADOS PARA OS FILTROS ---
-  const [termoBusca, setTermoBusca] = useState("");
-  const [filtroCargo, setFiltroCargo] = useState("Todos");
+  
+  const [busca, setBusca] = useState("");
+  const [cargoFiltro, setCargoFiltro] = useState("");
+  const [selecionados, setSelecionados] = useState<number[]>([]);
 
   useEffect(() => {
-    async function buscarMembros() {
-      const { data, error } = await supabase
-        .from("membros")
-        .select("*")
-        .order("nome_completo", { ascending: true });
-
-      if (error) {
-        alert("Erro ao carregar a lista: " + error.message);
-      } else {
-        setMembros(data || []);
-      }
-      setCarregando(false);
-    }
-
     buscarMembros();
   }, []);
 
-  // --- INTELIGÊNCIA DE FILTRAGEM (Roda instantaneamente ao digitar) ---
-  const membrosFiltrados = membros.filter((membro) => {
-    // 1. Verifica se o texto digitado bate com o NOME ou o CPF
-    const textoMatch = 
-      membro.nome_completo?.toLowerCase().includes(termoBusca.toLowerCase()) ||
-      (membro.cpf && membro.cpf.includes(termoBusca));
-    
-    // 2. Verifica se o cargo bate (ou se está selecionado "Todos")
-    // Como temos masculino/feminino, verificamos se a palavra base está contida no cargo salvo
-    const cargoMatch = 
-      filtroCargo === "Todos" || 
-      (membro.cargo && membro.cargo.includes(filtroCargo.replace("(a)", "").trim()));
+  async function buscarMembros() {
+    const { data, error } = await supabase.from("membros").select("*").order("nome_completo");
+    if (!error && data) setMembros(data);
+    setCarregando(false);
+  }
 
-    return textoMatch && cargoMatch;
+  const membrosFiltrados = membros.filter((m) => {
+    const nome = m.nome_completo || "";
+    const cpf = m.cpf || "";
+    const matchBusca = nome.toLowerCase().includes(busca.toLowerCase()) || cpf.includes(busca);
+    const matchCargo = cargoFiltro === "" || m.cargo === cargoFiltro;
+    return matchBusca && matchCargo;
   });
-  // ------------------------------------------------------------------
+
+  const cargosUnicos = Array.from(new Set(membros.map(m => m.cargo).filter(Boolean)));
+
+  const toggleTodos = () => {
+    if (selecionados.length === membrosFiltrados.length && membrosFiltrados.length > 0) {
+      setSelecionados([]);
+    } else {
+      setSelecionados(membrosFiltrados.map((m) => m.id));
+    }
+  };
+
+  const toggleSelecao = (id: number) => {
+    if (selecionados.includes(id)) {
+      setSelecionados(selecionados.filter((item) => item !== id));
+    } else {
+      setSelecionados([...selecionados, id]);
+    }
+  };
+
+  if (carregando) return <div className="text-center py-20 text-gray-500 font-medium">Carregando membros...</div>;
 
   return (
-    <div className="max-w-6xl mx-auto bg-white p-6 md:p-8 rounded-lg shadow-md">
-      
-      {/* CABEÇALHO */}
-      <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-        <h1 className="text-2xl font-bold text-gray-800">
-          Membros Cadastrados
-        </h1>
-        <Link 
-          href="/membros/novo" 
-          className="w-full md:w-auto text-center px-6 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 transition duration-300 shadow-sm"
-        >
-          + Novo Membro
-        </Link>
-      </div>
-
-      {/* BARRA DE PESQUISA E FILTROS */}
-      <div className="flex flex-col md:flex-row gap-4 mb-8 bg-gray-50 p-4 rounded-lg border border-gray-100">
+    <div className="max-w-6xl mx-auto px-4 py-8">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 md:p-8">
         
-        {/* Busca por Texto */}
-        <div className="relative flex-1">
-          <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
-            <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-            </svg>
+        {/* CABEÇALHO */}
+        <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
+          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Membros Cadastrados</h1>
+          <div className="flex flex-wrap md:flex-nowrap gap-3 justify-center md:justify-end">
+            {selecionados.length > 0 && (
+              <Link 
+                href={`/membros/lote?ids=${selecionados.join(',')}`}
+                className="px-4 py-2 bg-teal-600 text-white font-medium rounded shadow-sm text-sm flex items-center justify-center gap-2 whitespace-nowrap hover:bg-teal-700 transition"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+                Imprimir Lote ({selecionados.length})
+              </Link>
+            )}
+            <Link href="/membros/novo" className="px-5 py-2.5 bg-blue-600 text-white font-medium rounded shadow-sm text-sm flex items-center justify-center whitespace-nowrap hover:bg-blue-700 transition">
+              + Novo Membro
+            </Link>
           </div>
-          <input
-            type="text"
-            className="w-full p-3 pl-10 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-            placeholder="Buscar por nome ou CPF..."
-            value={termoBusca}
-            onChange={(e) => setTermoBusca(e.target.value)}
-          />
         </div>
 
-        {/* Filtro por Cargo */}
-        <div className="w-full md:w-64">
-          <select
-            className="w-full p-3 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white cursor-pointer"
-            value={filtroCargo}
-            onChange={(e) => setFiltroCargo(e.target.value)}
+        {/* BARRA DE BUSCA - NOVA ESTRUTURA INFALÍVEL */}
+        <div className="flex flex-col md:flex-row gap-4 mb-6">
+          {/* Este container simula o input, com o fundo cinza e a borda */}
+          <div className="flex-1 flex items-center bg-gray-50 border border-gray-200 rounded-md focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-500 focus-within:bg-white transition overflow-hidden">
+            {/* A lupa agora tem um espaço fixo (w-12) e está centralizada nele */}
+            <div className="w-12 flex items-center justify-center text-gray-400">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </div>
+            {/* O input agora é transparente e não tem borda própria, ele usa a do container */}
+            <input 
+              type="text" 
+              placeholder="Buscar por nome ou CPF..." 
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              className="flex-1 py-2.5 bg-transparent border-none outline-none text-sm text-gray-700 placeholder-gray-400"
+            />
+          </div>
+
+          <select 
+            value={cargoFiltro}
+            onChange={(e) => setCargoFiltro(e.target.value)}
+            className="px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-md outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 focus:bg-white transition text-sm min-w-[200px] text-gray-700 cursor-pointer"
           >
-            <option value="Todos">Todos os Cargos</option>
-            <option value="Membro">Membros</option>
-            <option value="Obreir">Obreiros(as)</option>
-            <option value="Diácon">Diáconos / Diaconisas</option>
-            <option value="Presbíter">Presbíteros(as)</option>
-            <option value="Evangelista">Evangelistas</option>
-            <option value="Missionári">Missionários(as)</option>
-            <option value="Pastor">Pastores(as)</option>
+            <option value="">Todos os Cargos</option>
+            {cargosUnicos.map((c, i) => (
+              <option key={i} value={c}>{c}</option>
+            ))}
           </select>
         </div>
-      </div>
 
-      {/* TABELA DE MEMBROS */}
-      <div className="overflow-x-auto rounded-lg border border-gray-200">
-        {carregando ? (
-          <div className="text-center py-10 text-gray-500 font-medium">Carregando membros...</div>
-        ) : (
-          <table className="w-full text-left border-collapse whitespace-nowrap">
-            <thead>
-              <tr className="bg-gray-100 text-gray-700 text-xs uppercase tracking-wider border-b">
-                <th className="p-4 font-semibold">Membro</th>
-                <th className="p-4 font-semibold">Cargo</th>
-                <th className="p-4 font-semibold">Telefone</th>
-                <th className="p-4 font-semibold">Status</th>
-                <th className="p-4 font-semibold text-center">Ações</th>
+        {/* TABELA */}
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm text-left">
+            <thead className="bg-gray-50 border-y border-gray-200 text-gray-500 font-semibold uppercase text-xs tracking-wide">
+              <tr>
+                <th className="py-3 px-4 w-12 text-center">
+                  <input 
+                    type="checkbox" 
+                    className="w-4 h-4 text-blue-600 border-gray-300 rounded cursor-pointer"
+                    checked={selecionados.length === membrosFiltrados.length && membrosFiltrados.length > 0}
+                    onChange={toggleTodos}
+                  />
+                </th>
+                <th className="py-3 px-4">Membro</th>
+                <th className="py-3 px-4">Cargo</th>
+                <th className="py-3 px-4 hidden md:table-cell">Telefone</th>
+                <th className="py-3 px-4 text-center">Status</th>
+                <th className="py-3 px-4 text-right">Ações</th>
               </tr>
             </thead>
-            <tbody className="text-gray-600">
-              
-              {membros.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="p-10 text-center text-gray-500">
-                    Nenhum membro cadastrado ainda.
+            <tbody className="divide-y divide-gray-200">
+              {membrosFiltrados.map((membro) => (
+                <tr key={membro.id} className={`transition ${selecionados.includes(membro.id) ? 'bg-blue-50/50' : 'hover:bg-gray-50/50'}`}>
+                  <td className="py-4 px-4 text-center">
+                    <input 
+                      type="checkbox" 
+                      className="w-4 h-4 text-blue-600 border-gray-300 rounded cursor-pointer"
+                      checked={selecionados.includes(membro.id)}
+                      onChange={() => toggleSelecao(membro.id)}
+                    />
                   </td>
-                </tr>
-              ) : membrosFiltrados.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="p-10 text-center text-gray-500">
-                    <div className="flex flex-col items-center">
-                      <svg className="w-12 h-12 text-gray-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                      Nenhum resultado encontrado para "<strong>{termoBusca}</strong>".
+                  <td className="py-4 px-4">
+                    <div className="flex items-center gap-3">
+                      <div className="flex-shrink-0 flex items-center justify-center bg-gray-100 border border-gray-200 rounded-full w-10 h-10 overflow-hidden">
+                        {membro.foto_url ? (
+                          <img src={membro.foto_url} alt={membro.nome_completo} className="w-full h-full object-cover" />
+                        ) : (
+                          <span className="text-gray-400 text-xs font-medium">SM</span>
+                        )}
+                      </div>
+                      <span className="font-semibold text-gray-900">{membro.nome_completo}</span>
                     </div>
                   </td>
+                  <td className="py-4 px-4 text-gray-700 font-medium">{membro.cargo || "-"}</td>
+                  <td className="py-4 px-4 hidden md:table-cell text-gray-500">{membro.telefone || "-"}</td>
+                  <td className="py-4 px-4 text-center">
+                    <span className={`px-2.5 py-1 rounded-full text-xs font-semibold inline-block ${membro.status === 'Ativo' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                      {membro.status}
+                    </span>
+                  </td>
+                  <td className="py-4 px-4 text-right font-medium">
+                    <Link href={`/membros/${membro.id}`} className="text-blue-600 hover:text-blue-800 transition">Ver</Link>
+                    <span className="text-gray-300 mx-3">|</span>
+                    <Link href={`/membros/${membro.id}/editar`} className="text-orange-500 hover:text-orange-600 transition">Editar</Link>
+                  </td>
                 </tr>
-              ) : (
-                // Usamos a lista FILTRADA para desenhar a tabela
-                membrosFiltrados.map((membro) => (
-                  <tr key={membro.id} className="border-b hover:bg-gray-50 transition duration-150">
-                    <td className="p-4">
-                      <div className="flex items-center gap-3">
-                        {membro.foto_url ? (
-                          <img src={membro.foto_url} alt="Foto" className="w-10 h-10 rounded-full object-cover border border-gray-200 shadow-sm"/>
-                        ) : (
-                          <div className="w-10 h-10 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center shadow-sm">
-                            <span className="text-[9px] font-semibold text-gray-400 uppercase text-center leading-tight">Sem<br/>Foto</span>
-                          </div>
-                        )}
-                        <span className="font-medium text-gray-900">{membro.nome_completo}</span>
-                      </div>
-                    </td>
-
-                    <td className="p-4 font-medium text-gray-700">{membro.cargo}</td>
-                    <td className="p-4">{membro.telefone || "-"}</td>
-                    <td className="p-4">
-                      <span className={`px-3 py-1 rounded-full text-xs font-bold ${membro.status === 'Ativo' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                        {membro.status}
-                      </span>
-                    </td>
-                    <td className="p-4 text-center space-x-3 flex justify-center items-center h-full mt-2">
-                      <Link href={`/membros/${membro.id}`} className="text-blue-600 hover:text-blue-800 font-bold text-sm transition">
-                        Ver
-                      </Link>
-                      <span className="text-gray-300">|</span>
-                      <Link href={`/membros/${membro.id}/editar`} className="text-orange-500 hover:text-orange-700 font-bold text-sm transition">
-                        Editar
-                      </Link>
-                    </td>
-                  </tr>
-                ))
+              ))}
+              {membrosFiltrados.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="py-10 text-center text-gray-500">Nenhum membro encontrado.</td>
+                </tr>
               )}
-
             </tbody>
           </table>
-        )}
+        </div>
       </div>
-
     </div>
   );
 }

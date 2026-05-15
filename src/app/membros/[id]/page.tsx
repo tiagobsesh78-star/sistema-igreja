@@ -96,13 +96,19 @@ export default function VerMembro() {
                 </div>
               </div>
 
-              {/* BOTÕES */}
-              <div className="flex gap-2">
-                <Link href="/membros" className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition font-medium text-sm">Voltar</Link>
-                <Link href={`/membros/${membro.id}/editar`} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-medium shadow-sm text-sm">Editar</Link>
-                {/* Aqui mudamos para chamar a nossa janela flutuante em vez do confirm padrão */}
-                <button onClick={pedirConfirmacaoExclusao} className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition font-medium shadow-sm text-sm">Excluir</button>
-              </div>
+{/* BOTÕES */}
+<div className="flex flex-wrap gap-2">
+  <Link href="/membros" className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition font-medium text-sm">Voltar</Link>
+  
+  {/* NOVO BOTÃO DA CARTEIRINHA */}
+  <Link href={`/membros/${membro.id}/carteirinha`} className="px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 transition font-medium shadow-sm text-sm flex items-center gap-2">
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2"></path></svg>
+    Carteirinha
+  </Link>
+  
+  <Link href={`/membros/${membro.id}/editar`} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-medium shadow-sm text-sm">Editar</Link>
+  <button onClick={pedirConfirmacaoExclusao} className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition font-medium shadow-sm text-sm">Excluir</button>
+</div>
             </div>
           </div>
         </div>
