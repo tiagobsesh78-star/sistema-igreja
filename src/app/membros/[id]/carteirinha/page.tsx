@@ -9,14 +9,19 @@ import { toPng } from "html-to-image";
 export default function CarteirinhaMembro() {
   const { id } = useParams();
   const [membro, setMembro] = useState<any>(null);
+  const [configIgreja, setConfigIgreja] = useState<any>(null);
   const [carregando, setCarregando] = useState(true);
   
   const cartaoRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     async function buscarDetalhes() {
-      const { data, error } = await supabase.from("membros").select("*").eq("id", id).single();
-      if (!error) setMembro(data);
+      const { data: membroData, error: membroError } = await supabase.from("membros").select("*").eq("id", id).single();
+      if (!membroError) setMembro(membroData);
+
+      const { data: configData } = await supabase.from("configuracao_igreja").select("*").maybeSingle();
+      if (configData) setConfigIgreja(configData);
+
       setCarregando(false);
     }
     if (id) buscarDetalhes();
@@ -42,9 +47,12 @@ export default function CarteirinhaMembro() {
     
     try {
       const dataUrl = await toPng(cartaoRef.current, { 
-        pixelRatio: 3,
+        pixelRatio: 4,
         cacheBust: true,
-        backgroundColor: '#ffffff'
+        backgroundColor: '#ffffff',
+        width: 650,
+        height: 204,
+        style: { margin: '0', padding: '0' }
       });
       
       const link = document.createElement("a");
@@ -59,6 +67,9 @@ export default function CarteirinhaMembro() {
 
   if (carregando) return <div className="text-center py-20 text-gray-500 font-medium">Gerando carteirinha...</div>;
   if (!membro) return <div className="text-center py-20 text-red-500 font-medium">Membro não encontrado.</div>;
+
+  const nomeIgreja = configIgreja?.nome_igreja || "NOME DA SUA IGREJA";
+  const ehNomeLongo = nomeIgreja.length > 28;
 
   const estiloCartao = {
     width: "324px",
@@ -113,14 +124,12 @@ export default function CarteirinhaMembro() {
         }
       `}} />
 
-      {/* MUDANÇA 1: Flex-col no celular (md:flex-row) para quebrar linha e gap organizado */}
       <div className="ocultar-impressao flex flex-col md:flex-row justify-between items-center mb-6 bg-white p-4 md:p-6 rounded-lg shadow-sm border border-gray-200 gap-4">
         <div className="text-center md:text-left">
           <h1 className="text-xl font-bold text-gray-800">Carteirinha de Membro</h1>
           <p className="text-sm text-gray-500">Pronta para impressão ou envio digital.</p>
         </div>
         
-        {/* Envoltório dos botões que permite quebra de linha (wrap) em telas minúsculas */}
         <div className="flex flex-wrap justify-center md:justify-end gap-2 w-full md:w-auto">
           <button onClick={() => window.history.back()} className="px-3 py-2 border border-gray-300 text-gray-700 font-medium rounded-md hover:bg-gray-50 transition text-sm flex-1 md:flex-none text-center justify-center flex">
             Voltar
@@ -138,60 +147,83 @@ export default function CarteirinhaMembro() {
         </div>
       </div>
 
-      {/* MUDANÇA 2: overflow-x-auto w-full adicionado. O w-max dentro dele protege o layout. */}
       <div className="area-impressao bg-white p-4 md:p-6 shadow-lg rounded-lg overflow-x-auto w-full custom-scrollbar">
         
-        <div ref={cartaoRef} className="flex gap-[2px] bg-white p-1 rounded-lg w-max mx-auto md:mx-0">
-          
-          {/* === FRENTE === */}
-          <div style={estiloCartao}>
-            <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '40px', backgroundColor: '#0f766e', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', color: '#ffffff' }}>
-              <h2 style={{ margin: 0, fontSize: '14px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.5px' }}>NOME DA SUA IGREJA</h2>
-              <p style={{ margin: 0, fontSize: '8px', opacity: 0.9, textTransform: 'uppercase', letterSpacing: '1px' }}>Ministério / Congregação</p>
+        <div className="bg-white p-1 rounded-lg w-max mx-auto md:mx-0">
+          <div ref={cartaoRef} style={{ display: 'flex', gap: '2px', width: '650px', height: '204px', backgroundColor: '#ffffff' }}>
+            
+            <div style={estiloCartao}>
+              <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '40px', backgroundColor: '#0f766e', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', color: '#ffffff', padding: '0 10px', boxSizing: 'border-box' }}>
+                
+                <h2 style={{
+                  margin: 0,
+                  fontSize: ehNomeLongo ? '11px' : '14px',
+                  fontWeight: 'bold',
+                  textTransform: 'uppercase',
+                  letterSpacing: ehNomeLongo ? '0px' : '0.5px',
+                  textAlign: 'center',
+                  width: '100%',
+                  lineHeight: '1.1',
+                  display: '-webkit-box',
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: 'vertical',
+                  overflow: 'hidden'
+                }}>
+                  {nomeIgreja}
+                </h2>
+                
+                <p style={{ margin: 0, fontSize: '8px', opacity: 0.9, textTransform: 'uppercase', letterSpacing: '1px' }}>
+                  Ministério / Congregação
+                </p>
+              </div>
+
+              <div style={{ position: 'absolute', top: '48px', left: '10px', width: '55px', height: '55px', border: '1px solid #5eead4', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8fafc', color: '#0d9488', overflow: 'hidden' }}>
+                {configIgreja?.logo_url ? (
+                  <img src={configIgreja.logo_url} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} crossOrigin="anonymous" />
+                ) : (
+                  <span style={{ fontSize: '8px', fontWeight: 'bold', textAlign: 'center', lineHeight: '1.2' }}>SUA LOGO<br/>AQUI</span>
+                )}
+              </div>
+
+              <div style={{ position: 'absolute', top: '48px', left: '75px', fontSize: '8px', color: '#374151', lineHeight: '1.4' }}>
+                <p style={{ margin: 0 }}><span style={{ fontWeight: 'bold', color: '#115e59' }}>Igreja:</span> {configIgreja?.endereco_rua || "Rua Exemplo"}, {configIgreja?.endereco_numero || "S/N"}</p>
+                <p style={{ margin: 0 }}><span style={{ fontWeight: 'bold', color: '#115e59' }}>Bairro:</span> {configIgreja?.endereco_bairro || "Centro"}</p>
+                <p style={{ margin: 0 }}><span style={{ fontWeight: 'bold', color: '#115e59' }}>Cidade:</span> {configIgreja?.endereco_cidade_uf || "Cidade/UF"}</p>
+                <p style={{ margin: 0 }}><span style={{ fontWeight: 'bold', color: '#115e59' }}>CEP:</span> {configIgreja?.endereco_cep || "00000-000"}</p>
+              </div>
+
+              <div style={{ position: 'absolute', top: '95px', left: '244px', width: '66px', height: '88px', border: '2px solid #0d9488', borderRadius: '4px', overflow: 'hidden', backgroundColor: '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {membro.foto_url ? (
+                  <img src={membro.foto_url} alt="Foto" style={{ width: '100%', height: '100%', objectFit: 'cover' }} crossOrigin="anonymous" />
+                ) : (
+                  <span style={{ fontSize: '8px', color: '#9ca3af' }}>Sem Foto</span>
+                )}
+              </div>
+
+              <Campo top={115} left={10} w={225} h={30} label="Nome" valor={membro.nome_completo} />
+              <Campo top={155} left={10} w={145} h={30} label="Cargo" valor={membro.cargo} />
+              <Campo top={155} left={165} w={70} h={30} label="Nº Registro" valor={gerarMatricula(membro)} center={true} />
             </div>
 
-            <div style={{ position: 'absolute', top: '48px', left: '10px', width: '55px', height: '55px', border: '1px solid #5eead4', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8fafc', color: '#0d9488' }}>
-              <span style={{ fontSize: '8px', fontWeight: 'bold', textAlign: 'center', lineHeight: '1.2' }}>SUA LOGO<br/>AQUI</span>
-            </div>
+            <div style={estiloCartao}>
+              <Campo top={15} left={10} w={145} h={30} label="Congregação" valor={membro.congregacao || "Sede"} center={true} />
+              <Campo top={15} left={165} w={145} h={30} label="Naturalidade" valor="Brasil" center={true} />
 
-            <div style={{ position: 'absolute', top: '48px', left: '75px', fontSize: '8px', color: '#374151', lineHeight: '1.4' }}>
-              <p style={{ margin: 0 }}><span style={{ fontWeight: 'bold', color: '#115e59' }}>Igreja:</span> Rua Exemplo Fictício, 123</p>
-              <p style={{ margin: 0 }}><span style={{ fontWeight: 'bold', color: '#115e59' }}>Bairro:</span> Centro</p>
-              <p style={{ margin: 0 }}><span style={{ fontWeight: 'bold', color: '#115e59' }}>Cidade:</span> Natal/RN</p>
-              <p style={{ margin: 0 }}><span style={{ fontWeight: 'bold', color: '#115e59' }}>CEP:</span> 59000-000</p>
-            </div>
+              <Campo top={60} left={10} w={145} h={30} label="CPF" valor={membro.cpf} center={true} />
+              <Campo top={60} left={165} w={145} h={30} label="Estado Civil" valor={membro.estado_civil} center={true} />
 
-            <div style={{ position: 'absolute', top: '95px', left: '244px', width: '66px', height: '88px', border: '2px solid #0d9488', borderRadius: '4px', overflow: 'hidden', backgroundColor: '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              {membro.foto_url ? (
-                <img src={membro.foto_url} alt="Foto" style={{ width: '100%', height: '100%', objectFit: 'cover' }} crossOrigin="anonymous" />
-              ) : (
-                <span style={{ fontSize: '8px', color: '#9ca3af' }}>Sem Foto</span>
-              )}
-            </div>
+              <Campo top={105} left={10} w={93} h={30} label="Batismo" valor={formatarData(membro.data_batismo)} center={true} />
+              <Campo top={105} left={110} w={94} h={30} label="Nascimento" valor={formatarData(membro.data_nascimento)} center={true} />
+              <Campo top={105} left={211} w={99} h={30} label="Status" valor={membro.status} center={true} color={membro.status === 'Ativo' ? '#16a34a' : '#dc2626'} />
 
-            <Campo top={115} left={10} w={225} h={30} label="Nome" valor={membro.nome_completo} />
-            <Campo top={155} left={10} w={145} h={30} label="Cargo" valor={membro.cargo} />
-            <Campo top={155} left={165} w={70} h={30} label="Nº Registro" valor={gerarMatricula(membro)} center={true} />
-          </div>
-
-          {/* === VERSO === */}
-          <div style={estiloCartao}>
-            <Campo top={15} left={10} w={145} h={30} label="Congregação" valor="Sede" center={true} />
-            <Campo top={15} left={165} w={145} h={30} label="Naturalidade" valor="Brasil" center={true} />
-
-            <Campo top={60} left={10} w={145} h={30} label="CPF" valor={membro.cpf} center={true} />
-            <Campo top={60} left={165} w={145} h={30} label="Estado Civil" valor={membro.estado_civil} center={true} />
-
-            <Campo top={105} left={10} w={93} h={30} label="Batismo" valor={formatarData(membro.data_batismo)} center={true} />
-            <Campo top={105} left={110} w={94} h={30} label="Nascimento" valor={formatarData(membro.data_nascimento)} center={true} />
-            <Campo top={105} left={211} w={99} h={30} label="Status" valor={membro.status} center={true} color={membro.status === 'Ativo' ? '#16a34a' : '#dc2626'} />
-
-            <div style={{ position: 'absolute', top: '155px', left: 0, width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <div style={{ width: '180px', borderTop: '1px solid #000', marginBottom: '4px' }}></div>
-              <p style={{ margin: 0, fontSize: '8px', fontWeight: 'bold', color: '#111827', textTransform: 'uppercase' }}>NOME DO PASTOR - PASTOR PRESIDENTE</p>
-              <p style={{ margin: '4px 20px 0 20px', fontSize: '7px', color: '#115e59', textAlign: 'center', lineHeight: '1.2', fontWeight: '600' }}>
-                O presente cartão é pessoal e intransferível. Válido em todo território nacional acompanhado de documento oficial com foto.
-              </p>
+              <div style={{ position: 'absolute', top: '160px', left: 0, width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <p style={{ margin: 0, fontSize: '8px', fontWeight: 'bold', color: '#111827', textTransform: 'uppercase' }}>
+                  {configIgreja?.nome_pastor ? `${configIgreja.nome_pastor} - PASTOR PRESIDENTE` : "NOME DO PASTOR - PASTOR PRESIDENTE"}
+                </p>
+                <p style={{ margin: '6px 20px 0 20px', fontSize: '7px', color: '#115e59', textAlign: 'center', lineHeight: '1.2', fontWeight: '600' }}>
+                  O presente cartão é pessoal e intransferível. Válido em todo território nacional acompanhado de documento oficial com foto.
+                </p>
+              </div>
             </div>
           </div>
         </div>

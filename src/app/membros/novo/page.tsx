@@ -61,6 +61,7 @@ export default function NovoMembro() {
         endereco_bairro: formData.get("endereco_bairro"), endereco_cidade_uf: formData.get("endereco_cidade_uf"),
         endereco_cep: formData.get("endereco_cep"), data_batismo: formData.get("data_batismo") || null,
         igreja_batismo: formData.get("igreja_batismo"), cargo: cargoFinal, foto_url: fotoUrl, 
+        congregacao: formData.get("congregacao")
       };
 
       const { error } = await supabase.from("membros").insert([dadosMembro]);
@@ -154,7 +155,7 @@ export default function NovoMembro() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end mt-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end mt-6">
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">Data de Batismo</label>
               <input name="data_batismo" type="date" className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500" />
@@ -174,6 +175,10 @@ export default function NovoMembro() {
                 <option value="Missionário">Missionário</option>
                 <option value="Pastor">Pastor</option>
               </select>
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">Congregação / Igreja *</label>
+              <input required name="congregacao" type="text" className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ex: Sede, Extensão..." />
             </div>
           </div>
 

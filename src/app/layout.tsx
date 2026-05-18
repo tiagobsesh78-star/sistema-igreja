@@ -35,6 +35,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <nav className="p-4 space-y-3 mt-2 flex-1">
             <Link href="/" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname === '/' ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Início</Link>
             <Link href="/membros" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/membros') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Membros</Link>
+            
+            {/* NOVO LINK DE CONFIGURAÇÕES */}
+            <Link href="/configuracoes" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname === '/configuracoes' ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Configurações</Link>
           </nav>
         </aside>
 

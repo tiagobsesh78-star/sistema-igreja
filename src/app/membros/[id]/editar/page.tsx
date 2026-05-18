@@ -13,7 +13,6 @@ export default function EditarMembro() {
   const [mostrarModalSucesso, setMostrarModalSucesso] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
-  // --- NOVOS ESTADOS PARA EXCLUSÃO ---
   const [mostrarModalExclusao, setMostrarModalExclusao] = useState(false);
   const [mostrarModalExclusaoSucesso, setMostrarModalExclusaoSucesso] = useState(false);
 
@@ -23,6 +22,7 @@ export default function EditarMembro() {
     endereco_cep: "", data_batismo: "", igreja_batismo: "", cargo: "Membro", 
     status: "Ativo", 
     foto_url: "",
+    congregacao: ""
   });
 
   useEffect(() => {
@@ -46,6 +46,7 @@ export default function EditarMembro() {
           cargo: cargoParaExibir || "Membro", 
           status: data.status || "Ativo", 
           foto_url: data.foto_url || "",
+          congregacao: data.congregacao || ""
         });
       }
       setCarregando(false);
@@ -116,17 +117,12 @@ export default function EditarMembro() {
     }
   };
 
-  // --- FUNÇÕES DE EXCLUSÃO ---
-  const pedirConfirmacaoExclusao = () => {
-    setMostrarModalExclusao(true);
-  };
+  const pedirConfirmacaoExclusao = () => { setMostrarModalExclusao(true); };
 
   const confirmarEExcluir = async () => {
     setMostrarModalExclusao(false);
     setCarregando(true);
-
     const { error } = await supabase.from("membros").delete().eq("id", id);
-
     if (error) {
       alert("Erro ao excluir: " + error.message);
       setCarregando(false);
@@ -140,9 +136,7 @@ export default function EditarMembro() {
     else router.push(`/membros/${id}`); 
   };
   
-  const finalizarERedirecionarExclusao = () => { 
-    router.push("/membros"); 
-  };
+  const finalizarERedirecionarExclusao = () => { router.push("/membros"); };
 
   if (carregando) return <div className="text-center py-20 text-gray-500 font-medium">Carregando formulário...</div>;
 
@@ -243,13 +237,16 @@ export default function EditarMembro() {
                 <option value="Pastor">Pastor</option>
               </select>
             </div>
-            
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">Status na Igreja</label>
               <select name="status" value={dadosMembro.status} onChange={handleChange} className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500 font-medium">
                 <option value="Ativo">Ativo</option>
                 <option value="Inativo">Inativo (Afastado/Mudou)</option>
               </select>
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-semibold text-gray-700 mb-1">Congregação / Igreja *</label>
+              <input required name="congregacao" value={dadosMembro.congregacao} onChange={handleChange} type="text" className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
           </div>
 
@@ -277,13 +274,11 @@ export default function EditarMembro() {
             </div>
           </div>
 
-          {/* ÁREA DOS BOTÕES ATUALIZADA COM O BOTÃO DE EXCLUIR */}
           <div className="pt-6 border-t mt-8 flex flex-col md:flex-row items-center justify-between gap-4">
             <button type="submit" disabled={salvando} className="w-full md:w-auto px-10 py-4 bg-green-600 text-white font-bold rounded-md hover:bg-green-700 transition duration-300 shadow-lg disabled:bg-gray-400">
               {salvando ? "Salvando Alterações..." : "Atualizar Cadastro"}
             </button>
 
-            {/* A REGRA DE OURO AQUI: Só mostra se for edição */}
             {id && id !== "novo" && (
               <button 
                 type="button" 
@@ -298,7 +293,6 @@ export default function EditarMembro() {
         </form>
       </div>
 
-      {/* MODAL 1: SUCESSO AO ATUALIZAR */}
       {mostrarModalSucesso && (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 text-center transform transition-all">
@@ -306,7 +300,7 @@ export default function EditarMembro() {
               <svg className="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
             </div>
             <h3 className="text-lg font-bold text-gray-900 mb-2">Atualização Concluída!</h3>
-            <p className="text-sm text-gray-500 mb-6">Os dados do membro foram atualizados com sucesso.</p>
+            <p className="text-sm text-gray-500 mb-6">Os dados do membro foram updated com sucesso.</p>
             <button onClick={finalizarERedirecionarAtualizacao} className="w-full px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition shadow-md">
               OK, voltar
             </button>
@@ -314,7 +308,6 @@ export default function EditarMembro() {
         </div>
       )}
 
-      {/* MODAL 2: CONFIRMAR EXCLUSÃO */}
       {mostrarModalExclusao && (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 text-center transform transition-all">
@@ -337,7 +330,6 @@ export default function EditarMembro() {
         </div>
       )}
 
-      {/* MODAL 3: SUCESSO AO EXCLUIR */}
       {mostrarModalExclusaoSucesso && (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 text-center transform transition-all">
