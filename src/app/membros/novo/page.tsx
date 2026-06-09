@@ -12,6 +12,9 @@ export default function NovoMembro() {
   
   const [cpfFormatado, setCpfFormatado] = useState("");
   const [isDragging, setIsDragging] = useState(false);
+  
+  // Estado para controlar a expansão do menu de acesso (Boolean)
+  const [acessaSistema, setAcessaSistema] = useState(false);
 
   const handleCpfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     let valor = e.target.value.replace(/\D/g, ""); 
@@ -36,6 +39,13 @@ export default function NovoMembro() {
     let fotoUrl = null;
 
     try {
+      // Validação: Se marcou que acessa o sistema, o CPF passa a ser obrigatório para login
+      if (acessaSistema && cpfFormatado.length < 14) {
+        alert("Para dar acesso ao sistema, o CPF deve ser preenchido corretamente, pois será o login.");
+        setCarregando(false);
+        return;
+      }
+
       if (fotoArquivo) {
         const nomeArquivo = `${Date.now()}-${fotoArquivo.name}`;
         const { error: erroUpload } = await supabase.storage.from("fotos").upload(nomeArquivo, fotoArquivo);
@@ -61,7 +71,12 @@ export default function NovoMembro() {
         endereco_bairro: formData.get("endereco_bairro"), endereco_cidade_uf: formData.get("endereco_cidade_uf"),
         endereco_cep: formData.get("endereco_cep"), data_batismo: formData.get("data_batismo") || null,
         igreja_batismo: formData.get("igreja_batismo"), cargo: cargoFinal, foto_url: fotoUrl, 
-        congregacao: formData.get("congregacao")
+        congregacao: formData.get("congregacao"),
+        
+        // Campos de acesso salvos direto na tabela de membros
+        acessa_sistema: acessaSistema,
+        senha: acessaSistema ? formData.get("senha") : null,
+        nivel_acesso: acessaSistema ? formData.get("nivel_acesso") : "Membro"
       };
 
       const { error } = await supabase.from("membros").insert([dadosMembro]);
@@ -129,6 +144,7 @@ export default function NovoMembro() {
             </div>
           </div>
 
+          {/* DADOS DE ENDEREÇO */}
           <div className="bg-gray-50 p-4 rounded-md space-y-4 mt-6 border border-gray-100">
             <h2 className="font-bold text-blue-700 uppercase text-xs tracking-wider">Endereço Residencial</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -155,6 +171,7 @@ export default function NovoMembro() {
             </div>
           </div>
 
+          {/* DADOS ECLESIÁSTICOS */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end mt-6">
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">Data de Batismo</label>
@@ -182,6 +199,70 @@ export default function NovoMembro() {
             </div>
           </div>
 
+          {/* ACESSO AO SISTEMA (MODO MODERNO DE BOTÕES SEGMENTADOS) */}
+          <div className="bg-blue-50 p-6 rounded-md border border-blue-100 mt-6 transition-all duration-300">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <h2 className="font-bold text-blue-800 uppercase text-xs tracking-wider">Acesso ao Sistema</h2>
+                <p className="text-sm text-gray-600 mt-1">Permitir que este membro faça login (O CPF será o usuário).</p>
+              </div>
+              
+              {/* O NOVO CONTROLE: Botões segmentados modernos e alinhados ao lado do texto */}
+              <div className="flex rounded-lg border border-gray-200 overflow-hidden shadow-inner flex-shrink-0">
+                {/* Botão "Não" - Usa tom de Vermelho quando ativo (Default) */}
+                <button
+                  type="button" // Essencial para não submeter o form principal
+                  onClick={() => setAcessaSistema(false)}
+                  className={`px-5 py-2.5 text-sm font-semibold transition-colors duration-200 ${
+                    !acessaSistema
+                      ? "bg-red-600 text-white shadow-md"
+                      : "bg-white text-gray-700 hover:bg-gray-50"
+                  }`}
+                >
+                  Não
+                </button>
+
+                {/* Botão "Sim" - Usa tom de Azul quando ativo */}
+                <button
+                  type="button" // Essencial para não submeter o form principal
+                  onClick={() => setAcessaSistema(true)}
+                  className={`px-5 py-2.5 text-sm font-semibold transition-colors duration-200 border-l border-gray-200 ${
+                    acessaSistema
+                      ? "bg-blue-600 text-white shadow-md"
+                      : "bg-white text-gray-700 hover:bg-gray-50"
+                  }`}
+                >
+                  Sim
+                </button>
+              </div>
+            </div>
+
+            {/* Menu Expandido de Senha e Permissão - Mantido e cravado */}
+            {acessaSistema && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-5 pt-5 border-t border-blue-200">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">Senha Provisória *</label>
+                  <input 
+                    name="senha" 
+                    type="text" 
+                    required={acessaSistema}
+                    className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500 bg-white" 
+                    placeholder="Defina uma senha" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">Nível de Acesso</label>
+                  <select name="nivel_acesso" className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                    <option value="Membro">Membro (Apenas visualização)</option>
+                    <option value="Líder">Líder (Edita permissões específicas)</option>
+                    <option value="Administrador">Administrador (Acesso Total)</option>
+                  </select>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* UPLOAD DE FOTO */}
           <div className="mt-8">
             <label className="block text-sm font-bold text-gray-700 mb-2">Foto do Perfil (Opcional)</label>
             <div 
@@ -209,6 +290,7 @@ export default function NovoMembro() {
             </div>
           </div>
 
+          {/* BOTÕES FINAIS */}
           <div className="pt-6 border-t mt-8 flex flex-col md:flex-row items-center gap-4">
             <button type="submit" disabled={carregando} className="w-full md:w-auto px-10 py-4 bg-blue-600 text-white font-bold rounded-md hover:bg-blue-700 transition duration-300 shadow-lg disabled:bg-gray-400">
               {carregando ? "Enviando Dados..." : "Finalizar Cadastro"}
@@ -221,6 +303,7 @@ export default function NovoMembro() {
         </form>
       </div>
 
+      {/* MODAL DE SUCESSO */}
       {mostrarModalSucesso && (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 text-center transform transition-all">

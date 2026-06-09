@@ -22,7 +22,11 @@ export default function EditarMembro() {
     endereco_cep: "", data_batismo: "", igreja_batismo: "", cargo: "Membro", 
     status: "Ativo", 
     foto_url: "",
-    congregacao: ""
+    congregacao: "",
+    // Novos campos de acesso
+    acessa_sistema: false,
+    senha: "",
+    nivel_acesso: "Membro"
   });
 
   useEffect(() => {
@@ -46,7 +50,11 @@ export default function EditarMembro() {
           cargo: cargoParaExibir || "Membro", 
           status: data.status || "Ativo", 
           foto_url: data.foto_url || "",
-          congregacao: data.congregacao || ""
+          congregacao: data.congregacao || "",
+          // Puxa os dados de acesso do banco
+          acessa_sistema: data.acessa_sistema || false,
+          senha: data.senha || "",
+          nivel_acesso: data.nivel_acesso || "Membro"
         });
       }
       setCarregando(false);
@@ -81,6 +89,13 @@ export default function EditarMembro() {
     let novaFotoUrl = dadosMembro.foto_url;
 
     try {
+      // 🚨 Validação de CPF para login
+      if (dadosMembro.acessa_sistema && dadosMembro.status === "Ativo" && dadosMembro.cpf.length < 14) {
+        alert("Para manter o acesso ao sistema, o CPF deve estar preenchido corretamente.");
+        setSalvando(false);
+        return;
+      }
+
       if (fotoArquivo) {
         const nomeArquivo = `${Date.now()}-${fotoArquivo.name}`;
         const { error: erroUpload } = await supabase.storage.from("fotos").upload(nomeArquivo, fotoArquivo);
@@ -97,9 +112,20 @@ export default function EditarMembro() {
         cargoFinal = cargosFemininos[cargoFinal] || cargoFinal;
       }
 
+      // 🚨 REGRA DE NEGÓCIO: Se Inativo, bloqueia o acesso automaticamente
+      let acessoFinal = dadosMembro.acessa_sistema;
+      if (dadosMembro.status === "Inativo") {
+        acessoFinal = false;
+      }
+
       const dadosParaSalvar = {
-        ...dadosMembro, cargo: cargoFinal, data_nascimento: dadosMembro.data_nascimento || null,
-        data_batismo: dadosMembro.data_batismo || null, foto_url: novaFotoUrl,
+        ...dadosMembro, 
+        cargo: cargoFinal, 
+        data_nascimento: dadosMembro.data_nascimento || null,
+        data_batismo: dadosMembro.data_batismo || null, 
+        foto_url: novaFotoUrl,
+        // Garante que a regra de segurança seja enviada ao banco
+        acessa_sistema: acessoFinal
       };
 
       if (id === "novo") {
@@ -250,6 +276,82 @@ export default function EditarMembro() {
             </div>
           </div>
 
+          {/* ACESSO AO SISTEMA (MODO MODERNO DE BOTÕES SEGMENTADOS) */}
+          <div className="bg-blue-50 p-6 rounded-md border border-blue-100 mt-6 transition-all duration-300">
+            
+            {/* Aviso visual caso o usuário seja inativo */}
+            {dadosMembro.status === "Inativo" && (
+              <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md text-yellow-800 text-sm font-medium flex items-center gap-2">
+                <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                O acesso ao sistema será automaticamente revogado ao salvar, pois o status do membro é "Inativo".
+              </div>
+            )}
+
+            <div className="flex items-center justify-between gap-4">
+              <div className={dadosMembro.status === "Inativo" ? "opacity-50" : ""}>
+                <h2 className="font-bold text-blue-800 uppercase text-xs tracking-wider">Acesso ao Sistema</h2>
+                <p className="text-sm text-gray-600 mt-1">Permitir que este membro faça login (O CPF será o usuário).</p>
+              </div>
+              
+              {/* O NOVO CONTROLE: Botões segmentados modernos */}
+              <div className={`flex rounded-lg border border-gray-200 overflow-hidden shadow-inner flex-shrink-0 ${dadosMembro.status === "Inativo" ? "opacity-50 pointer-events-none" : ""}`}>
+                <button
+                  type="button"
+                  onClick={() => setDadosMembro({...dadosMembro, acessa_sistema: false})}
+                  className={`px-5 py-2.5 text-sm font-semibold transition-colors duration-200 ${
+                    !dadosMembro.acessa_sistema
+                      ? "bg-red-600 text-white shadow-md"
+                      : "bg-white text-gray-700 hover:bg-gray-50"
+                  }`}
+                >
+                  Não
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDadosMembro({...dadosMembro, acessa_sistema: true})}
+                  className={`px-5 py-2.5 text-sm font-semibold transition-colors duration-200 border-l border-gray-200 ${
+                    dadosMembro.acessa_sistema
+                      ? "bg-blue-600 text-white shadow-md"
+                      : "bg-white text-gray-700 hover:bg-gray-50"
+                  }`}
+                >
+                  Sim
+                </button>
+              </div>
+            </div>
+
+            {/* Menu Expandido de Senha e Permissão */}
+            {dadosMembro.acessa_sistema && dadosMembro.status === "Ativo" && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-5 pt-5 border-t border-blue-200">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">Senha de Acesso *</label>
+                  <input 
+                    name="senha" 
+                    type="text" 
+                    value={dadosMembro.senha}
+                    onChange={handleChange}
+                    required={dadosMembro.acessa_sistema}
+                    className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500 bg-white" 
+                    placeholder="Defina ou altere a senha" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">Nível de Acesso</label>
+                  <select 
+                    name="nivel_acesso" 
+                    value={dadosMembro.nivel_acesso}
+                    onChange={handleChange}
+                    className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  >
+                    <option value="Membro">Membro (Apenas visualização)</option>
+                    <option value="Líder">Líder (Edita permissões específicas)</option>
+                    <option value="Administrador">Administrador (Acesso Total)</option>
+                  </select>
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="mt-8">
             <label className="block text-sm font-bold text-gray-700 mb-2">Alterar Foto (Opcional)</label>
             <div onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop} className={`relative flex flex-col items-center justify-center w-full p-8 border-2 border-dashed rounded-xl transition-colors ${isDragging ? "border-blue-500 bg-blue-50" : "border-gray-300 bg-gray-50 hover:bg-gray-100"}`}>
@@ -300,7 +402,7 @@ export default function EditarMembro() {
               <svg className="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
             </div>
             <h3 className="text-lg font-bold text-gray-900 mb-2">Atualização Concluída!</h3>
-            <p className="text-sm text-gray-500 mb-6">Os dados do membro foram updated com sucesso.</p>
+            <p className="text-sm text-gray-500 mb-6">Os dados do membro foram atualizados com sucesso.</p>
             <button onClick={finalizarERedirecionarAtualizacao} className="w-full px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition shadow-md">
               OK, voltar
             </button>
