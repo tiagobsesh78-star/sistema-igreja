@@ -2,15 +2,17 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { supabase } from "../lib/supabase"; 
 
 export default function Dashboard() {
+  const router = useRouter();
   const [carregando, setCarregando] = useState(true);
   
   const [stats, setStats] = useState({
     total: 0,
     ativos: 0,
-    inativos: 0, // NOVO CAMPO
+    inativos: 0, 
     homens: 0,
     mulheres: 0,
   });
@@ -18,6 +20,13 @@ export default function Dashboard() {
   const [recentes, setRecentes] = useState<any[]>([]);
 
   useEffect(() => {
+    // TRAVA DE SEGURANÇA: Verifica se o usuário está logado
+    const userLocal = localStorage.getItem("usuarioLogado");
+    if (!userLocal) {
+      router.push("/login");
+      return; // Para a execução aqui e redireciona
+    }
+
     async function carregarDados() {
       const { data, error } = await supabase.from("membros").select("*").order("id", { ascending: false });
 
@@ -26,7 +35,7 @@ export default function Dashboard() {
       } else if (data) {
         const total = data.length;
         const ativos = data.filter((m) => m.status === "Ativo").length;
-        const inativos = data.filter((m) => m.status === "Inativo").length; // CONTA INATIVOS
+        const inativos = data.filter((m) => m.status === "Inativo").length; 
         const homens = data.filter((m) => m.genero === "Masculino").length;
         const mulheres = data.filter((m) => m.genero === "Feminino").length;
 
@@ -36,13 +45,12 @@ export default function Dashboard() {
       setCarregando(false);
     }
     carregarDados();
-  }, []);
+  }, [router]);
 
   if (carregando) return <div className="flex h-screen items-center justify-center"><div className="text-xl text-gray-500 font-medium">Carregando painel...</div></div>;
 
   return (
     <div className="max-w-6xl mx-auto space-y-8">
-      
       
       <div className="flex flex-col md:flex-row justify-between items-center bg-white p-6 rounded-lg shadow-sm border border-gray-100">
         <div>
@@ -55,9 +63,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 md:gap-6">
-        
         
         <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-100 flex flex-col justify-center gap-2">
           <div className="flex items-center gap-3">
@@ -69,7 +75,6 @@ export default function Dashboard() {
           <h3 className="text-3xl font-bold text-gray-900 ml-1">{stats.total}</h3>
         </div>
 
-        
         <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-100 flex flex-col justify-center gap-2">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center text-green-600">
@@ -80,7 +85,6 @@ export default function Dashboard() {
           <h3 className="text-3xl font-bold text-gray-900 ml-1">{stats.ativos}</h3>
         </div>
 
-        
         <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-100 flex flex-col justify-center gap-2">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center text-red-500">
@@ -91,7 +95,6 @@ export default function Dashboard() {
           <h3 className="text-3xl font-bold text-gray-900 ml-1">{stats.inativos}</h3>
         </div>
 
-        
         <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-100 flex flex-col justify-center gap-2">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600">
@@ -102,7 +105,6 @@ export default function Dashboard() {
           <h3 className="text-3xl font-bold text-gray-900 ml-1">{stats.homens}</h3>
         </div>
 
-        
         <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-100 flex flex-col justify-center gap-2 col-span-2 lg:col-span-1">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-pink-100 flex items-center justify-center text-pink-600">
@@ -115,7 +117,6 @@ export default function Dashboard() {
 
       </div>
 
-      
       <div className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden">
         <div className="p-6 border-b border-gray-100 flex justify-between items-center">
           <h2 className="text-lg font-bold text-gray-800">Últimos Cadastrados</h2>
