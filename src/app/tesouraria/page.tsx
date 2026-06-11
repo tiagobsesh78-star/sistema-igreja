@@ -322,7 +322,7 @@ export default function TesourariaPage() {
             {/* INFORMAÇÃO COMPLEMENTAR PEDIDA */}
             <div className="text-right">
               <span className="text-xs font-bold text-teal-400 uppercase tracking-wider block">Dizimistas Ativos</span>
-              <span className="text-xl font-black text-green">{contagemDizimistasFiltrados}</span>
+              <span className="text-xl font-black text-white">{contagemDizimistasFiltrados}</span>
             </div>
           </div>
           
