@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation"; // Importação corrigida
 import { supabase } from "../lib/supabase";
 
 export default function Sidebar() {
   const [isOpen, setIsOpen] = useState(false);
   const [nomeIgreja, setNomeIgreja] = useState("Carregando...");
+  const router = useRouter(); // Declaração necessária para o botão Sair
 
   useEffect(() => {
     async function buscarNomeIgreja() {
@@ -22,15 +24,15 @@ export default function Sidebar() {
       if (igrejaId) {
         // Busca o nome da igreja conectada ao usuário
         const { data, error } = await supabase
-          .from("igrejas")
-          .select("nome")
-          .eq("id", igrejaId)
-          .single();
+          .from("configuracao_igreja") // Busca na tabela correta
+          .select("nome_igreja")
+          .eq("igreja_id", igrejaId)
+          .maybeSingle();
 
         if (data && !error) {
-          setNomeIgreja(data.nome);
+          setNomeIgreja(data.nome_igreja || "Igreja");
         } else {
-          setNomeIgreja("Igreja Desconhecida");
+          setNomeIgreja("Igreja");
         }
       }
     }
@@ -52,7 +54,6 @@ export default function Sidebar() {
           onClick={() => setIsOpen(!isOpen)} 
           className="text-white p-2 focus:outline-none"
         >
-          {/* Ícone SVG oficial de Menu (Hamburger) */}
           <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
           </svg>
@@ -111,9 +112,18 @@ export default function Sidebar() {
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
             Escalas
           </Link>
+          
+          <Link 
+            href="/configuracoes" 
+            onClick={() => setIsOpen(false)}
+            className="flex items-center gap-3 py-3 px-4 rounded-lg transition duration-200 hover:bg-gray-800 hover:text-white font-medium text-gray-300"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path></svg>
+            Configurações
+          </Link>
         </nav>
 
-        {/* Botão de Sair (Opcional, mas útil) */}
+        {/* Botão de Sair */}
         <div className="p-4 border-t border-gray-800">
           <button 
             onClick={() => {
@@ -129,7 +139,7 @@ export default function Sidebar() {
 
       </div>
 
-      {/* OVERLAY ESCURO (Fundo embaçado no celular quando o menu abre) */}
+      {/* OVERLAY ESCURO */}
       {isOpen && (
         <div 
           className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden"
