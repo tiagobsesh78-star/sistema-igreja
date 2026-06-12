@@ -52,12 +52,13 @@ export default function Dashboard() {
   return (
     <div className="max-w-6xl mx-auto space-y-8">
       
-      <div className="flex flex-col md:flex-row justify-between items-center bg-white p-6 rounded-lg shadow-sm border border-gray-100">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-6 rounded-lg shadow-sm border border-gray-100">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Visão Geral</h1>
           <p className="text-gray-500 text-sm mt-1">Bem-vindo ao painel administrativo da Igreja.</p>
         </div>
-        <div className="mt-4 md:mt-0 flex gap-3">
+        <div className="mt-4 md:mt-0 flex flex-wrap gap-3">
+          <Link href="/escalas" className="px-5 py-2.5 bg-teal-600 text-white font-medium text-sm rounded-lg hover:bg-teal-700 transition shadow-sm">Ver Escalas</Link>
           <Link href="/membros/novo" className="px-5 py-2.5 bg-blue-600 text-white font-medium text-sm rounded-lg hover:bg-blue-700 transition shadow-sm">+ Novo Membro</Link>
           <Link href="/membros" className="px-5 py-2.5 bg-gray-100 text-gray-700 font-medium text-sm rounded-lg hover:bg-gray-200 transition">Ver Todos</Link>
         </div>
