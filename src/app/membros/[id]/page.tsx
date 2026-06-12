@@ -13,23 +13,50 @@ export default function VerMembro() {
 
   useEffect(() => {
     async function buscarDetalhes() {
-      const { data, error } = await supabase.from("membros").select("*").eq("id", id).single();
-      if (error) {
-        alert("Erro ao carregar os dados do membro.");
+      // 1. RECUPERA A IGREJA DO USUÁRIO LOGADO
+      const userLocal = localStorage.getItem("usuarioLogado");
+      if (!userLocal) {
+        router.push("/login");
+        return;
+      }
+      
+      const usuario = JSON.parse(userLocal);
+      const igrejaId = usuario.igreja_id;
+
+      // 2. APLICA A TRAVA NA BUSCA DO PERFIL
+      const { data, error } = await supabase
+        .from("membros")
+        .select("*")
+        .eq("id", id)
+        .eq("igreja_id", igrejaId) // <-- TRAVA DE SEGURANÇA AQUI
+        .single();
+
+      if (error || !data) {
+        console.error("Membro não encontrado ou acesso negado.");
       } else {
         setMembro(data);
       }
       setCarregando(false);
     }
+    
     if (id) buscarDetalhes();
-  }, [id]);
+  }, [id, router]);
 
   if (carregando && !membro) {
     return <div className="text-center py-20 text-gray-500 font-medium">Carregando perfil...</div>;
   }
 
   if (!membro && !carregando) {
-    return <div className="text-center py-20 text-red-500 font-medium">Membro não encontrado.</div>;
+    return (
+      <div className="max-w-md mx-auto mt-20 text-center bg-white p-8 rounded-xl shadow-sm border border-red-100">
+        <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+          <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+        </div>
+        <h2 className="text-xl font-bold text-gray-900 mb-2">Acesso Negado</h2>
+        <p className="text-gray-500 text-sm mb-6">Este membro não existe ou não pertence à sua congregação.</p>
+        <button onClick={() => router.push("/membros")} className="px-6 py-2.5 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition">Voltar para a Lista</button>
+      </div>
+    );
   }
 
   const formatarData = (dataSql: string) => {

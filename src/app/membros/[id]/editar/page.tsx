@@ -12,6 +12,7 @@ export default function EditarMembro() {
   const [fotoArquivo, setFotoArquivo] = useState<File | null>(null);
   const [mostrarModalSucesso, setMostrarModalSucesso] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [igrejaIdLogada, setIgrejaIdLogada] = useState<string | null>(null);
 
   const [mostrarModalExclusao, setMostrarModalExclusao] = useState(false);
   const [mostrarModalExclusaoSucesso, setMostrarModalExclusaoSucesso] = useState(false);
@@ -30,10 +31,31 @@ export default function EditarMembro() {
   });
 
   useEffect(() => {
-    async function buscarMembro() {
-      const { data, error } = await supabase.from("membros").select("*").eq("id", id).single();
-      if (error) {
-        alert("Erro ao carregar dados.");
+    // 1. RECUPERA A IGREJA DO UTILIZADOR LOGADO AO ABRIR A TELA
+    const usuarioLocal = localStorage.getItem("usuarioLogado");
+    let currentIgrejaId = null;
+    
+    if (!usuarioLocal) {
+      alert("Sessão expirada. Faça login novamente.");
+      router.push("/login");
+      return;
+    } else {
+      const usuario = JSON.parse(usuarioLocal);
+      currentIgrejaId = usuario.igreja_id;
+      setIgrejaIdLogada(currentIgrejaId);
+    }
+
+    async function buscarMembro(igrejaId: string) {
+      // 2. APLICA A TRAVA NA BUSCA: Só retorna se o membro for desta igreja
+      const { data, error } = await supabase
+        .from("membros")
+        .select("*")
+        .eq("id", id)
+        .eq("igreja_id", igrejaId) // A TRAVA ESTÁ AQUI
+        .single();
+
+      if (error || !data) {
+        alert("Erro ao carregar dados ou acesso negado a este membro.");
         router.push("/membros");
       } else {
         const cargosParaMenu: Record<string, string> = {
@@ -59,8 +81,12 @@ export default function EditarMembro() {
       }
       setCarregando(false);
     }
-    if (id && id !== "novo") buscarMembro();
-    else setCarregando(false);
+    
+    if (id && id !== "novo" && currentIgrejaId) {
+      buscarMembro(currentIgrejaId);
+    } else if (id === "novo") {
+      setCarregando(false);
+    }
   }, [id, router]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -87,6 +113,12 @@ export default function EditarMembro() {
     e.preventDefault();
     setSalvando(true);
     let novaFotoUrl = dadosMembro.foto_url;
+
+    if (!igrejaIdLogada) {
+      alert("Erro de autenticação.");
+      setSalvando(false);
+      return;
+    }
 
     try {
       // 🚨 Validação de CPF para login
@@ -129,10 +161,17 @@ export default function EditarMembro() {
       };
 
       if (id === "novo") {
-        const { error } = await supabase.from("membros").insert([dadosParaSalvar]);
+        // Se por acaso a URL /novo for acessada por este componente
+        const { error } = await supabase.from("membros").insert([{...dadosParaSalvar, igreja_id: igrejaIdLogada}]);
         if (error) throw error;
       } else {
-        const { error } = await supabase.from("membros").update(dadosParaSalvar).eq("id", id);
+        // 3. APLICA A TRAVA NA ATUALIZAÇÃO E NA EXCLUSÃO (Segurança extra contra injeções)
+        const { error } = await supabase
+          .from("membros")
+          .update(dadosParaSalvar)
+          .eq("id", id)
+          .eq("igreja_id", igrejaIdLogada); // TRAVA DE UPDATE AQUI
+        
         if (error) throw error;
       }
       
@@ -148,7 +187,16 @@ export default function EditarMembro() {
   const confirmarEExcluir = async () => {
     setMostrarModalExclusao(false);
     setCarregando(true);
-    const { error } = await supabase.from("membros").delete().eq("id", id);
+    
+    // Trava de segurança extra na exclusão
+    if (!igrejaIdLogada) return;
+
+    const { error } = await supabase
+      .from("membros")
+      .delete()
+      .eq("id", id)
+      .eq("igreja_id", igrejaIdLogada); // TRAVA DE DELETE AQUI
+
     if (error) {
       alert("Erro ao excluir: " + error.message);
       setCarregando(false);
@@ -276,10 +324,9 @@ export default function EditarMembro() {
             </div>
           </div>
 
-          {/* ACESSO AO SISTEMA (MODO MODERNO DE BOTÕES SEGMENTADOS) */}
+          {/* ACESSO AO SISTEMA */}
           <div className="bg-blue-50 p-6 rounded-md border border-blue-100 mt-6 transition-all duration-300">
             
-            {/* Aviso visual caso o usuário seja inativo */}
             {dadosMembro.status === "Inativo" && (
               <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md text-yellow-800 text-sm font-medium flex items-center gap-2">
                 <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
@@ -293,7 +340,6 @@ export default function EditarMembro() {
                 <p className="text-sm text-gray-600 mt-1">Permitir que este membro faça login (O CPF será o usuário).</p>
               </div>
               
-              {/* O NOVO CONTROLE: Botões segmentados modernos */}
               <div className={`flex rounded-lg border border-gray-200 overflow-hidden shadow-inner flex-shrink-0 ${dadosMembro.status === "Inativo" ? "opacity-50 pointer-events-none" : ""}`}>
                 <button
                   type="button"
@@ -320,7 +366,6 @@ export default function EditarMembro() {
               </div>
             </div>
 
-            {/* Menu Expandido de Senha e Permissão */}
             {dadosMembro.acessa_sistema && dadosMembro.status === "Ativo" && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-5 pt-5 border-t border-blue-200">
                 <div>

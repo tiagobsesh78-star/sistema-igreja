@@ -8,6 +8,7 @@ export default function ConfiguracoesTesouraria() {
   const router = useRouter();
   const [configuracoes, setConfiguracoes] = useState<any[]>([]);
   const [carregando, setCarregando] = useState(true);
+  const [igrejaIdLogada, setIgrejaIdLogada] = useState<string | null>(null);
 
   // Estados do Formulário
   const [categoria, setCategoria] = useState("Saída");
@@ -17,14 +18,27 @@ export default function ConfiguracoesTesouraria() {
   const [salvando, setSalvando] = useState(false);
 
   useEffect(() => {
-    carregarConfiguracoes();
-  }, []);
+    // 1. IDENTIFICA A IGREJA LOGADA AO ABRIR A TELA
+    const usuarioLocal = localStorage.getItem("usuarioLogado");
+    if (!usuarioLocal) {
+      router.push("/login");
+      return;
+    }
+    const usuario = JSON.parse(usuarioLocal);
+    const igrejaId = usuario.igreja_id;
+    setIgrejaIdLogada(igrejaId);
 
-  async function carregarConfiguracoes() {
+    carregarConfiguracoes(igrejaId);
+  }, [router]);
+
+  async function carregarConfiguracoes(igrejaId: string) {
     setCarregando(true);
+    
+    // 2. APLICA A TRAVA NA BUSCA
     const { data, error } = await supabase
       .from("tesouraria_configuracoes")
       .select("*")
+      .eq("igreja_id", igrejaId) // Filtra apenas as configurações desta igreja
       .order("categoria", { ascending: false })
       .order("id", { ascending: true });
 
@@ -41,8 +55,14 @@ export default function ConfiguracoesTesouraria() {
       return;
     }
 
+    if (!igrejaIdLogada) {
+      alert("Erro de autenticação da igreja. Faça login novamente.");
+      return;
+    }
+
     setSalvando(true);
     const novaConfig = {
+      igreja_id: igrejaIdLogada, // 3. CARIMBO DA IGREJA NO INSERT
       categoria,
       tipo,
       percentual: Number(percentual),
@@ -59,18 +79,25 @@ export default function ConfiguracoesTesouraria() {
       setTipo("");
       setPercentual("");
       setOrigemDestino("");
-      carregarConfiguracoes(); // Recarrega a lista
+      carregarConfiguracoes(igrejaIdLogada); // Recarrega a lista com o ID correto
     }
   };
 
   const deletarConfiguracao = async (id: number) => {
     if (!confirm("Tem certeza que deseja remover esta configuração?")) return;
+    if (!igrejaIdLogada) return;
 
-    const { error } = await supabase.from("tesouraria_configuracoes").delete().eq("id", id);
+    // 4. TRAVA DE SEGURANÇA NA EXCLUSÃO
+    const { error } = await supabase
+      .from("tesouraria_configuracoes")
+      .delete()
+      .eq("id", id)
+      .eq("igreja_id", igrejaIdLogada); // Impede deletar config de outra igreja
+
     if (error) {
       alert("Erro ao deletar: " + error.message);
     } else {
-      carregarConfiguracoes();
+      carregarConfiguracoes(igrejaIdLogada);
     }
   };
 

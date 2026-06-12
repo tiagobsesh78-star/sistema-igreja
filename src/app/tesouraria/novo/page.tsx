@@ -22,14 +22,30 @@ export default function NovoLancamento() {
   // Estados de controle
   const [salvando, setSalvando] = useState(false);
   const [mostrarModalSucesso, setMostrarModalSucesso] = useState(false);
+  const [igrejaIdLogada, setIgrejaIdLogada] = useState<string | null>(null);
 
   // Carrega a data de hoje e as congregações do sistema
   useEffect(() => {
     const hoje = new Date().toISOString().split("T")[0];
     setDataLancamento(hoje);
 
+    // 1. IDENTIFICA A IGREJA LOGADA
+    const usuarioLocal = localStorage.getItem("usuarioLogado");
+    if (!usuarioLocal) {
+      router.push("/login");
+      return;
+    }
+    const usuario = JSON.parse(usuarioLocal);
+    const igrejaId = usuario.igreja_id;
+    setIgrejaIdLogada(igrejaId);
+
     async function buscarCongregacoes() {
-      const { data } = await supabase.from("membros").select("congregacao");
+      // 2. BUSCA AS CONGREGAÇÕES APENAS DESTA IGREJA
+      const { data } = await supabase
+        .from("membros")
+        .select("congregacao")
+        .eq("igreja_id", igrejaId); // A TRAVA DE LEITURA
+
       if (data) {
         const filtradas = Array.from(
           new Set(data.map((m) => m.congregacao?.trim()).filter((c) => c && c !== ""))
@@ -39,7 +55,7 @@ export default function NovoLancamento() {
       }
     }
     buscarCongregacoes();
-  }, []);
+  }, [router]);
 
   // Cálculo automático do Total
   const valorOfertas = Number(ofertas) || 0;
@@ -55,9 +71,16 @@ export default function NovoLancamento() {
       alert("Por favor, selecione a congregação deste trabalho.");
       return;
     }
+    
+    if (!igrejaIdLogada) {
+      alert("Erro de autenticação da igreja. Faça login novamente.");
+      return;
+    }
+    
     setSalvando(true);
 
     const dadosLancamento = {
+      igreja_id: igrejaIdLogada, // 3. CARIMBO DA IGREJA NO INSERT
       data: dataLancamento,
       tipo_trabalho: tipoTrabalho,
       congregacao: congregacao,

@@ -43,12 +43,13 @@ export default function LoginPage() {
         return;
       }
 
-      // Salva os dados da sessão
+      // Salva os dados da sessão, agora incluindo a igreja_id
       localStorage.setItem("usuarioLogado", JSON.stringify({
         id: data.id,
         nome: data.nome_completo,
         cpf: data.cpf,
-        nivel_acesso: data.nivel_acesso || "Membro"
+        nivel_acesso: data.nivel_acesso || "Membro",
+        igreja_id: data.igreja_id // A MÁGICA ACONTECE AQUI
       }));
 
       router.push("/membros");

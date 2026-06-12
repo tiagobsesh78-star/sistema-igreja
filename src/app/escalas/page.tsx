@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 import { format, addMonths, subMonths, startOfMonth, endOfMonth, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -17,10 +18,12 @@ const paletasDeCores = [
 ];
 
 export default function EscalasPage() {
+  const router = useRouter();
   const [isClient, setIsClient] = useState(false);
   const [escalas, setEscalas] = useState<any[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [dataAtual, setDataAtual] = useState(new Date());
+  const [igrejaIdLogada, setIgrejaIdLogada] = useState<string | null>(null);
 
   const [tiposExistentes, setTiposExistentes] = useState<string[]>([]);
   const [escalasAgrupadas, setEscalasAgrupadas] = useState<Record<string, any[]>>({});
@@ -32,22 +35,36 @@ export default function EscalasPage() {
 
   useEffect(() => {
     setIsClient(true);
-  }, []);
+    
+    // 1. IDENTIFICA A IGREJA LOGADA
+    const usuarioLocal = localStorage.getItem("usuarioLogado");
+    if (!usuarioLocal) {
+      router.push("/login");
+      return;
+    }
+    const usuario = JSON.parse(usuarioLocal);
+    setIgrejaIdLogada(usuario.igreja_id);
+    
+  }, [router]);
 
   useEffect(() => {
     document.documentElement.style.scrollBehavior = 'smooth';
-    buscarEscalas();
+    if (igrejaIdLogada) {
+      buscarEscalas(igrejaIdLogada);
+    }
     return () => { document.documentElement.style.scrollBehavior = 'auto'; };
-  }, [dataAtual]);
+  }, [dataAtual, igrejaIdLogada]);
 
-  async function buscarEscalas() {
+  async function buscarEscalas(igrejaId: string) {
     setCarregando(true);
     const inicio = format(startOfMonth(dataAtual), "yyyy-MM-dd");
     const fim = format(endOfMonth(dataAtual), "yyyy-MM-dd");
 
+    // 2. BUSCA AS ESCALAS APENAS DA IGREJA
     const { data, error } = await supabase
       .from("escalas")
       .select("*")
+      .eq("igreja_id", igrejaId) // A TRAVA DE SEGURANÇA AQUI
       .gte("data", inicio)
       .lte("data", fim)
       .order("data", { ascending: true });
@@ -70,12 +87,19 @@ export default function EscalasPage() {
 
   // --- FUNÇÕES DE EXCLUSÃO ---
   async function confirmarExclusao() {
-    if (!escalaExcluindo) return;
+    if (!escalaExcluindo || !igrejaIdLogada) return;
     try {
-      const { error } = await supabase.from("escalas").delete().eq("id", escalaExcluindo);
+      // 3. EXCLUI SOMENTE SE PERTENCER À IGREJA
+      const { error } = await supabase
+        .from("escalas")
+        .delete()
+        .eq("id", escalaExcluindo)
+        .eq("igreja_id", igrejaIdLogada); 
+      
       if (error) throw error;
+      
       setEscalaExcluindo(null);
-      buscarEscalas(); 
+      buscarEscalas(igrejaIdLogada); 
     } catch (error: any) {
       alert("Erro ao excluir: " + error.message);
     }
@@ -109,20 +133,24 @@ export default function EscalasPage() {
   };
 
   async function salvarEdicao() {
+    if (!igrejaIdLogada) return;
+    
     setSalvandoEdicao(true);
     try {
+      // 4. ATUALIZA SOMENTE SE PERTENCER À IGREJA
       const { error } = await supabase
         .from("escalas")
         .update({
           descricao: escalaEditando.descricao,
           detalhes: escalaEditando.detalhes
         })
-        .eq("id", escalaEditando.id);
+        .eq("id", escalaEditando.id)
+        .eq("igreja_id", igrejaIdLogada);
 
       if (error) throw error;
       
       setEscalaEditando(null);
-      buscarEscalas();
+      buscarEscalas(igrejaIdLogada);
     } catch (error: any) {
       alert("Erro ao salvar: " + error.message);
     } finally {

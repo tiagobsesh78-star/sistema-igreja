@@ -15,6 +15,7 @@ export default function DizimistasPage() {
   
   const [carregando, setCarregando] = useState(true);
   const [erroBanco, setErroBanco] = useState<string | null>(null);
+  const [igrejaIdLogada, setIgrejaIdLogada] = useState<string | null>(null);
 
   // Estados do Formulário
   const [congregacaoForm, setCongregacaoForm] = useState("");
@@ -35,29 +36,43 @@ export default function DizimistasPage() {
   };
 
   useEffect(() => {
-    carregarDados();
-  }, []);
+    // 1. IDENTIFICA A IGREJA LOGADA AO ABRIR A TELA
+    const usuarioLocal = localStorage.getItem("usuarioLogado");
+    if (!usuarioLocal) {
+      router.push("/login");
+      return;
+    }
+    const usuario = JSON.parse(usuarioLocal);
+    const igrejaId = usuario.igreja_id;
+    setIgrejaIdLogada(igrejaId);
 
-  async function carregarDados() {
+    carregarDados(igrejaId);
+  }, [router]);
+
+  async function carregarDados(igrejaId: string) {
     setCarregando(true);
     setErroBanco(null);
     
     try {
+      // 2. APLICA A TRAVA NAS CONSULTAS
       const { data: dadosMembros, error: errMembros } = await supabase
         .from("membros")
-        .select("*");
+        .select("*")
+        .eq("igreja_id", igrejaId); // TRAVA
 
       if (errMembros) throw new Error(`Erro ao buscar membros: ${errMembros.message}`);
 
       const { data: dadosLancamentos, error: errLancamentos } = await supabase
         .from("tesouraria_lancamentos")
-        .select("*");
+        .select("*")
+        .eq("igreja_id", igrejaId); // TRAVA
 
       if (errLancamentos) throw new Error(`Erro ao buscar lançamentos: ${errLancamentos.message}`);
 
       const { data: dadosDizimistas, error: errDizimistas } = await supabase
         .from("tesouraria_dizimistas")
-        .select("*");
+        .select("*")
+        .eq("igreja_id", igrejaId); // TRAVA
 
       if (errDizimistas) throw new Error(`Erro nos dizimistas: ${errDizimistas.message}`);
 
@@ -101,26 +116,38 @@ export default function DizimistasPage() {
 
   const salvarDizimista = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!membroSelecionado) return;
+    if (!membroSelecionado || !igrejaIdLogada) return;
 
     setSalvando(true);
+    // 3. CARIMBA A IGREJA NO REGISTRO
     const { error } = await supabase
       .from("tesouraria_dizimistas")
-      .insert([{ membro_id: String(membroSelecionado) }]);
+      .insert([{ 
+        membro_id: String(membroSelecionado),
+        igreja_id: igrejaIdLogada 
+      }]);
 
     if (error) {
       alert("Erro ao salvar: " + error.message);
     } else {
       setMembroSelecionado("");
-      carregarDados();
+      carregarDados(igrejaIdLogada);
     }
     setSalvando(false);
   };
 
   const removerDizimista = async (id: number) => {
     if (!confirm("Remover este membro dos dizimistas ativos?")) return;
-    const { error } = await supabase.from("tesouraria_dizimistas").delete().eq("id", id);
-    if (!error) carregarDados();
+    if (!igrejaIdLogada) return;
+
+    // 4. TRAVA NA EXCLUSÃO
+    const { error } = await supabase
+      .from("tesouraria_dizimistas")
+      .delete()
+      .eq("id", id)
+      .eq("igreja_id", igrejaIdLogada);
+      
+    if (!error) carregarDados(igrejaIdLogada);
   };
 
   // ========== METRICAS E FILTROS ==========
@@ -149,7 +176,7 @@ export default function DizimistasPage() {
       <div className="max-w-2xl mx-auto mt-10 bg-white border border-red-200 rounded-xl p-6 text-center shadow-sm">
         <h2 className="text-lg font-bold text-red-600 mb-2">Diagnóstico de Sincronização</h2>
         <p className="text-sm text-gray-600 mb-4">{erroBanco}</p>
-        <button onClick={carregarDados} className="px-4 py-2 bg-gray-900 text-white text-sm font-semibold rounded-lg hover:bg-black transition">Tentar Novamente</button>
+        <button onClick={() => igrejaIdLogada && carregarDados(igrejaIdLogada)} className="px-4 py-2 bg-gray-900 text-white text-sm font-semibold rounded-lg hover:bg-black transition">Tentar Novamente</button>
       </div>
     );
   }

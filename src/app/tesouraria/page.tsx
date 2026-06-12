@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { supabase } from "../../../src/lib/supabase";
 
 export default function TesourariaPage() {
+  const router = useRouter();
   const [lancamentos, setLancamentos] = useState<any[]>([]);
   const [carregando, setCarregando] = useState(true);
 
@@ -39,20 +41,30 @@ export default function TesourariaPage() {
 
   useEffect(() => {
     async function carregarDados() {
-      const { data: dadosIgreja } = await supabase.from("configuracao_igreja").select("*").limit(1).maybeSingle();
+      // 1. RECUPERA A IGREJA DO UTILIZADOR LOGADO
+      const usuarioLocal = localStorage.getItem("usuarioLogado");
+      if (!usuarioLocal) {
+        router.push("/login");
+        return;
+      }
+      const usuario = JSON.parse(usuarioLocal);
+      const igrejaId = usuario.igreja_id;
+
+      // 2. APLICA A TRAVA 'igreja_id' EM TODAS AS BUSCAS
+      const { data: dadosIgreja } = await supabase.from("configuracao_igreja").select("*").eq("igreja_id", igrejaId).limit(1).maybeSingle();
       if (dadosIgreja) setConfigIgreja(dadosIgreja);
 
-      const { data: dadosMembros } = await supabase.from("membros").select("*");
+      const { data: dadosMembros } = await supabase.from("membros").select("*").eq("igreja_id", igrejaId);
       if (dadosMembros) {
         const listaFiltrada = Array.from(new Set(dadosMembros.map((m) => obterCongregacaoMembro(m).trim()).filter((c) => c !== ""))).sort() as string[];
         setCongregacoes(listaFiltrada);
       }
 
-      const { data: configs } = await supabase.from("tesouraria_configuracoes").select("*");
+      const { data: configs } = await supabase.from("tesouraria_configuracoes").select("*").eq("igreja_id", igrejaId);
       if (configs) setConfiguracoesGlobais(configs);
 
-      // CARREGA DIZIMISTAS ATIVOS PARA CRUZAMENTO
-      const { data: dadosDizimistas } = await supabase.from("tesouraria_dizimistas").select("*");
+      // CARREGA DIZIMISTAS ATIVOS PARA CRUZAMENTO (Da mesma igreja)
+      const { data: dadosDizimistas } = await supabase.from("tesouraria_dizimistas").select("*").eq("igreja_id", igrejaId);
       if (dadosDizimistas && dadosMembros) {
         const unidos = dadosDizimistas.map(d => ({
           ...d,
@@ -61,7 +73,7 @@ export default function TesourariaPage() {
         setTotalDizimistasGeral(unidos);
       }
 
-      const { data: dadosLancamentos, error } = await supabase.from("tesouraria_lancamentos").select("*").order("data", { ascending: false });
+      const { data: dadosLancamentos, error } = await supabase.from("tesouraria_lancamentos").select("*").eq("igreja_id", igrejaId).order("data", { ascending: false });
       if (!error && dadosLancamentos) {
         setLancamentos(dadosLancamentos);
         const anosNoBanco = dadosLancamentos.map(l => l.data.split("-")[0]);
@@ -71,7 +83,7 @@ export default function TesourariaPage() {
       setCarregando(false);
     }
     carregarDados();
-  }, []);
+  }, [router]);
 
   const toggleFiltro = (lista: string[], setLista: any, valor: string) => {
     if (lista.includes(valor)) setLista(lista.filter((v) => v !== valor));

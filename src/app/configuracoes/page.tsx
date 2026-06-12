@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "../../lib/supabase";
+import { supabase } from "../../lib/supabase"; // Caminho corrigido para subir 2 níveis
 
-export default function ConfiguraçõesIgreja() {
+export default function ConfiguracoesIgreja() {
   const router = useRouter();
   const [carregando, setCarregando] = useState(true);
   const [salvando, setSalvando] = useState(false);
@@ -12,6 +12,7 @@ export default function ConfiguraçõesIgreja() {
   const [mostrarModalSucesso, setMostrarModalSucesso] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [configId, setConfigId] = useState<number | null>(null);
+  const [igrejaIdLogada, setIgrejaIdLogada] = useState<string | null>(null);
 
   const [dadosIgreja, setDadosIgreja] = useState({
     nome_igreja: "",
@@ -25,10 +26,22 @@ export default function ConfiguraçõesIgreja() {
   });
 
   useEffect(() => {
-    async function buscarConfiguracoes() {
+    // 1. IDENTIFICA A IGREJA LOGADA
+    const usuarioLocal = localStorage.getItem("usuarioLogado");
+    if (!usuarioLocal) {
+      router.push("/login");
+      return;
+    }
+    const usuario = JSON.parse(usuarioLocal);
+    const igrejaId = usuario.igreja_id;
+    setIgrejaIdLogada(igrejaId);
+
+    async function buscarConfiguracoes(igrejaId: string) {
+      // 2. BUSCA AS CONFIGURAÇÕES APENAS DESTA IGREJA
       const { data, error } = await supabase
         .from("configuracao_igreja")
         .select("*")
+        .eq("igreja_id", igrejaId) // TRAVA DE SEGURANÇA
         .maybeSingle();
 
       if (data) {
@@ -46,8 +59,8 @@ export default function ConfiguraçõesIgreja() {
       }
       setCarregando(false);
     }
-    buscarConfiguracoes();
-  }, []);
+    buscarConfiguracoes(igrejaId);
+  }, [router]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -63,12 +76,14 @@ export default function ConfiguraçõesIgreja() {
 
   const salvarConfiguracoes = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (!igrejaIdLogada) return;
+
     setSalvando(true);
     let novaLogoUrl = dadosIgreja.logo_url;
 
     try {
       if (logoArquivo) {
-        const nomeArquivo = `logo-${Date.now()}-${logoArquivo.name}`;
+        const nomeArquivo = `logo-${igrejaIdLogada}-${Date.now()}-${logoArquivo.name}`;
         const { error: erroUpload } = await supabase.storage.from("fotos").upload(nomeArquivo, logoArquivo);
         if (erroUpload) throw erroUpload;
         const { data: dataUrl } = supabase.storage.from("fotos").getPublicUrl(nomeArquivo);
@@ -77,14 +92,21 @@ export default function ConfiguraçõesIgreja() {
 
       const dadosParaSalvar = {
         ...dadosIgreja,
+        igreja_id: igrejaIdLogada, // CARIMBO DA IGREJA
         logo_url: novaLogoUrl,
       };
 
       if (configId) {
-        const { error } = await supabase.from("configuracao_igreja").update(dadosParaSalvar).eq("id", configId);
+        const { error } = await supabase
+          .from("configuracao_igreja")
+          .update(dadosParaSalvar)
+          .eq("id", configId)
+          .eq("igreja_id", igrejaIdLogada); // TRAVA NO UPDATE
         if (error) throw error;
       } else {
-        const { error } = await supabase.from("configuracao_igreja").insert([dadosParaSalvar]);
+        const { error } = await supabase
+          .from("configuracao_igreja")
+          .insert([dadosParaSalvar]);
         if (error) throw error;
       }
 

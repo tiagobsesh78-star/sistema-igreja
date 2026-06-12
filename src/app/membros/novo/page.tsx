@@ -35,6 +35,16 @@ export default function NovoMembro() {
     e.preventDefault();
     setCarregando(true);
 
+    // 1. RECUPERA A IGREJA DO UTILIZADOR LOGADO
+    const usuarioLocal = localStorage.getItem("usuarioLogado");
+    if (!usuarioLocal) {
+      alert("Sessão expirada ou utilizador não identificado. Faça login novamente.");
+      router.push("/login");
+      return;
+    }
+    const usuario = JSON.parse(usuarioLocal);
+    const igrejaId = usuario.igreja_id;
+
     const formData = new FormData(e.currentTarget);
     let fotoUrl = null;
 
@@ -64,6 +74,7 @@ export default function NovoMembro() {
       }
 
       const dadosMembro = {
+        igreja_id: igrejaId, // <-- CARIMBO DA IGREJA INSERIDO AQUI
         nome_completo: formData.get("nome_completo"), genero: generoSelecionado, 
         cpf: cpfFormatado,
         data_nascimento: formData.get("data_nascimento") || null, estado_civil: formData.get("estado_civil"),

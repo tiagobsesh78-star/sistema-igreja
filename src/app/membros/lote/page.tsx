@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "../../../../src/lib/supabase";
 
 function LoteDeCarteirinhas() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const idsParam = searchParams.get("ids");
   
   const [membros, setMembros] = useState<any[]>([]);
@@ -15,6 +16,16 @@ function LoteDeCarteirinhas() {
 
   useEffect(() => {
     async function buscarDadosEmLote() {
+      // 1. RECUPERA A IGREJA LOGADA
+      const userLocal = localStorage.getItem("usuarioLogado");
+      if (!userLocal) {
+        router.push("/login");
+        return;
+      }
+      
+      const usuario = JSON.parse(userLocal);
+      const igrejaId = usuario.igreja_id;
+
       if (!idsParam) {
         setCarregando(false);
         return;
@@ -22,16 +33,24 @@ function LoteDeCarteirinhas() {
       
       const idsArray = idsParam.split(",");
       
+      // 2. APLICA A TRAVA NA BUSCA DO LOTE (Somente membros da mesma igreja)
       const { data: membrosData, error: membrosError } = await supabase
         .from("membros")
         .select("*")
-        .in("id", idsArray);
+        .in("id", idsArray)
+        .eq("igreja_id", igrejaId); // TRAVA DE SEGURANÇA
 
       if (!membrosError && membrosData) {
         setMembros(membrosData);
       }
 
-      const { data: configData } = await supabase.from("configuracao_igreja").select("*").maybeSingle();
+      // 3. BUSCA AS CONFIGURAÇÕES DA IGREJA ESPECÍFICA (Logo e Pastor)
+      const { data: configData } = await supabase
+        .from("configuracao_igreja")
+        .select("*")
+        .eq("igreja_id", igrejaId) // TRAVA DE SEGURANÇA
+        .maybeSingle();
+
       if (configData) {
         setConfigIgreja(configData);
       }
@@ -40,7 +59,7 @@ function LoteDeCarteirinhas() {
     }
     
     buscarDadosEmLote();
-  }, [idsParam]);
+  }, [idsParam, router]);
 
   const formatarData = (dataSql: string) => {
     if (!dataSql) return "-";
@@ -58,7 +77,7 @@ function LoteDeCarteirinhas() {
   };
 
   if (carregando) return <div className="text-center py-20 text-gray-500 font-medium">Gerando lote de carteirinhas...</div>;
-  if (membros.length === 0) return <div className="text-center py-20 text-red-500 font-medium">Nenhum membro selecionado.</div>;
+  if (membros.length === 0) return <div className="text-center py-20 text-red-500 font-medium">Nenhum membro selecionado ou acesso negado.</div>;
 
   const nomeIgreja = configIgreja?.nome_igreja || "NOME DA SUA IGREJA";
   const ehNomeLongo = nomeIgreja.length > 28;

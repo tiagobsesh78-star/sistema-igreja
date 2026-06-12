@@ -27,8 +27,16 @@ export default function Dashboard() {
       return; // Para a execução aqui e redireciona
     }
 
+    const usuario = JSON.parse(userLocal);
+    const igrejaId = usuario.igreja_id;
+
     async function carregarDados() {
-      const { data, error } = await supabase.from("membros").select("*").order("id", { ascending: false });
+      // TRAVA MULTI-TENANT APLICADA: Busca apenas os membros desta igreja
+      const { data, error } = await supabase
+        .from("membros")
+        .select("*")
+        .eq("igreja_id", igrejaId)
+        .order("id", { ascending: false });
 
       if (error) {
         console.error("Erro ao buscar dados:", error);
@@ -44,6 +52,7 @@ export default function Dashboard() {
       }
       setCarregando(false);
     }
+    
     carregarDados();
   }, [router]);
 

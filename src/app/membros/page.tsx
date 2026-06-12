@@ -39,7 +39,22 @@ export default function MembrosPage() {
   }, []);
 
   async function buscarMembros() {
-    const { data, error } = await supabase.from("membros").select("*");
+    // 1. Recupera o utilizador logado para saber de qual igreja ele é
+    const usuarioLocal = localStorage.getItem("usuarioLogado");
+    
+    if (!usuarioLocal) {
+      setCarregando(false);
+      return; // Se não estiver logado, nem tenta procurar
+    }
+
+    const usuario = JSON.parse(usuarioLocal);
+
+    // 2. Faz a procura no banco FILTRANDO pela igreja_id do utilizador
+    const { data, error } = await supabase
+      .from("membros")
+      .select("*")
+      .eq("igreja_id", usuario.igreja_id); // <-- A TRAVA MULTI-TENANT AQUI
+
     if (!error && data) setMembros(data);
     setCarregando(false);
   }

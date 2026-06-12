@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
 import {
@@ -22,6 +22,7 @@ export default function NovaEscala() {
   
   const [salvando, setSalvando] = useState(false);
   const [modalSucesso, setModalSucesso] = useState(false);
+  const [igrejaIdLogada, setIgrejaIdLogada] = useState<string | null>(null);
   
   const [tipo, setTipo] = useState("Culto");
   const [tipoOutro, setTipoOutro] = useState("");
@@ -32,6 +33,17 @@ export default function NovaEscala() {
   
   const [dadosPorData, setDadosPorData] = useState<Record<string, any[]>>({});
   const [descricoesPorData, setDescricoesPorData] = useState<Record<string, string>>({}); // NOVO ESTADO PARA DESCRIÇÃO
+
+  useEffect(() => {
+    // IDENTIFICA A IGREJA LOGADA AO ABRIR A TELA
+    const usuarioLocal = localStorage.getItem("usuarioLogado");
+    if (!usuarioLocal) {
+      router.push("/login");
+      return;
+    }
+    const usuario = JSON.parse(usuarioLocal);
+    setIgrejaIdLogada(usuario.igreja_id);
+  }, [router]);
 
   const inicioMes = startOfMonth(mesCalendario);
   const fimMes = endOfMonth(mesCalendario);
@@ -119,11 +131,18 @@ export default function NovaEscala() {
       alert("Selecione os dias da escala no calendário primeiro!");
       return;
     }
+
+    if (!igrejaIdLogada) {
+      alert("Erro de sessão. Faça login novamente.");
+      return;
+    }
     
     setSalvando(true);
     
     try {
+      // PREPARA OS INSERTS INCLUINDO A IGREJA_ID
       const inserts = datasSelecionadas.map(d => ({
+        igreja_id: igrejaIdLogada,
         tipo: tipo,
         tipo_personalizado: tipo === "Outro" ? tipoOutro : null,
         data: d,
