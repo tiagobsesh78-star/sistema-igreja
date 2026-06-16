@@ -129,11 +129,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 </button>
               </div>
 
-              <nav className="p-4 space-y-3 mt-2 flex-1">
+              <nav className="p-4 space-y-3 mt-2 flex-1 overflow-y-auto">
                 <Link href="/" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname === '/' ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Início</Link>
                 <Link href="/membros" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/membros') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Membros</Link>
                 <Link href="/tesouraria" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/tesouraria') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Tesouraria</Link>
                 <Link href="/patrimonio" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/patrimonio') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Patrimônio</Link>
+                <Link href="/escalas" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/escalas') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Escalas</Link>
+                <Link href="/reunioes" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/reunioes') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Reuniões</Link>
                 <Link href="/configuracoes" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname === '/configuracoes' ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Configurações</Link>
               </nav>
             </aside>
@@ -143,7 +145,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             {/* ÁREA DO CONTEÚDO PRINCIPAL */}
             <div className={`flex flex-col min-h-screen transition-all duration-300 ease-in-out ${menuAberto ? "md:ml-64" : "ml-0"} print:ml-0`}>
               
-              {/* SEU CABEÇALHO PRETO ORIGINAL COM PERFIL INTEGRADO */}
+              {/* CABEÇALHO PRETO ORIGINAL COM PERFIL INTEGRADO */}
               <header className="bg-black text-white h-16 flex items-center px-4 md:px-8 justify-between shadow-md z-30 sticky top-0 print:hidden">
                 <div className="flex items-center gap-4">
                   <button onClick={() => setMenuAberto(!menuAberto)} className="text-white hover:text-blue-400 focus:outline-none transition-colors">
