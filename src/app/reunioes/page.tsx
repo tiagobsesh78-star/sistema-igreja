@@ -8,17 +8,16 @@ export default function ReunioesPage() {
   const [carregando, setCarregando] = useState(true);
   const [igrejaId, setIgrejaId] = useState<string | null>(null);
 
-  // Estados do Modal e Formulário
   const [modalAberto, setModalAberto] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [uploading, setUploading] = useState(false);
   
-  // Controle de Bloqueio da Ata
   const [bloqueioAta, setBloqueioAta] = useState(false);
   
   const [formData, setFormData] = useState({
     id: "",
     data_reuniao: "",
+    horario_reuniao: "19:30", // Novo campo adicionado com valor padrão coerente
     tema: "",
     ata_texto: "",
     anexo_url: "",
@@ -28,7 +27,6 @@ export default function ReunioesPage() {
 
   const editorRef = useRef<HTMLDivElement>(null);
 
-  // 1. CARREGAR A IGREJA LOGADA
   useEffect(() => {
     const carregarContexto = async () => {
       try {
@@ -56,14 +54,12 @@ export default function ReunioesPage() {
     carregarContexto();
   }, []);
 
-  // Injeta o texto quando o modal abre ou altera o bloqueio
   useEffect(() => {
     if (modalAberto && editorRef.current) {
       editorRef.current.innerHTML = formData.ata_texto || "";
     }
   }, [modalAberto, formData.id, bloqueioAta]);
 
-  // 2. BUSCAR REUNIÕES NO BANCO
   const buscarReunioes = async (idIgreja: string) => {
     try {
       const { data, error } = await supabase
@@ -81,7 +77,6 @@ export default function ReunioesPage() {
     }
   };
 
-  // 3. SALVAR OU ATUALIZAR REUNIÃO
   const handleSalvar = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     
@@ -97,6 +92,7 @@ export default function ReunioesPage() {
       const dadosParaSalvar = {
         igreja_id: String(igrejaId).trim(), 
         data_reuniao: formData.data_reuniao,
+        horario_reuniao: formData.horario_reuniao, // Enviando o horário correto para o banco
         tema: formData.tema,
         ata_texto: ataHtml,
         anexo_url: formData.anexo_url || null, 
@@ -105,19 +101,60 @@ export default function ReunioesPage() {
       };
 
       if (formData.id && formData.id !== "undefined" && formData.id.trim() !== "") {
-        const { error } = await supabase
-          .from("reunioes")
-          .update(dadosParaSalvar)
-          .eq("id", formData.id)
-          .eq("igreja_id", igrejaId); 
-
+        // ATUALIZAÇÃO
+        const { error } = await supabase.from("reunioes").update(dadosParaSalvar).eq("id", formData.id).eq("igreja_id", igrejaId); 
         if (error) throw error;
+
+        // --- INTEGRAÇÃO BLINDADA COM MÓDULO DE PROGRAMAÇÃO ---
+        try {
+          if (formData.status === "Cancelada") {
+            await supabase.from("programacao").delete().eq("reuniao_id", String(formData.id)).eq("igreja_id", igrejaId);
+          } else {
+            const { data: progData } = await supabase.from("programacao").select("id").eq("reuniao_id", String(formData.id)).single();
+            if (progData) {
+              await supabase.from("programacao").update({
+                titulo: `Reunião: ${formData.tema}`,
+                data: formData.data_reuniao,
+                horario: formData.horario_reuniao // Atualiza o horário dinamicamente
+              }).eq("reuniao_id", String(formData.id));
+            } else {
+              await supabase.from("programacao").insert([{
+                igreja_id: String(igrejaId).trim(),
+                titulo: `Reunião: ${formData.tema}`,
+                descricao: "Gerado automaticamente pelo Módulo de Reuniões",
+                tipo: "Reunião",
+                data: formData.data_reuniao,
+                horario: formData.horario_reuniao, // Envia o horário customizado
+                reuniao_id: String(formData.id)
+              }]);
+            }
+          }
+        } catch (err) { 
+          console.error("Falha ao atualizar a programação espelho.", err); 
+        }
+
       } else {
-        const { error } = await supabase
-          .from("reunioes")
-          .insert([dadosParaSalvar]);
-
+        // INSERÇÃO NOVA
+        const { data: insertedData, error } = await supabase.from("reunioes").insert([dadosParaSalvar]).select();
         if (error) throw error;
+
+        // --- INTEGRAÇÃO BLINDADA COM MÓDULO DE PROGRAMAÇÃO ---
+        try {
+          if (insertedData && insertedData.length > 0) {
+            const novaReuniaoId = insertedData[0].id;
+            await supabase.from("programacao").insert([{
+              igreja_id: String(igrejaId).trim(),
+              titulo: `Reunião: ${formData.tema}`,
+              descricao: "Gerado automaticamente pelo Módulo de Reuniões",
+              tipo: "Reunião",
+              data: formData.data_reuniao,
+              horario: formData.horario_reuniao, // Vincula o horário do cadastro da Reunião
+              reuniao_id: String(novaReuniaoId)
+            }]);
+          }
+        } catch (err) { 
+          console.error("Aviso: Sincronização com programação falhou.", err); 
+        }
       }
 
       setModalAberto(false);
@@ -130,19 +167,18 @@ export default function ReunioesPage() {
     }
   };
 
-  // 4. MUDAR STATUS PARA CANCELADO DA TABELA
   const handleCancelarReuniao = async (id: string) => {
     if (!confirm("Tem certeza que deseja marcar esta reunião como Cancelada?")) return;
     if (!igrejaId) return;
 
     try {
-      const { error } = await supabase
-        .from("reunioes")
-        .update({ status: "Cancelada", updated_at: new Date().toISOString() })
-        .eq("id", id)
-        .eq("igreja_id", igrejaId);
-
+      const { error } = await supabase.from("reunioes").update({ status: "Cancelada", updated_at: new Date().toISOString() }).eq("id", id).eq("igreja_id", igrejaId);
       if (error) throw error;
+
+      try {
+        await supabase.from("programacao").delete().eq("reuniao_id", String(id)).eq("igreja_id", igrejaId);
+      } catch (err) { console.error("Erro ao limpar programação:", err); }
+
       buscarReunioes(igrejaId);
     } catch (error) {
       console.error("Erro ao cancelar:", error);
@@ -150,7 +186,6 @@ export default function ReunioesPage() {
     }
   };
 
-  // 5. UPLOAD SEGURO DE ARQUIVOS
   const handleUploadAnexo = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !igrejaId) return;
@@ -161,16 +196,10 @@ export default function ReunioesPage() {
       const fileName = `${Date.now()}.${fileExt}`;
       const filePath = `${igrejaId}/${fileName}`; 
 
-      const { error } = await supabase.storage
-        .from('anexos_reunioes')
-        .upload(filePath, file);
-
+      const { error } = await supabase.storage.from('anexos_reunioes').upload(filePath, file);
       if (error) throw error;
 
-      const { data: publicUrlData } = supabase.storage
-        .from('anexos_reunioes')
-        .getPublicUrl(filePath);
-
+      const { data: publicUrlData } = supabase.storage.from('anexos_reunioes').getPublicUrl(filePath);
       setFormData((prev) => ({ ...prev, anexo_url: publicUrlData.publicUrl }));
     } catch (error) {
       console.error("Erro durante o upload:", error);
@@ -180,18 +209,17 @@ export default function ReunioesPage() {
     }
   };
 
-  // 6. FERRAMENTAS DO EDITOR
   const formatarTexto = (comando: string) => {
     if (bloqueioAta) return;
     document.execCommand(comando, false, undefined);
     editorRef.current?.focus();
   };
 
-  // 7. FUNÇÕES DE ABERTURA DO MODAL
   const abrirModalNovo = () => {
     setFormData({
       id: "",
       data_reuniao: new Date().toISOString().split("T")[0],
+      horario_reuniao: "19:30", // Inicializa o estado com o padrão confortável
       tema: "",
       ata_texto: "",
       anexo_url: "",
@@ -206,6 +234,7 @@ export default function ReunioesPage() {
     setFormData({
       id: reuniao.id,
       data_reuniao: reuniao.data_reuniao,
+      horario_reuniao: reuniao.horario_reuniao ? reuniao.horario_reuniao.substring(0, 5) : "19:30", // Sanitiza os segundos se houver
       tema: reuniao.tema,
       ata_texto: reuniao.ata_texto || "",
       anexo_url: reuniao.anexo_url || "",
@@ -213,12 +242,8 @@ export default function ReunioesPage() {
       updated_at: reuniao.updated_at || reuniao.created_at || "",
     });
     
-    // Regra de negócio: Diferente de Marcada fica bloqueado inicialmente
-    if (reuniao.status !== "Marcada") {
-      setBloqueioAta(true);
-    } else {
-      setBloqueioAta(false);
-    }
+    if (reuniao.status !== "Marcada") setBloqueioAta(true);
+    else setBloqueioAta(false);
     
     setModalAberto(true);
   };
@@ -242,27 +267,22 @@ export default function ReunioesPage() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto w-full">
-      {/* HEADER DA TELA */}
       <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
         <div>
           <h1 className="text-3xl font-bold text-gray-800">Reuniões e Atas</h1>
           <p className="text-gray-500 text-sm">Controle de pautas, atas digitadas e arquivamento de digitalizações.</p>
         </div>
-        <button
-          onClick={abrirModalNovo}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg shadow-sm font-semibold transition-all w-full md:w-auto text-sm"
-        >
+        <button onClick={abrirModalNovo} className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg shadow-sm font-semibold transition-all w-full md:w-auto text-sm">
           + Agendar Reunião
         </button>
       </div>
 
-      {/* TABELA PRINCIPAL */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-gray-200">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-gray-50 text-gray-700 uppercase text-xs font-bold tracking-wider border-b border-gray-200">
-                <th className="px-6 py-4">Data</th>
+                <th className="px-6 py-4">Data / Horário</th> {/* Título atualizado na tabela */}
                 <th className="px-6 py-4">Tema / Grupo</th>
                 <th className="px-6 py-4">Status</th>
                 <th className="px-6 py-4">Documentação</th>
@@ -280,13 +300,12 @@ export default function ReunioesPage() {
                 reunioes.map((r) => (
                   <tr key={r.id} className="hover:bg-gray-50/80 transition-colors">
                     <td className="px-6 py-4 text-gray-900 font-semibold whitespace-nowrap">
-                      {new Date(r.data_reuniao).toLocaleDateString("pt-BR", { timeZone: "UTC" })}
+                      <div>{new Date(r.data_reuniao).toLocaleDateString("pt-BR", { timeZone: "UTC" })}</div>
+                      <div className="text-xs text-gray-400 font-bold mt-0.5">{r.horario_reuniao ? r.horario_reuniao.substring(0, 5) : '--:--'}</div>
                     </td>
                     <td className="px-6 py-4 text-gray-600 font-medium">{r.tema}</td>
                     <td className="px-6 py-4">
-                      <span className={`px-3 py-1 rounded-full text-xs font-bold ${getCorStatus(r.status)}`}>
-                        {r.status}
-                      </span>
+                      <span className={`px-3 py-1 rounded-full text-xs font-bold ${getCorStatus(r.status)}`}>{r.status}</span>
                     </td>
                     <td className="px-6 py-4">
                       {r.anexo_url ? (
@@ -298,19 +317,12 @@ export default function ReunioesPage() {
                       )}
                     </td>
                     <td className="px-6 py-4 text-center flex items-center justify-center gap-4">
-                      <button
-                        onClick={() => abrirModalEditar(r)}
-                        className="text-blue-600 hover:text-blue-800 font-bold text-sm transition-colors"
-                      >
+                      <button onClick={() => abrirModalEditar(r)} className="text-blue-600 hover:text-blue-800 font-bold text-sm transition-colors">
                         {r.status !== 'Marcada' ? 'Ver Ata' : 'Editar'}
                       </button>
                       
-                      {/* REGRA CUMPRIDA: O Botão Cancelar SÓ existe se estiver "Marcada" */}
                       {r.status === "Marcada" && (
-                        <button
-                          onClick={() => handleCancelarReuniao(r.id)}
-                          className="text-red-600 hover:text-red-900 font-bold text-sm transition-colors"
-                        >
+                        <button onClick={() => handleCancelarReuniao(r.id)} className="text-red-600 hover:text-red-900 font-bold text-sm transition-colors">
                           Cancelar
                         </button>
                       )}
@@ -323,34 +335,25 @@ export default function ReunioesPage() {
         </div>
       </div>
 
-      {/* NOVO MODAL: BARRA DE ROLAGEM NATIVA DO NAVEGADOR! */}
       {modalAberto && (
-        // O fundo escuro agora é quem faz a rolagem (overflow-y-auto)
         <div className="fixed inset-0 z-[9999] overflow-y-auto bg-black/70 backdrop-blur-sm">
-          {/* Container que alinha ao centro */}
           <div className="flex min-h-screen items-center justify-center p-4">
-            
-            {/* A Caixa do Modal em si (livre para crescer o quanto precisar com my-8 dando uma margem segura) */}
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl my-8 relative">
               
-              {/* TOPO */}
               <div className="p-5 border-b border-gray-200">
                 <div className="flex justify-between items-center">
                   <h2 className="text-xl md:text-2xl font-bold text-gray-800">
                     {formData.id ? "Ajustar Informações da Reunião" : "Agendar Nova Reunião"}
                   </h2>
-                  <button 
-                    onClick={() => setModalAberto(false)} 
-                    className="text-gray-400 hover:text-red-600 text-3xl font-light transition-colors"
-                  >
+                  <button onClick={() => setModalAberto(false)} className="text-gray-400 hover:text-red-600 text-3xl font-light transition-colors">
                     &times;
                   </button>
                 </div>
               </div>
 
-              {/* CORPO DO MODAL (Sem amarras de CSS, layout comum) */}
               <div className="p-5 md:p-6 space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {/* Grid atualizado para comportar o campo de horário lado a lado */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   <div>
                     <label className="block text-xs font-bold uppercase text-gray-600 mb-2">Data Marcada</label>
                     <input
@@ -358,6 +361,19 @@ export default function ReunioesPage() {
                       disabled={bloqueioAta}
                       value={formData.data_reuniao}
                       onChange={(e) => setFormData({ ...formData, data_reuniao: e.target.value })}
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all disabled:bg-gray-100 disabled:text-gray-500"
+                    />
+                  </div>
+
+                  {/* NOVO CAMPO ADICIONADO NO FORMULÁRIO */}
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-gray-600 mb-2">Horário de Início</label>
+                    <input
+                      type="time"
+                      required
+                      disabled={bloqueioAta}
+                      value={formData.horario_reuniao}
+                      onChange={(e) => setFormData({ ...formData, horario_reuniao: e.target.value })}
                       className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all disabled:bg-gray-100 disabled:text-gray-500"
                     />
                   </div>
@@ -389,17 +405,11 @@ export default function ReunioesPage() {
                   </div>
                 </div>
 
-                {/* EDITOR DA ATA */}
                 <div className="border border-gray-300 rounded-lg overflow-hidden flex flex-col shadow-sm">
                   <div className="flex flex-wrap justify-between items-center bg-gray-50 px-4 py-2.5 border-b border-gray-300 gap-2">
-                    <span className="block text-xs font-bold uppercase text-gray-700">
-                      Transcrição da Ata
-                    </span>
+                    <span className="block text-xs font-bold uppercase text-gray-700">Transcrição da Ata</span>
                     {bloqueioAta && (
-                      <button
-                        onClick={() => setBloqueioAta(false)}
-                        className="flex items-center gap-1.5 text-xs font-bold text-blue-700 hover:text-blue-900 bg-blue-100 px-3 py-1.5 rounded-md border border-blue-200 transition-colors shadow-sm"
-                      >
+                      <button onClick={() => setBloqueioAta(false)} className="flex items-center gap-1.5 text-xs font-bold text-blue-700 hover:text-blue-900 bg-blue-100 px-3 py-1.5 rounded-md border border-blue-200 transition-colors shadow-sm">
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                         Habilitar Edição
                       </button>
@@ -417,7 +427,6 @@ export default function ReunioesPage() {
                     </div>
                   )}
 
-                  {/* A caixa pode ter uma pequena barra se a ata for de fato um TCC, mas de forma suave */}
                   <div
                     ref={editorRef}
                     contentEditable={!bloqueioAta}
@@ -430,7 +439,6 @@ export default function ReunioesPage() {
                   ></div>
                 </div>
 
-                {/* UPLOAD DO ANEXO */}
                 <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
                   <label className="block text-xs font-bold uppercase text-gray-600 mb-2">Anexar Ata Digitalizada</label>
                   <div className="flex flex-wrap items-center gap-4">
@@ -444,13 +452,10 @@ export default function ReunioesPage() {
                     {uploading && <span className="text-blue-600 text-xs font-bold animate-pulse">Enviando documento...</span>}
                   </div>
                   {formData.anexo_url && !uploading && (
-                    <p className="mt-3 text-xs text-green-600 font-bold flex items-center gap-1">
-                      ✓ Documento anexado com sucesso!
-                    </p>
+                    <p className="mt-3 text-xs text-green-600 font-bold flex items-center gap-1">✓ Documento anexado com sucesso!</p>
                   )}
                 </div>
 
-                {/* DATA DA ÚLTIMA ALTERAÇÃO */}
                 {formData.updated_at && (
                   <div className="text-right text-xs font-medium text-gray-400 italic">
                     Última alteração salva em: {formatarDataHora(formData.updated_at)}
@@ -458,21 +463,13 @@ export default function ReunioesPage() {
                 )}
               </div>
 
-              {/* RODAPÉ E BOTÕES DE AÇÃO */}
               <div className="p-4 md:p-5 bg-gray-50 border-t border-gray-200 flex justify-end gap-3 rounded-b-xl">
-                <button
-                  onClick={() => setModalAberto(false)}
-                  className="px-5 py-2.5 border border-gray-300 text-gray-700 bg-white rounded-lg hover:bg-gray-100 font-semibold text-sm transition-colors shadow-sm"
-                >
+                <button onClick={() => setModalAberto(false)} className="px-5 py-2.5 border border-gray-300 text-gray-700 bg-white rounded-lg hover:bg-gray-100 font-semibold text-sm transition-colors shadow-sm">
                   Voltar
                 </button>
                 
                 {!bloqueioAta && (
-                  <button
-                    onClick={(e) => handleSalvar(e)}
-                    disabled={salvando || uploading}
-                    className="px-6 py-2.5 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 text-sm disabled:opacity-50 shadow-md transition-colors"
-                  >
+                  <button onClick={(e) => handleSalvar(e)} disabled={salvando || uploading} className="px-6 py-2.5 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 text-sm disabled:opacity-50 shadow-md transition-colors">
                     {salvando ? "Salvando..." : "Salvar Reunião"}
                   </button>
                 )}

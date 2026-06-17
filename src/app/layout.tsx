@@ -136,6 +136,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 <Link href="/patrimonio" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/patrimonio') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Patrimônio</Link>
                 <Link href="/escalas" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/escalas') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Escalas</Link>
                 <Link href="/reunioes" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/reunioes') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Reuniões</Link>
+                <Link href="/programacao" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/programacao') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Programação</Link>
                 <Link href="/configuracoes" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname === '/configuracoes' ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Configurações</Link>
               </nav>
             </aside>
