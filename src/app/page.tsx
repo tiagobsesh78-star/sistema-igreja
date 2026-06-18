@@ -9,7 +9,7 @@ import { podeEditar, formatarPerfis } from "../lib/permissoes";
 export default function Dashboard() {
   const router = useRouter();
   const [carregando, setCarregando] = useState(true);
-  const [perfisUsuario, setPerfisUsuario] = useState<string[]>([]); // Controle de Perfis
+  const [perfisUsuario, setPerfisUsuario] = useState<string[]>([]); 
   
   // Estados de Membros
   const [stats, setStats] = useState({
@@ -20,7 +20,7 @@ export default function Dashboard() {
     mulheres: 0,
   });
   const [recentes, setRecentes] = useState<any[]>([]);
-  const [aniversariantes, setAniversariantes] = useState<any[]>([]); // NOVO ESTADO: Aniversariantes
+  const [aniversariantes, setAniversariantes] = useState<any[]>([]); 
 
   // Estados de Programação
   const dataAtual = new Date();
@@ -81,17 +81,14 @@ export default function Dashboard() {
           const aniversariantesFiltrados = data.filter((m) => {
             if (!m.data_nascimento) return false;
             
-            // Quebra a data "YYYY-MM-DD" para analisar
             const partesData = m.data_nascimento.split('-');
             if (partesData.length !== 3) return false;
             
             const mesNascimento = parseInt(partesData[1], 10);
             const diaNascimento = parseInt(partesData[2], 10);
 
-            // Retorna apenas quem faz aniversário neste mês e o dia for >= hoje
             return mesNascimento === mesAtual && diaNascimento >= diaAtual;
           }).sort((a, b) => {
-            // Ordena para que os aniversariantes mais próximos apareçam primeiro
             const diaA = parseInt(a.data_nascimento.split('-')[2], 10);
             const diaB = parseInt(b.data_nascimento.split('-')[2], 10);
             return diaA - diaB;
@@ -129,10 +126,19 @@ export default function Dashboard() {
       dataItem.getMonth() + 1 === mesSelecionado &&
       dataItem.getFullYear() === anoSelecionado
     );
-  }).sort((a, b) => new Date(a.data + "T00:00:00").getTime() - new Date(b.data + "T00:00:00").getTime()); // Ordena por data
+  }).sort((a, b) => new Date(a.data + "T00:00:00").getTime() - new Date(b.data + "T00:00:00").getTime());
 
-  // Verifica se o usuário tem permissão para cadastrar membros
+  // Regras de Visualização e Edição Baseadas nos Perfis
   const podeAdicionarMembro = podeEditar(perfisUsuario, 'membros');
+  
+  const podeVerUltimosMembros = perfisUsuario.includes("Secretário") || 
+                                perfisUsuario.includes("Pastor/Presbítero") || 
+                                perfisUsuario.includes("Líder") ||
+                                perfisUsuario.includes("Administrador");
+
+  const podeVerTodosMembros = perfisUsuario.includes("Secretário") || 
+                              perfisUsuario.includes("Pastor/Presbítero") || 
+                              perfisUsuario.includes("Administrador");
 
   if (carregando) return <div className="flex h-screen items-center justify-center"><div className="text-xl text-gray-500 font-medium animate-pulse">Carregando painel administrativo...</div></div>;
 
@@ -217,8 +223,8 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
         
-        {/* 3. QUADRO DE PROGRAMAÇÃO MODERNO (OCUPA 2/3 DA TELA) */}
-        <div className="xl:col-span-2 bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
+        {/* 3. QUADRO DE PROGRAMAÇÃO MODERNO (Dinamiza a largura caso o painel de membros suma) */}
+        <div className={`${podeVerUltimosMembros ? "xl:col-span-2" : "xl:col-span-3"} bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col`}>
           {/* Cabeçalho do Quadro */}
           <div className="p-5 md:p-6 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-gray-50/50">
             <div className="flex items-center gap-3">
@@ -292,24 +298,21 @@ export default function Dashboard() {
                 </div>
               ) : (
                 <div className="relative border-l-2 border-gray-100 ml-3 space-y-6 pb-2">
-                  {programacoesDoMes.map((p, idx) => {
+                  {programacoesDoMes.map((p) => {
                     const dataObj = new Date(p.data + "T00:00:00");
                     const dia = dataObj.getDate().toString().padStart(2, '0');
                     const diaSemana = dataObj.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '');
                     
                     return (
                       <div key={p.id} className="relative pl-6 group">
-                        {/* Bolinha da Linha do Tempo */}
                         <div className={`absolute -left-[9px] top-1 w-4 h-4 rounded-full border-2 border-white ${p.tipo === 'Reunião' ? 'bg-blue-500' : 'bg-emerald-500'} group-hover:scale-125 transition-transform`} />
                         
                         <div className="flex items-start gap-4">
-                          {/* Bloco de Data */}
                           <div className="flex flex-col items-center pt-0.5">
                             <span className="text-lg font-black text-gray-800 leading-none">{dia}</span>
                             <span className="text-[10px] uppercase font-bold text-gray-500">{diaSemana}</span>
                           </div>
                           
-                          {/* Conteúdo */}
                           <div className="flex-1 bg-gray-50 group-hover:bg-gray-100 transition-colors p-3 rounded-lg border border-gray-100">
                             <div className="flex justify-between items-start gap-2">
                               <h4 className="text-sm font-bold text-gray-800 leading-tight">{p.titulo}</h4>
@@ -337,56 +340,59 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* 4. TABELA ÚLTIMOS CADASTRADOS (OCUPA 1/3 DA TELA) */}
-        <div className="xl:col-span-1 bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
-          <div className="p-5 md:p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-            <h2 className="text-lg font-bold text-gray-800">Últimos Membros</h2>
-            <Link href="/membros" className="text-blue-600 hover:text-blue-800 text-sm font-semibold">Ver Todos</Link>
-          </div>
-          
-          <div className="overflow-x-auto flex-1">
-            <table className="w-full text-left border-collapse">
-              <tbody className="divide-y divide-gray-100">
-                {recentes.length === 0 ? (
-                  <tr><td className="p-8 text-center text-gray-400 text-sm">Nenhum membro registrado.</td></tr>
-                ) : (
-                  recentes.map((membro) => (
-                    <tr key={membro.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="p-4">
-                        <Link href={`/membros/${membro.id}`} className="flex items-center gap-3 w-full">
-                          {membro.foto_url ? (
-                            <img src={membro.foto_url} alt="Foto" className="w-10 h-10 rounded-full object-cover border border-gray-200 shadow-sm" />
-                          ) : (
-                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 border border-gray-200 flex items-center justify-center shadow-sm">
-                              <span className="text-xs font-bold text-gray-500 uppercase">
-                                {membro.nome_completo.charAt(0)}
-                              </span>
+        {/* 4. TABELA ÚLTIMOS CADASTRADOS */}
+        {podeVerUltimosMembros && (
+          <div className="xl:col-span-1 bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
+            <div className="p-5 md:p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+              <h2 className="text-lg font-bold text-gray-800">Últimos Membros</h2>
+              
+              {/* TRAVA ESPECÍFICA DO BOTÃO VER TODOS */}
+              {podeVerTodosMembros && (
+                <Link href="/membros" className="text-blue-600 hover:text-blue-800 text-sm font-semibold">Ver Todos</Link>
+              )}
+            </div>
+            
+            <div className="overflow-x-auto flex-1">
+              <table className="w-full text-left border-collapse">
+                <tbody className="divide-y divide-gray-100">
+                  {recentes.length === 0 ? (
+                    <tr><td className="p-8 text-center text-gray-400 text-sm">Nenhum membro registrado.</td></tr>
+                  ) : (
+                    recentes.map((membro) => (
+                      <tr key={membro.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="p-4">
+                          <Link href={`/membros/${membro.id}`} className="flex items-center gap-3 w-full">
+                            {membro.foto_url ? (
+                              <img src={membro.foto_url} alt="Foto" className="w-10 h-10 rounded-full object-cover border border-gray-200 shadow-sm" />
+                            ) : (
+                              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 border border-gray-200 flex items-center justify-center shadow-sm">
+                                <span className="text-xs font-bold text-gray-500 uppercase">
+                                  {membro.nome_completo.charAt(0)}
+                                </span>
+                              </div>
+                            )}
+                            <div className="overflow-hidden">
+                              <p className="font-bold text-gray-900 text-sm truncate">{membro.nome_completo}</p>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <span className="text-xs text-gray-500 truncate">{membro.cargo || "Membro"}</span>
+                                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${membro.status === 'Ativo' ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                              </div>
                             </div>
-                          )}
-                          <div className="overflow-hidden">
-                            <p className="font-bold text-gray-900 text-sm truncate">{membro.nome_completo}</p>
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <span className="text-xs text-gray-500 truncate">{membro.cargo || "Membro"}</span>
-                              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${membro.status === 'Ativo' ? 'bg-green-500' : 'bg-red-500'}`}></span>
-                            </div>
-                          </div>
-                        </Link>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                          </Link>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+        )}
 
       </div>
 
-      {/* ========================================== */}
-      {/* 5. QUADRO DE ANIVERSARIANTES DO MÊS (NOVO) */}
-      {/* ========================================== */}
+      {/* 5. QUADRO DE ANIVERSARIANTES DO MÊS */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
-        {/* Cabeçalho do Quadro */}
         <div className="p-5 md:p-6 border-b border-gray-100 flex items-center gap-4 bg-gradient-to-r from-pink-50/50 to-white">
           <div className="bg-pink-500 p-2.5 rounded-lg shadow-sm text-white transform -rotate-6">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 15.546c-.523 0-1.046.151-1.5.454a2.704 2.704 0 01-3 0 2.704 2.704 0 00-3 0 2.704 2.704 0 01-3 0 2.704 2.704 0 00-3 0 2.704 2.704 0 01-3 0 2.701 2.701 0 00-1.5-.454M9 6v2m3-2v2m3-2v2M9 3h.01M12 3h.01M15 3h.01M21 21v-7a2 2 0 00-2-2H5a2 2 0 00-2 2v7h18zm-3-9v-2a2 2 0 00-2-2H8a2 2 0 00-2 2v2h12z"></path></svg>
@@ -397,7 +403,6 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Corpo com Grid de Fotos */}
         <div className="p-5 md:p-6">
           {aniversariantes.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-8 text-center space-y-2">
@@ -412,13 +417,10 @@ export default function Dashboard() {
                 const mesAniversario = parseInt(partes[1], 10);
                 const ehHoje = diaAniversario === new Date().getDate() && mesAniversario === (new Date().getMonth() + 1);
 
-                // Lógica simples para pegar só o Primeiro Nome
                 const primeiroNome = membro.nome_completo.split(' ')[0];
 
                 return (
                   <div key={membro.id} className={`flex flex-col items-center p-3 rounded-xl border transition-all ${ehHoje ? 'border-pink-300 bg-pink-50/40 shadow-sm scale-105' : 'border-gray-100 bg-white hover:border-pink-200'}`}>
-                    
-                    {/* Foto de Perfil */}
                     <div className="relative">
                       {membro.foto_url ? (
                         <img src={membro.foto_url} alt={membro.nome_completo} className={`w-14 h-14 rounded-full object-cover shadow-sm ${ehHoje ? 'ring-4 ring-pink-300 ring-offset-1' : 'border border-gray-200'}`} />
@@ -427,19 +429,13 @@ export default function Dashboard() {
                           <span className="text-lg font-black uppercase">{primeiroNome.charAt(0)}</span>
                         </div>
                       )}
-                      
-                      {/* Coroa de Hoje */}
-                      {ehHoje && (
-                        <div className="absolute -top-3 -right-2 text-xl animate-bounce">👑</div>
-                      )}
+                      {ehHoje && <div className="absolute -top-3 -right-2 text-xl animate-bounce">👑</div>}
                     </div>
 
-                    {/* Nome do Membro */}
                     <h3 className="text-sm font-bold text-gray-800 mt-3 text-center truncate w-full" title={membro.nome_completo}>
                       {primeiroNome}
                     </h3>
 
-                    {/* Data ou "Hoje!" */}
                     {ehHoje ? (
                       <span className="mt-1 px-2.5 py-0.5 bg-pink-500 text-white text-[10px] font-black uppercase tracking-wider rounded-full shadow-sm animate-pulse">
                         Hoje!

@@ -43,16 +43,18 @@ export default function LoginPage() {
         return;
       }
 
-      // Salva os dados da sessão, agora incluindo a igreja_id
+      // Salva os dados da sessão, agora incluindo a igreja_id e os múltiplos PERFIS
       localStorage.setItem("usuarioLogado", JSON.stringify({
         id: data.id,
         nome: data.nome_completo,
         cpf: data.cpf,
-        nivel_acesso: data.nivel_acesso || "Membro",
+        nivel_acesso: data.nivel_acesso || "Membro", // Mantido como fallback
+        perfis: data.perfis || [], // O NOSSO ARRAY DE PERFIS SALVO NA SESSÃO!
         igreja_id: data.igreja_id // A MÁGICA ACONTECE AQUI
       }));
 
-      router.push("/membros");
+      // REDIRECIONA DIRETO PARA O DASHBOARD / TELA INICIAL
+      router.push("/");
     } catch (err) {
       setErro("Erro de conexão com o banco de dados.");
       setCarregando(false);
