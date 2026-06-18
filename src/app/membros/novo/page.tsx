@@ -13,11 +13,16 @@ export default function NovoMembro() {
   const [cpfFormatado, setCpfFormatado] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   
-  // Estado para controlar a expansão do menu de acesso (Boolean)
   const [acessaSistema, setAcessaSistema] = useState(false);
 
+  // BLINDAGEM 1: Garante que o valor do input nunca seja lido como undefined
   const handleCpfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let valor = e.target.value.replace(/\D/g, ""); 
+    if (!e || !e.target) return;
+    const val = e.target.value || "";
+    let valor = val.replace(/\D/g, ""); 
+    
+    if (valor && valor.length > 11) valor = valor.slice(0, 11);
+    
     valor = valor.replace(/(\d{3})(\d)/, "$1.$2"); 
     valor = valor.replace(/(\d{3})(\d)/, "$1.$2"); 
     valor = valor.replace(/(\d{3})(\d{1,2})$/, "$1-$2"); 
@@ -26,31 +31,48 @@ export default function NovoMembro() {
 
   const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); };
   const handleDragLeave = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(false); };
+  
+  // BLINDAGEM 2: Previne crash de '.length' se o Admin arrastar um arquivo inválido
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault(); setIsDragging(false);
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) setFotoArquivo(e.dataTransfer.files[0]);
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      setFotoArquivo(e.dataTransfer.files[0]);
+    }
   };
 
   const salvarMembro = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setCarregando(true);
 
-    // 1. RECUPERA A IGREJA DO UTILIZADOR LOGADO
-    const usuarioLocal = localStorage.getItem("usuarioLogado");
-    if (!usuarioLocal) {
-      alert("Sessão expirada ou utilizador não identificado. Faça login novamente.");
-      router.push("/login");
-      return;
-    }
-    const usuario = JSON.parse(usuarioLocal);
-    const igrejaId = usuario.igreja_id;
-
-    const formData = new FormData(e.currentTarget);
-    let fotoUrl = null;
-
     try {
-      // Validação: Se marcou que acessa o sistema, o CPF passa a ser obrigatório para login
-      if (acessaSistema && cpfFormatado.length < 14) {
+      const usuarioLocal = localStorage.getItem("usuarioLogado");
+      if (!usuarioLocal) {
+        alert("Sessão expirada. Faça login novamente.");
+        router.push("/login");
+        return;
+      }
+      
+      const usuario = JSON.parse(usuarioLocal) || {};
+      
+      let igrejaId = usuario?.igreja_id || usuario?.id_igreja || usuario?.idIgreja;
+      
+      // BLINDAGEM 3: Verifica com segurança absoluta se 'igrejas' existe antes de ler o '.length'
+      if (!igrejaId && Array.isArray(usuario?.igrejas) && usuario.igrejas.length > 0) {
+        igrejaId = usuario.igrejas[0]?.id || usuario.igrejas[0]?.igreja_id;
+      }
+
+      if (!igrejaId) {
+        alert("Ação negada: O Administrador não está vinculado a nenhuma igreja no momento.");
+        setCarregando(false);
+        return;
+      }
+
+      const formData = new FormData(e.currentTarget);
+      let fotoUrl = null;
+
+      // BLINDAGEM 4: Previne crash se o CPF tentar medir o tamanho do texto e for undefined
+      const tamanhoCpf = cpfFormatado ? cpfFormatado.length : 0;
+      if (acessaSistema && tamanhoCpf < 14) {
         alert("Para dar acesso ao sistema, o CPF deve ser preenchido corretamente, pois será o login.");
         setCarregando(false);
         return;
@@ -64,8 +86,9 @@ export default function NovoMembro() {
         fotoUrl = dataUrl.publicUrl;
       }
 
-      const generoSelecionado = formData.get("genero") as string;
-      let cargoFinal = formData.get("cargo") as string;
+      const generoSelecionado = (formData.get("genero") as string) || "Masculino";
+      let cargoFinal = (formData.get("cargo") as string) || "Membro";
+      
       if (generoSelecionado === "Feminino") {
         const cargosFemininos: Record<string, string> = {
           "Obreiro": "Obreira", "Diácono": "Diaconisa", "Presbítero": "Presbítera", "Missionário": "Missionária", "Pastor": "Pastora"
@@ -73,18 +96,25 @@ export default function NovoMembro() {
         cargoFinal = cargosFemininos[cargoFinal] || cargoFinal;
       }
 
+      // Preenchimento de dados sem risco de variáveis soltas
       const dadosMembro = {
-        igreja_id: igrejaId, // <-- CARIMBO DA IGREJA INSERIDO AQUI
-        nome_completo: formData.get("nome_completo"), genero: generoSelecionado, 
-        cpf: cpfFormatado,
-        data_nascimento: formData.get("data_nascimento") || null, estado_civil: formData.get("estado_civil"),
-        telefone: formData.get("telefone"), endereco_rua: formData.get("endereco_rua"), endereco_numero: formData.get("endereco_numero"),
-        endereco_bairro: formData.get("endereco_bairro"), endereco_cidade_uf: formData.get("endereco_cidade_uf"),
-        endereco_cep: formData.get("endereco_cep"), data_batismo: formData.get("data_batismo") || null,
-        igreja_batismo: formData.get("igreja_batismo"), cargo: cargoFinal, foto_url: fotoUrl, 
-        congregacao: formData.get("congregacao"),
-        
-        // Campos de acesso salvos direto na tabela de membros
+        igreja_id: igrejaId,
+        nome_completo: formData.get("nome_completo") || "", 
+        genero: generoSelecionado, 
+        cpf: cpfFormatado || "",
+        data_nascimento: formData.get("data_nascimento") || null, 
+        estado_civil: formData.get("estado_civil") || "",
+        telefone: formData.get("telefone") || "", 
+        endereco_rua: formData.get("endereco_rua") || "", 
+        endereco_numero: formData.get("endereco_numero") || "",
+        endereco_bairro: formData.get("endereco_bairro") || "", 
+        endereco_cidade_uf: formData.get("endereco_cidade_uf") || "",
+        endereco_cep: formData.get("endereco_cep") || "", 
+        data_batismo: formData.get("data_batismo") || null,
+        igreja_batismo: formData.get("igreja_batismo") || "", 
+        cargo: cargoFinal, 
+        foto_url: fotoUrl, 
+        congregacao: formData.get("congregacao") || "",
         acessa_sistema: acessaSistema,
         senha: acessaSistema ? formData.get("senha") : null,
         nivel_acesso: acessaSistema ? formData.get("nivel_acesso") : "Membro"
@@ -95,9 +125,10 @@ export default function NovoMembro() {
 
       setMostrarModalSucesso(true);
     } catch (error: any) {
-      alert("Erro no processo: " + error.message);
+      alert("Erro no processo: " + (error?.message || "Erro desconhecido."));
+    } finally {
       setCarregando(false);
-    } 
+    }
   };
 
   const finalizarERedirecionar = () => { router.push("/membros"); };
@@ -155,7 +186,6 @@ export default function NovoMembro() {
             </div>
           </div>
 
-          {/* DADOS DE ENDEREÇO */}
           <div className="bg-gray-50 p-4 rounded-md space-y-4 mt-6 border border-gray-100">
             <h2 className="font-bold text-blue-700 uppercase text-xs tracking-wider">Endereço Residencial</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -182,7 +212,6 @@ export default function NovoMembro() {
             </div>
           </div>
 
-          {/* DADOS ECLESIÁSTICOS */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end mt-6">
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">Data de Batismo</label>
@@ -210,7 +239,6 @@ export default function NovoMembro() {
             </div>
           </div>
 
-          {/* ACESSO AO SISTEMA (MODO MODERNO DE BOTÕES SEGMENTADOS) */}
           <div className="bg-blue-50 p-6 rounded-md border border-blue-100 mt-6 transition-all duration-300">
             <div className="flex items-center justify-between gap-4">
               <div>
@@ -218,29 +246,22 @@ export default function NovoMembro() {
                 <p className="text-sm text-gray-600 mt-1">Permitir que este membro faça login (O CPF será o usuário).</p>
               </div>
               
-              {/* O NOVO CONTROLE: Botões segmentados modernos e alinhados ao lado do texto */}
               <div className="flex rounded-lg border border-gray-200 overflow-hidden shadow-inner flex-shrink-0">
-                {/* Botão "Não" - Usa tom de Vermelho quando ativo (Default) */}
                 <button
-                  type="button" // Essencial para não submeter o form principal
+                  type="button" 
                   onClick={() => setAcessaSistema(false)}
                   className={`px-5 py-2.5 text-sm font-semibold transition-colors duration-200 ${
-                    !acessaSistema
-                      ? "bg-red-600 text-white shadow-md"
-                      : "bg-white text-gray-700 hover:bg-gray-50"
+                    !acessaSistema ? "bg-red-600 text-white shadow-md" : "bg-white text-gray-700 hover:bg-gray-50"
                   }`}
                 >
                   Não
                 </button>
 
-                {/* Botão "Sim" - Usa tom de Azul quando ativo */}
                 <button
-                  type="button" // Essencial para não submeter o form principal
+                  type="button" 
                   onClick={() => setAcessaSistema(true)}
                   className={`px-5 py-2.5 text-sm font-semibold transition-colors duration-200 border-l border-gray-200 ${
-                    acessaSistema
-                      ? "bg-blue-600 text-white shadow-md"
-                      : "bg-white text-gray-700 hover:bg-gray-50"
+                    acessaSistema ? "bg-blue-600 text-white shadow-md" : "bg-white text-gray-700 hover:bg-gray-50"
                   }`}
                 >
                   Sim
@@ -248,7 +269,6 @@ export default function NovoMembro() {
               </div>
             </div>
 
-            {/* Menu Expandido de Senha e Permissão - Mantido e cravado */}
             {acessaSistema && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-5 pt-5 border-t border-blue-200">
                 <div>
@@ -273,7 +293,6 @@ export default function NovoMembro() {
             )}
           </div>
 
-          {/* UPLOAD DE FOTO */}
           <div className="mt-8">
             <label className="block text-sm font-bold text-gray-700 mb-2">Foto do Perfil (Opcional)</label>
             <div 
@@ -301,7 +320,6 @@ export default function NovoMembro() {
             </div>
           </div>
 
-          {/* BOTÕES FINAIS */}
           <div className="pt-6 border-t mt-8 flex flex-col md:flex-row items-center gap-4">
             <button type="submit" disabled={carregando} className="w-full md:w-auto px-10 py-4 bg-blue-600 text-white font-bold rounded-md hover:bg-blue-700 transition duration-300 shadow-lg disabled:bg-gray-400">
               {carregando ? "Enviando Dados..." : "Finalizar Cadastro"}
@@ -314,7 +332,6 @@ export default function NovoMembro() {
         </form>
       </div>
 
-      {/* MODAL DE SUCESSO */}
       {mostrarModalSucesso && (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 text-center transform transition-all">

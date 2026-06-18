@@ -18,6 +18,7 @@ export default function Dashboard() {
     mulheres: 0,
   });
   const [recentes, setRecentes] = useState<any[]>([]);
+  const [aniversariantes, setAniversariantes] = useState<any[]>([]); // NOVO ESTADO: Aniversariantes
 
   // Estados de Programação
   const dataAtual = new Date();
@@ -64,6 +65,34 @@ export default function Dashboard() {
 
           setStats({ total, ativos, inativos, homens, mulheres });
           setRecentes(data.slice(0, 5));
+
+          // ==========================================
+          // LÓGICA INTELIGENTE DE ANIVERSARIANTES
+          // ==========================================
+          const hoje = new Date();
+          const mesAtual = hoje.getMonth() + 1;
+          const diaAtual = hoje.getDate();
+
+          const aniversariantesFiltrados = data.filter((m) => {
+            if (!m.data_nascimento) return false;
+            
+            // Quebra a data "YYYY-MM-DD" para analisar
+            const partesData = m.data_nascimento.split('-');
+            if (partesData.length !== 3) return false;
+            
+            const mesNascimento = parseInt(partesData[1], 10);
+            const diaNascimento = parseInt(partesData[2], 10);
+
+            // Retorna apenas quem faz aniversário neste mês e o dia for >= hoje
+            return mesNascimento === mesAtual && diaNascimento >= diaAtual;
+          }).sort((a, b) => {
+            // Ordena para que os aniversariantes mais próximos apareçam primeiro
+            const diaA = parseInt(a.data_nascimento.split('-')[2], 10);
+            const diaB = parseInt(b.data_nascimento.split('-')[2], 10);
+            return diaA - diaB;
+          });
+
+          setAniversariantes(aniversariantesFiltrados);
         }
 
         // Processa Programações
@@ -340,6 +369,82 @@ export default function Dashboard() {
         </div>
 
       </div>
+
+      {/* ========================================== */}
+      {/* 5. QUADRO DE ANIVERSARIANTES DO MÊS (NOVO) */}
+      {/* ========================================== */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
+        {/* Cabeçalho do Quadro */}
+        <div className="p-5 md:p-6 border-b border-gray-100 flex items-center gap-4 bg-gradient-to-r from-pink-50/50 to-white">
+          <div className="bg-pink-500 p-2.5 rounded-lg shadow-sm text-white transform -rotate-6">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 15.546c-.523 0-1.046.151-1.5.454a2.704 2.704 0 01-3 0 2.704 2.704 0 00-3 0 2.704 2.704 0 01-3 0 2.704 2.704 0 00-3 0 2.704 2.704 0 01-3 0 2.701 2.701 0 00-1.5-.454M9 6v2m3-2v2m3-2v2M9 3h.01M12 3h.01M15 3h.01M21 21v-7a2 2 0 00-2-2H5a2 2 0 00-2 2v7h18zm-3-9v-2a2 2 0 00-2-2H8a2 2 0 00-2 2v2h12z"></path></svg>
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-gray-800 tracking-tight">Aniversariantes do Mês</h2>
+            <p className="text-xs font-medium text-pink-600 mt-0.5">Celebre a vida dos seus membros!</p>
+          </div>
+        </div>
+
+        {/* Corpo com Grid de Fotos */}
+        <div className="p-5 md:p-6">
+          {aniversariantes.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-8 text-center space-y-2">
+              <span className="text-4xl">🎂</span>
+              <p className="text-sm text-gray-400 font-medium">Nenhum membro completando ano nos próximos dias deste mês.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-4">
+              {aniversariantes.map((membro) => {
+                const partes = membro.data_nascimento.split('-');
+                const diaAniversario = parseInt(partes[2], 10);
+                const mesAniversario = parseInt(partes[1], 10);
+                const ehHoje = diaAniversario === new Date().getDate() && mesAniversario === (new Date().getMonth() + 1);
+
+                // Lógica simples para pegar só o Primeiro Nome
+                const primeiroNome = membro.nome_completo.split(' ')[0];
+
+                return (
+                  <div key={membro.id} className={`flex flex-col items-center p-3 rounded-xl border transition-all ${ehHoje ? 'border-pink-300 bg-pink-50/40 shadow-sm scale-105' : 'border-gray-100 bg-white hover:border-pink-200'}`}>
+                    
+                    {/* Foto de Perfil */}
+                    <div className="relative">
+                      {membro.foto_url ? (
+                        <img src={membro.foto_url} alt={membro.nome_completo} className={`w-14 h-14 rounded-full object-cover shadow-sm ${ehHoje ? 'ring-4 ring-pink-300 ring-offset-1' : 'border border-gray-200'}`} />
+                      ) : (
+                        <div className={`w-14 h-14 rounded-full flex items-center justify-center shadow-sm ${ehHoje ? 'bg-gradient-to-br from-pink-400 to-pink-500 text-white ring-4 ring-pink-300 ring-offset-1' : 'bg-gradient-to-br from-gray-100 to-gray-200 text-gray-400 border border-gray-200'}`}>
+                          <span className="text-lg font-black uppercase">{primeiroNome.charAt(0)}</span>
+                        </div>
+                      )}
+                      
+                      {/* Coroa de Hoje */}
+                      {ehHoje && (
+                        <div className="absolute -top-3 -right-2 text-xl animate-bounce">👑</div>
+                      )}
+                    </div>
+
+                    {/* Nome do Membro */}
+                    <h3 className="text-sm font-bold text-gray-800 mt-3 text-center truncate w-full" title={membro.nome_completo}>
+                      {primeiroNome}
+                    </h3>
+
+                    {/* Data ou "Hoje!" */}
+                    {ehHoje ? (
+                      <span className="mt-1 px-2.5 py-0.5 bg-pink-500 text-white text-[10px] font-black uppercase tracking-wider rounded-full shadow-sm animate-pulse">
+                        Hoje!
+                      </span>
+                    ) : (
+                      <span className="mt-1 text-xs font-semibold text-gray-500 bg-gray-50 px-2 py-0.5 rounded-md border border-gray-100">
+                        {diaAniversario.toString().padStart(2, '0')}/{mesAniversario.toString().padStart(2, '0')}
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
     </div>
   );
-}
+} 
