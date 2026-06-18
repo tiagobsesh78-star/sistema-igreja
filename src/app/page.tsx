@@ -4,10 +4,12 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "../lib/supabase"; 
+import { podeEditar, formatarPerfis } from "../lib/permissoes";
 
 export default function Dashboard() {
   const router = useRouter();
   const [carregando, setCarregando] = useState(true);
+  const [perfisUsuario, setPerfisUsuario] = useState<string[]>([]); // Controle de Perfis
   
   // Estados de Membros
   const [stats, setStats] = useState({
@@ -45,6 +47,9 @@ export default function Dashboard() {
 
     const usuario = JSON.parse(userLocal);
     const igrejaId = usuario.igreja_id || usuario.id_igreja || usuario.idIgreja;
+    
+    // Armazena os perfis para controle de visualização no Dashboard
+    setPerfisUsuario(formatarPerfis(usuario.perfis || usuario.nivel_acesso));
 
     async function carregarDadosDashboard() {
       try {
@@ -126,6 +131,9 @@ export default function Dashboard() {
     );
   }).sort((a, b) => new Date(a.data + "T00:00:00").getTime() - new Date(b.data + "T00:00:00").getTime()); // Ordena por data
 
+  // Verifica se o usuário tem permissão para cadastrar membros
+  const podeAdicionarMembro = podeEditar(perfisUsuario, 'membros');
+
   if (carregando) return <div className="flex h-screen items-center justify-center"><div className="text-xl text-gray-500 font-medium animate-pulse">Carregando painel administrativo...</div></div>;
 
   return (
@@ -144,9 +152,13 @@ export default function Dashboard() {
           <Link href="/escalas" className="px-5 py-2.5 bg-teal-600 text-white font-medium text-sm rounded-lg hover:bg-teal-700 transition shadow-sm">
             Ver Escalas
           </Link>
-          <Link href="/membros/novo" className="px-5 py-2.5 bg-blue-600 text-white font-medium text-sm rounded-lg hover:bg-blue-700 transition shadow-sm">
-            + Novo Membro
-          </Link>
+          
+          {/* TRAVA DO BOTÃO NOVO MEMBRO */}
+          {podeAdicionarMembro && (
+            <Link href="/membros/novo" className="px-5 py-2.5 bg-blue-600 text-white font-medium text-sm rounded-lg hover:bg-blue-700 transition shadow-sm">
+              + Novo Membro
+            </Link>
+          )}
         </div>
       </div>
 
@@ -447,4 +459,4 @@ export default function Dashboard() {
 
     </div>
   );
-} 
+}

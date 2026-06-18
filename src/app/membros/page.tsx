@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "../../../src/lib/supabase";
+import { podeEditar, formatarPerfis } from "../../../src/lib/permissoes";
 
 // Dicionários para inteligência dos filtros de cargo
 const paraMasculino: Record<string, string> = {
@@ -24,6 +25,10 @@ const cargosEquivalentes: Record<string, string[]> = {
 export default function MembrosPage() {
   const [membros, setMembros] = useState<any[]>([]);
   const [carregando, setCarregando] = useState(true);
+  const [perfisUsuario, setPerfisUsuario] = useState<string[]>([]);
+  
+  // Estado para controlar se o usuário logado tem permissão total na lista
+  const [temAcessoTotal, setTemAcessoTotal] = useState(false);
   
   const [busca, setBusca] = useState("");
   const [cargoFiltro, setCargoFiltro] = useState("");
@@ -39,21 +44,37 @@ export default function MembrosPage() {
   }, []);
 
   async function buscarMembros() {
-    // 1. Recupera o utilizador logado para saber de qual igreja ele é
     const usuarioLocal = localStorage.getItem("usuarioLogado");
     
     if (!usuarioLocal) {
       setCarregando(false);
-      return; // Se não estiver logado, nem tenta procurar
+      return; 
     }
 
     const usuario = JSON.parse(usuarioLocal);
+    
+    // Formata e descobre as permissões do usuário
+    const perfisTratados = formatarPerfis(usuario.perfis || usuario.nivel_acesso);
+    setPerfisUsuario(perfisTratados);
 
-    // 2. Faz a procura no banco FILTRANDO pela igreja_id do utilizador
-    const { data, error } = await supabase
+    // REGRA FORTE: Apenas Secretário, Pastor/Presbítero ou Admin veem a lista completa
+    const isAdmin = perfisTratados.includes("Secretário") || 
+                    perfisTratados.includes("Pastor/Presbítero") || 
+                    perfisTratados.includes("Administrador");
+    
+    setTemAcessoTotal(isAdmin);
+
+    let query = supabase
       .from("membros")
       .select("*")
-      .eq("igreja_id", usuario.igreja_id); // <-- A TRAVA MULTI-TENANT AQUI
+      .eq("igreja_id", usuario.igreja_id); // TRAVA MULTI-TENANT
+
+    // SE NÃO FOR PASTOR OU SECRETÁRIO, BUSCA APENAS O SEU PRÓPRIO CADASTRO
+    if (!isAdmin) {
+      query = query.eq("id", usuario.id);
+    }
+
+    const { data, error } = await query;
 
     if (!error && data) setMembros(data);
     setCarregando(false);
@@ -64,7 +85,6 @@ export default function MembrosPage() {
     const cpf = m.cpf || "";
     const matchBusca = nome.toLowerCase().includes(busca.toLowerCase()) || cpf.includes(busca);
     
-    // Nova lógica inteligente para unificar o filtro de cargo
     const matchCargo = cargoFiltro === "" || 
       (cargosEquivalentes[cargoFiltro] 
         ? cargosEquivalentes[cargoFiltro].includes(m.cargo) 
@@ -87,7 +107,6 @@ export default function MembrosPage() {
     return 0;
   });
 
-  // Unifica os cargos femininos para o masculino apenas para exibição no Menu
   const cargosUnicos = Array.from(
     new Set(membros.map(m => paraMasculino[m.cargo] || m.cargo).filter(Boolean))
   ).sort();
@@ -127,14 +146,19 @@ export default function MembrosPage() {
 
   if (carregando) return <div className="text-center py-20 text-gray-500 font-medium">Carregando membros...</div>;
 
+  // Usa nossa função oficial para decidir quem vê os botões de edição/criação
+  const ehEditor = podeEditar(perfisUsuario, 'membros');
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 md:p-8">
         
         <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Membros Cadastrados</h1>
+          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">
+            {temAcessoTotal ? "Membros Cadastrados" : "Meu Perfil"}
+          </h1>
           <div className="flex flex-wrap md:flex-nowrap gap-3 justify-center md:justify-end">
-            {selecionados.length > 0 && (
+            {selecionados.length > 0 && temAcessoTotal && (
               <Link 
                 href={`/membros/lote?ids=${selecionados.join(',')}`}
                 className="px-4 py-2 bg-teal-600 text-white font-medium rounded shadow-sm text-sm flex items-center justify-center gap-2 whitespace-nowrap hover:bg-teal-700 transition"
@@ -143,65 +167,72 @@ export default function MembrosPage() {
                 Imprimir Lote ({selecionados.length})
               </Link>
             )}
-            <Link href="/membros/novo" className="px-5 py-2.5 bg-blue-600 text-white font-medium rounded shadow-sm text-sm flex items-center justify-center whitespace-nowrap hover:bg-blue-700 transition">
-              + Novo Membro
-            </Link>
+            
+            {/* SÓ MOSTRA O BOTÃO "NOVO MEMBRO" SE FOR PASTOR OU SECRETÁRIO */}
+            {ehEditor && (
+              <Link href="/membros/novo" className="px-5 py-2.5 bg-blue-600 text-white font-medium rounded shadow-sm text-sm flex items-center justify-center whitespace-nowrap hover:bg-blue-700 transition">
+                + Novo Membro
+              </Link>
+            )}
           </div>
         </div>
 
-        <div className="flex flex-col md:flex-row gap-4 mb-6 w-full">
-          
-          <div className="flex-1 w-full flex items-center bg-gray-50 border border-gray-200 rounded-md focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-500 focus-within:bg-white transition overflow-hidden">
-            <div className="w-12 flex items-center justify-center text-gray-400">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
+        {/* ESCONDE OS FILTROS SE FOR UM MEMBRO COMUM, POIS ELE SÓ VERÁ ELE MESMO */}
+        {temAcessoTotal && (
+          <div className="flex flex-col md:flex-row gap-4 mb-6 w-full">
+            <div className="flex-1 w-full flex items-center bg-gray-50 border border-gray-200 rounded-md focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-500 focus-within:bg-white transition overflow-hidden">
+              <div className="w-12 flex items-center justify-center text-gray-400">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </div>
+              <input 
+                type="text" 
+                placeholder="Buscar por nome ou CPF..." 
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                className="w-full py-2.5 pr-4 bg-transparent border-none outline-none text-sm text-gray-700 placeholder-gray-400"
+              />
             </div>
-            <input 
-              type="text" 
-              placeholder="Buscar por nome ou CPF..." 
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-              className="w-full py-2.5 pr-4 bg-transparent border-none outline-none text-sm text-gray-700 placeholder-gray-400"
-            />
+
+            <select 
+              value={cargoFiltro}
+              onChange={(e) => setCargoFiltro(e.target.value)}
+              className="w-full md:w-auto md:min-w-[180px] flex-shrink-0 px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-md outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 focus:bg-white transition text-sm text-gray-700 cursor-pointer"
+            >
+              <option value="">Todos os Cargos</option>
+              {cargosUnicos.map((c, i) => (
+                <option key={i} value={c}>{c}</option>
+              ))}
+            </select>
+
+            <select 
+              value={congregacaoFiltro}
+              onChange={(e) => setCongregacaoFiltro(e.target.value)}
+              className="w-full md:w-auto md:min-w-[180px] flex-shrink-0 px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-md outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 focus:bg-white transition text-sm text-gray-700 cursor-pointer"
+            >
+              <option value="">Todas Congregações</option>
+              {congregacoesUnicas.map((c, i) => (
+                <option key={i} value={c}>{c}</option>
+              ))}
+            </select>
           </div>
-
-          <select 
-            value={cargoFiltro}
-            onChange={(e) => setCargoFiltro(e.target.value)}
-            className="w-full md:w-auto md:min-w-[180px] flex-shrink-0 px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-md outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 focus:bg-white transition text-sm text-gray-700 cursor-pointer"
-          >
-            <option value="">Todos os Cargos</option>
-            {cargosUnicos.map((c, i) => (
-              <option key={i} value={c}>{c}</option>
-            ))}
-          </select>
-
-          <select 
-            value={congregacaoFiltro}
-            onChange={(e) => setCongregacaoFiltro(e.target.value)}
-            className="w-full md:w-auto md:min-w-[180px] flex-shrink-0 px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-md outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 focus:bg-white transition text-sm text-gray-700 cursor-pointer"
-          >
-            <option value="">Todas Congregações</option>
-            {congregacoesUnicas.map((c, i) => (
-              <option key={i} value={c}>{c}</option>
-            ))}
-          </select>
-          
-        </div>
+        )}
 
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-left">
             <thead className="bg-gray-50 border-y border-gray-200 text-gray-500 font-semibold uppercase text-xs tracking-wide select-none">
               <tr>
-                <th className="py-3 px-4 w-12 text-center">
-                  <input 
-                    type="checkbox" 
-                    className="w-4 h-4 text-blue-600 border-gray-300 rounded cursor-pointer"
-                    checked={selecionados.length === membrosProcessados.length && membrosProcessados.length > 0}
-                    onChange={toggleTodos}
-                  />
-                </th>
+                {temAcessoTotal && (
+                  <th className="py-3 px-4 w-12 text-center">
+                    <input 
+                      type="checkbox" 
+                      className="w-4 h-4 text-blue-600 border-gray-300 rounded cursor-pointer"
+                      checked={selecionados.length === membrosProcessados.length && membrosProcessados.length > 0}
+                      onChange={toggleTodos}
+                    />
+                  </th>
+                )}
                 <th 
                   className="py-3 px-4 cursor-pointer hover:bg-gray-200 transition group"
                   onClick={() => handleSort('nome_completo')}
@@ -240,14 +271,18 @@ export default function MembrosPage() {
             <tbody className="divide-y divide-gray-200">
               {membrosProcessados.map((membro) => (
                 <tr key={membro.id} className={`transition ${selecionados.includes(membro.id) ? 'bg-blue-50/50' : 'hover:bg-gray-50/50'}`}>
-                  <td className="py-4 px-4 text-center">
-                    <input 
-                      type="checkbox" 
-                      className="w-4 h-4 text-blue-600 border-gray-300 rounded cursor-pointer"
-                      checked={selecionados.includes(membro.id)}
-                      onChange={() => toggleSelecao(membro.id)}
-                    />
-                  </td>
+                  
+                  {temAcessoTotal && (
+                    <td className="py-4 px-4 text-center">
+                      <input 
+                        type="checkbox" 
+                        className="w-4 h-4 text-blue-600 border-gray-300 rounded cursor-pointer"
+                        checked={selecionados.includes(membro.id)}
+                        onChange={() => toggleSelecao(membro.id)}
+                      />
+                    </td>
+                  )}
+
                   <td className="py-4 px-4">
                     <div className="flex items-center gap-3">
                       <div className="flex-shrink-0 flex items-center justify-center bg-gray-100 border border-gray-200 rounded-full w-10 h-10 overflow-hidden">
@@ -274,15 +309,22 @@ export default function MembrosPage() {
                     </span>
                   </td>
                   <td className="py-4 px-4 text-right font-medium">
+                    {/* Todos podem ver o seu próprio perfil ou os demais (se for Admin) */}
                     <Link href={`/membros/${membro.id}`} className="text-blue-600 hover:text-blue-800 transition">Ver</Link>
-                    <span className="text-gray-300 mx-3">|</span>
-                    <Link href={`/membros/${membro.id}/editar`} className="text-orange-500 hover:text-orange-600 transition">Editar</Link>
+                    
+                    {/* TRAVA DO LINK 'EDITAR' */}
+                    {ehEditor && (
+                      <>
+                        <span className="text-gray-300 mx-3">|</span>
+                        <Link href={`/membros/${membro.id}/editar`} className="text-orange-500 hover:text-orange-600 transition">Editar</Link>
+                      </>
+                    )}
                   </td>
                 </tr>
               ))}
               {membrosProcessados.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="py-10 text-center text-gray-500">Nenhum membro encontrado.</td>
+                  <td colSpan={temAcessoTotal ? 6 : 5} className="py-10 text-center text-gray-500">Nenhum membro encontrado.</td>
                 </tr>
               )}
             </tbody>

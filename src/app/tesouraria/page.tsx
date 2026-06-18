@@ -4,11 +4,13 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../../src/lib/supabase";
+import { podeEditar, formatarPerfis } from "../../../src/lib/permissoes";
 
 export default function TesourariaPage() {
   const router = useRouter();
   const [lancamentos, setLancamentos] = useState<any[]>([]);
   const [carregando, setCarregando] = useState(true);
+  const [perfisUsuario, setPerfisUsuario] = useState<string[]>([]); // Estado de Controle de Perfis
 
   // Configurações e Dados Estruturados
   const [configIgreja, setConfigIgreja] = useState<any>(null);
@@ -41,7 +43,7 @@ export default function TesourariaPage() {
 
   useEffect(() => {
     async function carregarDados() {
-      // 1. RECUPERA A IGREJA DO UTILIZADOR LOGADO
+      // 1. RECUPERA A IGREJA E OS PERFIS DO UTILIZADOR LOGADO
       const usuarioLocal = localStorage.getItem("usuarioLogado");
       if (!usuarioLocal) {
         router.push("/login");
@@ -49,6 +51,9 @@ export default function TesourariaPage() {
       }
       const usuario = JSON.parse(usuarioLocal);
       const igrejaId = usuario.igreja_id;
+      
+      // Armazena os perfis para controle visual
+      setPerfisUsuario(formatarPerfis(usuario.perfis || usuario.nivel_acesso));
 
       // 2. APLICA A TRAVA 'igreja_id' EM TODAS AS BUSCAS
       const { data: dadosIgreja } = await supabase.from("configuracao_igreja").select("*").eq("igreja_id", igrejaId).limit(1).maybeSingle();
@@ -161,6 +166,9 @@ export default function TesourariaPage() {
     document.body.removeChild(link);
   };
 
+  // Trava central de permissão para esse módulo
+  const ehEditor = podeEditar(perfisUsuario, 'tesouraria');
+
   if (carregando) return <div className="p-8 text-center text-gray-600">Carregando tesouraria...</div>;
 
   return (
@@ -199,11 +207,15 @@ export default function TesourariaPage() {
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Tesouraria</h1>
           <p className="text-sm text-gray-500 mt-1">Gestão de entradas, saídas e relatórios financeiros.</p>
         </div>
-        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-          <Link href="/tesouraria/configuracoes" className="flex-1 md:flex-none px-4 py-2 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition text-sm text-center">Configurações Globais</Link>
-          <Link href="/tesouraria/dizimistas" className="flex-1 md:flex-none px-4 py-2 bg-blue-50 text-blue-700 font-medium rounded-lg hover:bg-blue-100 transition text-sm text-center">Dizimistas</Link>
-          <Link href="/tesouraria/novo" className="flex-1 md:flex-none px-4 py-2 bg-teal-600 text-white font-medium rounded-lg hover:bg-teal-700 transition shadow-sm text-sm text-center">+ Novo Lançamento</Link>
-        </div>
+        
+        {/* ESCONDE AÇÕES ADMINISTRATIVAS SE NÃO FOR EDITOR DE TESOURARIA */}
+        {ehEditor && (
+          <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+            <Link href="/tesouraria/configuracoes" className="flex-1 md:flex-none px-4 py-2 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition text-sm text-center">Configurações Globais</Link>
+            <Link href="/tesouraria/dizimistas" className="flex-1 md:flex-none px-4 py-2 bg-blue-50 text-blue-700 font-medium rounded-lg hover:bg-blue-100 transition text-sm text-center">Dizimistas</Link>
+            <Link href="/tesouraria/novo" className="flex-1 md:flex-none px-4 py-2 bg-teal-600 text-white font-medium rounded-lg hover:bg-teal-700 transition shadow-sm text-sm text-center">+ Novo Lançamento</Link>
+          </div>
+        )}
       </div>
 
       {/* FILTROS */}

@@ -2,11 +2,13 @@
 
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "../../lib/supabase";
+import { podeEditar, formatarPerfis } from "../../lib/permissoes";
 
 export default function PatrimonioPage() {
   const [patrimonios, setPatrimonios] = useState<any[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [igrejaId, setIgrejaId] = useState<string | null>(null);
+  const [perfisUsuario, setPerfisUsuario] = useState<string[]>([]); // Novo estado para os perfis
 
   // Estados de Ordenação
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: "asc" | "desc" } | null>(null);
@@ -34,6 +36,10 @@ export default function PatrimonioPage() {
         const userLocal = localStorage.getItem("usuarioLogado");
         if (userLocal) {
           const parsedUser = JSON.parse(userLocal);
+          
+          // Armazena os perfis para controle visual
+          setPerfisUsuario(formatarPerfis(parsedUser.perfis || parsedUser.nivel_acesso));
+          
           const currentIgrejaId = parsedUser.igreja_id || parsedUser.id_igreja || parsedUser.idIgreja || parsedUser.igreja;
           setIgrejaId(currentIgrejaId ? String(currentIgrejaId) : null);
           if (currentIgrejaId) buscarPatrimonios(String(currentIgrejaId));
@@ -277,6 +283,9 @@ export default function PatrimonioPage() {
     return "text-gray-800 font-medium dark:text-gray-200";
   };
 
+  // Trava central de permissão para esse módulo
+  const ehEditor = podeEditar(perfisUsuario, 'patrimonio');
+
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto w-full">
       {/* CABEÇALHO */}
@@ -295,12 +304,16 @@ export default function PatrimonioPage() {
             </svg>
             Exportar Excel
           </button>
-          <button
-            onClick={() => { limparCampos(); setModalCadastroAberto(true); }}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors w-full sm:w-auto shadow-md"
-          >
-            + Cadastrar Item
-          </button>
+          
+          {/* SÓ APARECE O BOTÃO CADASTRAR SE PUDER EDITAR O MÓDULO */}
+          {ehEditor && (
+            <button
+              onClick={() => { limparCampos(); setModalCadastroAberto(true); }}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors w-full sm:w-auto shadow-md"
+            >
+              + Cadastrar Item
+            </button>
+          )}
         </div>
       </div>
 
@@ -363,14 +376,17 @@ export default function PatrimonioPage() {
               >
                 Status {renderIconeOrdenacao("status")}
               </th>
-              <th className="p-4 font-bold text-center">Ações</th>
+              {/* SÓ MOSTRA O CABEÇALHO DA COLUNA 'AÇÕES' SE FOR EDITOR */}
+              {ehEditor && (
+                <th className="p-4 font-bold text-center">Ações</th>
+              )}
             </tr>
           </thead>
           <tbody>
             {carregando ? (
-              <tr><td colSpan={6} className="p-8 text-center text-gray-500 font-medium">Carregando ativos...</td></tr>
+              <tr><td colSpan={ehEditor ? 6 : 5} className="p-8 text-center text-gray-500 font-medium">Carregando ativos...</td></tr>
             ) : patrimoniosOrdenados.length === 0 ? (
-              <tr><td colSpan={6} className="p-8 text-center text-gray-500 font-medium">Nenhum patrimônio registrado.</td></tr>
+              <tr><td colSpan={ehEditor ? 6 : 5} className="p-8 text-center text-gray-500 font-medium">Nenhum patrimônio registrado.</td></tr>
             ) : (
               patrimoniosOrdenados.map((item) => (
                 <tr key={item.id} className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors">
@@ -385,28 +401,32 @@ export default function PatrimonioPage() {
                       {item.status || "Disponível"}
                     </span>
                   </td>
-                  <td className="p-4">
-                    <div className="flex justify-center items-center gap-2">
-                      <button
-                        onClick={() => abrirModalMovimentacao(item)}
-                        className="bg-blue-100 text-blue-700 hover:bg-blue-200 px-4 py-2 rounded-lg text-sm font-semibold transition-colors focus:ring-2 focus:ring-blue-300 outline-none"
-                      >
-                        Movimentar
-                      </button>
-                      <button
-                        onClick={() => abrirEditar(item)}
-                        className="bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500 px-4 py-2 rounded-lg text-sm font-semibold transition-colors focus:ring-2 focus:ring-gray-300 outline-none"
-                      >
-                        Editar
-                      </button>
-                      <button
-                        onClick={() => handleExcluir(item.id)}
-                        className="bg-red-100 text-red-700 hover:bg-red-200 px-4 py-2 rounded-lg text-sm font-semibold transition-colors focus:ring-2 focus:ring-red-300 outline-none"
-                      >
-                        Excluir
-                      </button>
-                    </div>
-                  </td>
+                  
+                  {/* SÓ MOSTRA A CÉLULA DOS BOTÕES SE FOR EDITOR */}
+                  {ehEditor && (
+                    <td className="p-4">
+                      <div className="flex justify-center items-center gap-2">
+                        <button
+                          onClick={() => abrirModalMovimentacao(item)}
+                          className="bg-blue-100 text-blue-700 hover:bg-blue-200 px-4 py-2 rounded-lg text-sm font-semibold transition-colors focus:ring-2 focus:ring-blue-300 outline-none"
+                        >
+                          Movimentar
+                        </button>
+                        <button
+                          onClick={() => abrirEditar(item)}
+                          className="bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500 px-4 py-2 rounded-lg text-sm font-semibold transition-colors focus:ring-2 focus:ring-gray-300 outline-none"
+                        >
+                          Editar
+                        </button>
+                        <button
+                          onClick={() => handleExcluir(item.id)}
+                          className="bg-red-100 text-red-700 hover:bg-red-200 px-4 py-2 rounded-lg text-sm font-semibold transition-colors focus:ring-2 focus:ring-red-300 outline-none"
+                        >
+                          Excluir
+                        </button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))
             )}

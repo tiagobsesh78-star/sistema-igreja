@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 import { format, addMonths, subMonths, startOfMonth, endOfMonth, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { podeEditar, formatarPerfis } from "../../lib/permissoes";
 
 const paletasDeCores = [
   { base: "bg-teal-600", text: "text-teal-700", light: "bg-teal-50", border: "border-teal-200", hover: "hover:bg-teal-600", icon: "text-teal-500" },
@@ -24,6 +25,7 @@ export default function EscalasPage() {
   const [carregando, setCarregando] = useState(true);
   const [dataAtual, setDataAtual] = useState(new Date());
   const [igrejaIdLogada, setIgrejaIdLogada] = useState<string | null>(null);
+  const [perfisUsuario, setPerfisUsuario] = useState<string[]>([]); // Estado de Controle de Perfis
 
   const [tiposExistentes, setTiposExistentes] = useState<string[]>([]);
   const [escalasAgrupadas, setEscalasAgrupadas] = useState<Record<string, any[]>>({});
@@ -36,7 +38,7 @@ export default function EscalasPage() {
   useEffect(() => {
     setIsClient(true);
     
-    // 1. IDENTIFICA A IGREJA LOGADA
+    // 1. IDENTIFICA A IGREJA LOGADA E OS PERFIS
     const usuarioLocal = localStorage.getItem("usuarioLogado");
     if (!usuarioLocal) {
       router.push("/login");
@@ -44,6 +46,9 @@ export default function EscalasPage() {
     }
     const usuario = JSON.parse(usuarioLocal);
     setIgrejaIdLogada(usuario.igreja_id);
+    
+    // Armazena os perfis para controle visual
+    setPerfisUsuario(formatarPerfis(usuario.perfis || usuario.nivel_acesso));
     
   }, [router]);
 
@@ -161,6 +166,9 @@ export default function EscalasPage() {
   const capitalizar = (str: string) => str.charAt(0).toUpperCase() + str.slice(1);
   const criarIdAncora = (nome: string) => `secao-${nome.toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
 
+  // Trava central de permissão para esse módulo
+  const ehEditor = podeEditar(perfisUsuario, 'escalas');
+
   return (
     <>
       <div className="p-4 md:p-8 max-w-6xl mx-auto animate-fade-in pb-20 relative">
@@ -169,10 +177,14 @@ export default function EscalasPage() {
             <h1 className="text-2xl md:text-[28px] font-bold text-gray-900 tracking-tight">Escalas Mensais</h1>
             <p className="text-sm text-gray-500 mt-1">Visualize e organize os ministérios da igreja.</p>
           </div>
-          <Link href="/escalas/novo" className="px-6 py-2.5 bg-teal-600 text-white font-bold rounded-lg shadow-md hover:bg-teal-700 transition flex items-center gap-2">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-            Criar Nova Escala
-          </Link>
+          
+          {/* ESCONDE O BOTÃO DE NOVA ESCALA SE NÃO FOR EDITOR */}
+          {ehEditor && (
+            <Link href="/escalas/novo" className="px-6 py-2.5 bg-teal-600 text-white font-bold rounded-lg shadow-md hover:bg-teal-700 transition flex items-center gap-2">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+              Criar Nova Escala
+            </Link>
+          )}
         </div>
 
         <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between mb-8">
@@ -241,14 +253,17 @@ export default function EscalasPage() {
                             </span>
                           </div>
                           
-                          <div className="flex items-center gap-1 opacity-100 lg:opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button onClick={() => setEscalaEditando(escala)} className="p-1.5 bg-white/20 hover:bg-white/40 rounded transition" title="Editar Escala">
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                            </button>
-                            <button onClick={() => setEscalaExcluindo(escala.id)} className="p-1.5 bg-white/20 hover:bg-red-500 rounded transition" title="Excluir Escala">
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                            </button>
-                          </div>
+                          {/* ESCONDE OS BOTÕES DE EDIÇÃO/EXCLUSÃO SE NÃO FOR EDITOR */}
+                          {ehEditor && (
+                            <div className="flex items-center gap-1 opacity-100 lg:opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button onClick={() => setEscalaEditando(escala)} className="p-1.5 bg-white/20 hover:bg-white/40 rounded transition" title="Editar Escala">
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                              </button>
+                              <button onClick={() => setEscalaExcluindo(escala.id)} className="p-1.5 bg-white/20 hover:bg-red-500 rounded transition" title="Excluir Escala">
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                              </button>
+                            </div>
+                          )}
                         </div>
                         
                         {escala.descricao && (

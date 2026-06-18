@@ -4,6 +4,16 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
 
+const PERFIS_DISPONIVEIS = [
+  'Secretário',
+  'Pastor/Presbítero',
+  'Tesoureiro',
+  'Patrimônio',
+  'Líder',
+  'Membro',
+  'Congregado'
+];
+
 export default function NovoMembro() {
   const router = useRouter();
   const [carregando, setCarregando] = useState(false);
@@ -14,6 +24,18 @@ export default function NovoMembro() {
   const [isDragging, setIsDragging] = useState(false);
   
   const [acessaSistema, setAcessaSistema] = useState(false);
+  
+  // Estado para armazenar os múltiplos perfis selecionados
+  const [perfisSelecionados, setPerfisSelecionados] = useState<string[]>(['Membro']);
+
+  // Função para alternar a seleção dos perfis
+  const togglePerfil = (perfil: string) => {
+    setPerfisSelecionados(prev => 
+      prev.includes(perfil) 
+        ? prev.filter(p => p !== perfil) 
+        : [...prev, perfil]
+    );
+  };
 
   // BLINDAGEM 1: Garante que o valor do input nunca seja lido como undefined
   const handleCpfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -78,6 +100,13 @@ export default function NovoMembro() {
         return;
       }
 
+      // Validação dos novos perfis
+      if (acessaSistema && perfisSelecionados.length === 0) {
+        alert("Selecione pelo menos um perfil de acesso para este utilizador.");
+        setCarregando(false);
+        return;
+      }
+
       if (fotoArquivo) {
         const nomeArquivo = `${Date.now()}-${fotoArquivo.name}`;
         const { error: erroUpload } = await supabase.storage.from("fotos").upload(nomeArquivo, fotoArquivo);
@@ -117,7 +146,8 @@ export default function NovoMembro() {
         congregacao: formData.get("congregacao") || "",
         acessa_sistema: acessaSistema,
         senha: acessaSistema ? formData.get("senha") : null,
-        nivel_acesso: acessaSistema ? formData.get("nivel_acesso") : "Membro"
+        perfis: acessaSistema ? perfisSelecionados : [], // O novo Array de Permissões!
+        nivel_acesso: acessaSistema ? perfisSelecionados[0] : "Membro" // Mantido como fallback de retrocompatibilidade
       };
 
       const { error } = await supabase.from("membros").insert([dadosMembro]);
@@ -270,24 +300,56 @@ export default function NovoMembro() {
             </div>
 
             {acessaSistema && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-5 pt-5 border-t border-blue-200">
-                <div>
+              <div className="mt-5 pt-5 border-t border-blue-200">
+                <div className="mb-6">
                   <label className="block text-sm font-semibold text-gray-700 mb-1">Senha Provisória *</label>
                   <input 
                     name="senha" 
                     type="text" 
                     required={acessaSistema}
-                    className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500 bg-white" 
+                    className="w-full md:w-1/2 p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500 bg-white" 
                     placeholder="Defina uma senha" 
                   />
                 </div>
+
+                {/* NOVO QUADRO DE SELEÇÃO MÚLTIPLA DE PERFIS */}
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1">Nível de Acesso</label>
-                  <select name="nivel_acesso" className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500 bg-white">
-                    <option value="Membro">Membro (Apenas visualização)</option>
-                    <option value="Líder">Líder (Edita permissões específicas)</option>
-                    <option value="Administrador">Administrador (Acesso Total)</option>
-                  </select>
+                  <label className="block text-sm font-semibold text-gray-800 mb-3">
+                    Perfis de Acesso <span className="text-gray-500 font-normal text-xs ml-1">(Selecione um ou mais)</span>
+                  </label>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {PERFIS_DISPONIVEIS.map(perfil => (
+                      <label 
+                        key={perfil} 
+                        className={`flex items-center p-3 border rounded-lg cursor-pointer transition-all duration-200 select-none ${
+                          perfisSelecionados.includes(perfil) 
+                            ? 'bg-white border-blue-500 shadow-[0_0_0_1px_rgba(59,130,246,1)]' 
+                            : 'bg-white border-gray-200 hover:bg-gray-50'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          className="hidden"
+                          checked={perfisSelecionados.includes(perfil)}
+                          onChange={() => togglePerfil(perfil)}
+                        />
+                        <div className={`w-5 h-5 rounded border mr-3 flex items-center justify-center flex-shrink-0 transition-colors ${
+                          perfisSelecionados.includes(perfil) ? 'bg-blue-600 border-blue-600' : 'border-gray-300 bg-white'
+                        }`}>
+                          {perfisSelecionados.includes(perfil) && (
+                            <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </div>
+                        <span className={`text-sm font-medium break-words leading-tight ${
+                          perfisSelecionados.includes(perfil) ? 'text-blue-900' : 'text-gray-600'
+                        }`}>
+                          {perfil}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}

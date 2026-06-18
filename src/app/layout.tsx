@@ -1,9 +1,11 @@
+// src/app/layout.tsx
 "use client";
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "../lib/supabase";
+import { podeVisualizar, formatarPerfis } from "../lib/permissoes";
 import "./globals.css";
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -40,11 +42,19 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         async function buscarFoto() {
           const { data } = await supabase
             .from("membros")
-            .select("foto_url")
+            .select("foto_url, perfis") // Garante que busca os perfis atualizados
             .eq("id", parsedUser.id)
             .single();
-          if (data && data.foto_url) {
-            setFotoUrl(data.foto_url);
+            
+          if (data) {
+            if (data.foto_url) setFotoUrl(data.foto_url);
+            
+            // Atualiza os perfis no localStorage caso tenham mudado no banco
+            if (data.perfis && JSON.stringify(data.perfis) !== JSON.stringify(parsedUser.perfis)) {
+               const updatedUser = { ...parsedUser, perfis: data.perfis };
+               localStorage.setItem("usuarioLogado", JSON.stringify(updatedUser));
+               setUsuario(updatedUser);
+            }
           }
         }
         buscarFoto();
@@ -105,6 +115,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
   const nomeParaExibir = usuario?.nome ? usuario.nome.split(" ")[0] : "Utilizador";
   const inicial = usuario?.nome ? usuario.nome.charAt(0).toUpperCase() : "U";
+  
+  // Formata a lista de perfis do usuário logado para uso na navegação e exibição
+  const perfisUsuario = formatarPerfis(usuario?.perfis);
+  const textoPerfis = perfisUsuario.length > 0 ? perfisUsuario.join(", ") : "Membro";
 
   return (
     <html lang="pt-BR">
@@ -130,14 +144,38 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </div>
 
               <nav className="p-4 space-y-3 mt-2 flex-1 overflow-y-auto">
+                {/* A Tela Inicial é livre para todos */}
                 <Link href="/" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname === '/' ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Início</Link>
-                <Link href="/membros" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/membros') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Membros</Link>
-                <Link href="/tesouraria" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/tesouraria') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Tesouraria</Link>
-                <Link href="/patrimonio" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/patrimonio') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Patrimônio</Link>
-                <Link href="/escalas" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/escalas') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Escalas</Link>
-                <Link href="/reunioes" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/reunioes') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Reuniões</Link>
-                <Link href="/programacao" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/programacao') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Programação</Link>
-                <Link href="/configuracoes" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname === '/configuracoes' ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Configurações</Link>
+                
+                {/* Links Condicionais Baseados em Perfil */}
+                {podeVisualizar(perfisUsuario, 'membros') && (
+                  <Link href="/membros" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/membros') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Membros</Link>
+                )}
+                
+                {podeVisualizar(perfisUsuario, 'tesouraria') && (
+                  <Link href="/tesouraria" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/tesouraria') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Tesouraria</Link>
+                )}
+                
+                {podeVisualizar(perfisUsuario, 'patrimonio') && (
+                  <Link href="/patrimonio" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/patrimonio') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Patrimônio</Link>
+                )}
+                
+                {podeVisualizar(perfisUsuario, 'escalas') && (
+                  <Link href="/escalas" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/escalas') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Escalas</Link>
+                )}
+                
+                {podeVisualizar(perfisUsuario, 'reunioes') && (
+                  <Link href="/reunioes" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/reunioes') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Reuniões</Link>
+                )}
+                
+                {podeVisualizar(perfisUsuario, 'programacao') && (
+                  <Link href="/programacao" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/programacao') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Programação</Link>
+                )}
+                
+                {/* Apenas Pastores e Secretários devem ver as Configurações Globais */}
+                {(perfisUsuario.includes('Secretário') || perfisUsuario.includes('Pastor/Presbítero')) && (
+                  <Link href="/configuracoes" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname === '/configuracoes' ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Configurações</Link>
+                )}
               </nav>
             </aside>
 
@@ -169,7 +207,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                       >
                         <div className="text-right hidden md:block">
                           <p className="text-sm font-semibold text-white leading-tight">{nomeParaExibir}</p>
-                          <p className="text-xs text-blue-400 font-medium">{usuario.nivel_acesso || "Membro"}</p>
+                          <p className="text-xs text-blue-400 font-medium truncate max-w-[150px]" title={textoPerfis}>{textoPerfis}</p>
                         </div>
                         
                         {fotoUrl ? (

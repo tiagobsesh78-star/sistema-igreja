@@ -4,6 +4,16 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "../../../../../src/lib/supabase"; 
 
+const PERFIS_DISPONIVEIS = [
+  'Secretário',
+  'Pastor/Presbítero',
+  'Tesoureiro',
+  'Patrimônio',
+  'Líder',
+  'Membro',
+  'Congregado'
+];
+
 export default function EditarMembro() {
   const { id } = useParams();
   const router = useRouter();
@@ -24,11 +34,22 @@ export default function EditarMembro() {
     status: "Ativo", 
     foto_url: "",
     congregacao: "",
-    // Novos campos de acesso
+    // Campos de acesso
     acessa_sistema: false,
     senha: "",
-    nivel_acesso: "Membro"
+    nivel_acesso: "Membro",
+    perfis: [] as string[] // Novo array de perfis
   });
+
+  // Função para alternar a seleção dos perfis
+  const togglePerfil = (perfil: string) => {
+    setDadosMembro(prev => ({
+      ...prev,
+      perfis: prev.perfis.includes(perfil) 
+        ? prev.perfis.filter(p => p !== perfil) 
+        : [...prev.perfis, perfil]
+    }));
+  };
 
   useEffect(() => {
     // 1. RECUPERA A IGREJA DO UTILIZADOR LOGADO AO ABRIR A TELA
@@ -63,6 +84,12 @@ export default function EditarMembro() {
         };
         const cargoParaExibir = cargosParaMenu[data.cargo] || data.cargo;
 
+        // Migração suave: se o membro é antigo e não tem o array de perfis, transforma o nivel_acesso antigo num perfil
+        let perfisAtuais = data.perfis || [];
+        if (perfisAtuais.length === 0 && data.nivel_acesso) {
+            perfisAtuais = [data.nivel_acesso];
+        }
+
         setDadosMembro({
           nome_completo: data.nome_completo || "", genero: data.genero || "Masculino", cpf: data.cpf || "",
           data_nascimento: data.data_nascimento || "", estado_civil: data.estado_civil || "Solteiro(a)",
@@ -76,7 +103,8 @@ export default function EditarMembro() {
           // Puxa os dados de acesso do banco
           acessa_sistema: data.acessa_sistema || false,
           senha: data.senha || "",
-          nivel_acesso: data.nivel_acesso || "Membro"
+          nivel_acesso: data.nivel_acesso || "Membro",
+          perfis: perfisAtuais
         });
       }
       setCarregando(false);
@@ -128,6 +156,13 @@ export default function EditarMembro() {
         return;
       }
 
+      // Validação dos novos perfis
+      if (dadosMembro.acessa_sistema && dadosMembro.status === "Ativo" && dadosMembro.perfis.length === 0) {
+        alert("Selecione pelo menos um perfil de acesso para este utilizador.");
+        setSalvando(false);
+        return;
+      }
+
       if (fotoArquivo) {
         const nomeArquivo = `${Date.now()}-${fotoArquivo.name}`;
         const { error: erroUpload } = await supabase.storage.from("fotos").upload(nomeArquivo, fotoArquivo);
@@ -157,7 +192,9 @@ export default function EditarMembro() {
         data_batismo: dadosMembro.data_batismo || null, 
         foto_url: novaFotoUrl,
         // Garante que a regra de segurança seja enviada ao banco
-        acessa_sistema: acessoFinal
+        acessa_sistema: acessoFinal,
+        perfis: acessoFinal ? dadosMembro.perfis : [],
+        nivel_acesso: acessoFinal && dadosMembro.perfis.length > 0 ? dadosMembro.perfis[0] : "Membro" // Fallback retrocompatível
       };
 
       if (id === "novo") {
@@ -324,7 +361,7 @@ export default function EditarMembro() {
             </div>
           </div>
 
-          {/* ACESSO AO SISTEMA */}
+          {/* ACESSO AO SISTEMA E PERFIS */}
           <div className="bg-blue-50 p-6 rounded-md border border-blue-100 mt-6 transition-all duration-300">
             
             {dadosMembro.status === "Inativo" && (
@@ -367,8 +404,8 @@ export default function EditarMembro() {
             </div>
 
             {dadosMembro.acessa_sistema && dadosMembro.status === "Ativo" && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-5 pt-5 border-t border-blue-200">
-                <div>
+              <div className="mt-5 pt-5 border-t border-blue-200">
+                <div className="mb-6">
                   <label className="block text-sm font-semibold text-gray-700 mb-1">Senha de Acesso *</label>
                   <input 
                     name="senha" 
@@ -376,22 +413,49 @@ export default function EditarMembro() {
                     value={dadosMembro.senha}
                     onChange={handleChange}
                     required={dadosMembro.acessa_sistema}
-                    className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500 bg-white" 
+                    className="w-full md:w-1/2 p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500 bg-white" 
                     placeholder="Defina ou altere a senha" 
                   />
                 </div>
+
+                {/* NOVO QUADRO DE SELEÇÃO MÚLTIPLA DE PERFIS */}
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1">Nível de Acesso</label>
-                  <select 
-                    name="nivel_acesso" 
-                    value={dadosMembro.nivel_acesso}
-                    onChange={handleChange}
-                    className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                  >
-                    <option value="Membro">Membro (Apenas visualização)</option>
-                    <option value="Líder">Líder (Edita permissões específicas)</option>
-                    <option value="Administrador">Administrador (Acesso Total)</option>
-                  </select>
+                  <label className="block text-sm font-semibold text-gray-800 mb-3">
+                    Perfis de Acesso <span className="text-gray-500 font-normal text-xs ml-1">(Selecione um ou mais)</span>
+                  </label>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {PERFIS_DISPONIVEIS.map(perfil => (
+                      <label 
+                        key={perfil} 
+                        className={`flex items-center p-3 border rounded-lg cursor-pointer transition-all duration-200 select-none ${
+                          dadosMembro.perfis.includes(perfil) 
+                            ? 'bg-white border-blue-500 shadow-[0_0_0_1px_rgba(59,130,246,1)]' 
+                            : 'bg-white border-gray-200 hover:bg-gray-50'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          className="hidden"
+                          checked={dadosMembro.perfis.includes(perfil)}
+                          onChange={() => togglePerfil(perfil)}
+                        />
+                        <div className={`w-5 h-5 rounded border mr-3 flex items-center justify-center flex-shrink-0 transition-colors ${
+                          dadosMembro.perfis.includes(perfil) ? 'bg-blue-600 border-blue-600' : 'border-gray-300 bg-white'
+                        }`}>
+                          {dadosMembro.perfis.includes(perfil) && (
+                            <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </div>
+                        <span className={`text-sm font-medium break-words leading-tight ${
+                          dadosMembro.perfis.includes(perfil) ? 'text-blue-900' : 'text-gray-600'
+                        }`}>
+                          {perfil}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}

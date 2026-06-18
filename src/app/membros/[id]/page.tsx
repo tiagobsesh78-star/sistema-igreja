@@ -4,12 +4,16 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "../../../../src/lib/supabase"; 
+import { podeEditar, formatarPerfis } from "../../../../src/lib/permissoes";
 
 export default function VerMembro() {
   const { id } = useParams(); 
   const router = useRouter(); 
   const [membro, setMembro] = useState<any>(null);
   const [carregando, setCarregando] = useState(true);
+  
+  // Estado para armazenar os perfis do usuário logado e controlar os botões
+  const [perfisUsuario, setPerfisUsuario] = useState<string[]>([]);
 
   useEffect(() => {
     async function buscarDetalhes() {
@@ -22,6 +26,9 @@ export default function VerMembro() {
       
       const usuario = JSON.parse(userLocal);
       const igrejaId = usuario.igreja_id;
+      
+      // Carrega os perfis para a trava visual
+      setPerfisUsuario(formatarPerfis(usuario.perfis || usuario.nivel_acesso));
 
       // 2. APLICA A TRAVA NA BUSCA DO PERFIL
       const { data, error } = await supabase
@@ -130,9 +137,12 @@ export default function VerMembro() {
                   Carteirinha
                 </Link>
                 
-                <Link href={`/membros/${membro.id}/editar`} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-medium shadow-sm text-sm whitespace-nowrap">
-                  Editar
-                </Link>
+                {/* TRAVA VISUAL DE BOTÃO: Só exibe se o usuário logado puder editar membros */}
+                {podeEditar(perfisUsuario, 'membros') && (
+                  <Link href={`/membros/${membro.id}/editar`} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-medium shadow-sm text-sm whitespace-nowrap">
+                    Editar
+                  </Link>
+                )}
               </div>
 
             </div>

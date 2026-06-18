@@ -2,11 +2,13 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "../../lib/supabase"; 
+import { podeEditar, formatarPerfis } from "../../lib/permissoes";
 
 export default function ReunioesPage() {
   const [reunioes, setReunioes] = useState<any[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [igrejaId, setIgrejaId] = useState<string | null>(null);
+  const [perfisUsuario, setPerfisUsuario] = useState<string[]>([]); // Estado de Controle de Perfis
 
   const [modalAberto, setModalAberto] = useState(false);
   const [salvando, setSalvando] = useState(false);
@@ -17,7 +19,7 @@ export default function ReunioesPage() {
   const [formData, setFormData] = useState({
     id: "",
     data_reuniao: "",
-    horario_reuniao: "19:30", // Novo campo adicionado com valor padrão coerente
+    horario_reuniao: "19:30", 
     tema: "",
     ata_texto: "",
     anexo_url: "",
@@ -33,6 +35,10 @@ export default function ReunioesPage() {
         const userLocal = localStorage.getItem("usuarioLogado");
         if (userLocal) {
           const parsedUser = JSON.parse(userLocal);
+          
+          // Armazena os perfis para controle visual
+          setPerfisUsuario(formatarPerfis(parsedUser.perfis || parsedUser.nivel_acesso));
+          
           const idIgrejaDetectado = parsedUser.igreja_id || parsedUser.id_igreja || parsedUser.idIgreja;
           
           if (idIgrejaDetectado && idIgrejaDetectado !== "undefined" && idIgrejaDetectado !== "null") {
@@ -92,7 +98,7 @@ export default function ReunioesPage() {
       const dadosParaSalvar = {
         igreja_id: String(igrejaId).trim(), 
         data_reuniao: formData.data_reuniao,
-        horario_reuniao: formData.horario_reuniao, // Enviando o horário correto para o banco
+        horario_reuniao: formData.horario_reuniao, 
         tema: formData.tema,
         ata_texto: ataHtml,
         anexo_url: formData.anexo_url || null, 
@@ -115,7 +121,7 @@ export default function ReunioesPage() {
               await supabase.from("programacao").update({
                 titulo: `Reunião: ${formData.tema}`,
                 data: formData.data_reuniao,
-                horario: formData.horario_reuniao // Atualiza o horário dinamicamente
+                horario: formData.horario_reuniao 
               }).eq("reuniao_id", String(formData.id));
             } else {
               await supabase.from("programacao").insert([{
@@ -124,7 +130,7 @@ export default function ReunioesPage() {
                 descricao: "Gerado automaticamente pelo Módulo de Reuniões",
                 tipo: "Reunião",
                 data: formData.data_reuniao,
-                horario: formData.horario_reuniao, // Envia o horário customizado
+                horario: formData.horario_reuniao, 
                 reuniao_id: String(formData.id)
               }]);
             }
@@ -148,7 +154,7 @@ export default function ReunioesPage() {
               descricao: "Gerado automaticamente pelo Módulo de Reuniões",
               tipo: "Reunião",
               data: formData.data_reuniao,
-              horario: formData.horario_reuniao, // Vincula o horário do cadastro da Reunião
+              horario: formData.horario_reuniao, 
               reuniao_id: String(novaReuniaoId)
             }]);
           }
@@ -219,7 +225,7 @@ export default function ReunioesPage() {
     setFormData({
       id: "",
       data_reuniao: new Date().toISOString().split("T")[0],
-      horario_reuniao: "19:30", // Inicializa o estado com o padrão confortável
+      horario_reuniao: "19:30", 
       tema: "",
       ata_texto: "",
       anexo_url: "",
@@ -230,11 +236,14 @@ export default function ReunioesPage() {
     setModalAberto(true);
   };
 
+  // Trava central de permissão para esse módulo
+  const ehEditor = podeEditar(perfisUsuario, 'reunioes');
+
   const abrirModalEditar = (reuniao: any) => {
     setFormData({
       id: reuniao.id,
       data_reuniao: reuniao.data_reuniao,
-      horario_reuniao: reuniao.horario_reuniao ? reuniao.horario_reuniao.substring(0, 5) : "19:30", // Sanitiza os segundos se houver
+      horario_reuniao: reuniao.horario_reuniao ? reuniao.horario_reuniao.substring(0, 5) : "19:30", 
       tema: reuniao.tema,
       ata_texto: reuniao.ata_texto || "",
       anexo_url: reuniao.anexo_url || "",
@@ -242,8 +251,12 @@ export default function ReunioesPage() {
       updated_at: reuniao.updated_at || reuniao.created_at || "",
     });
     
-    if (reuniao.status !== "Marcada") setBloqueioAta(true);
-    else setBloqueioAta(false);
+    // Se a reunião já aconteceu OU se o usuário NÃO é editor, tranca a ata inteira (modo visualização)
+    if (reuniao.status !== "Marcada" || !ehEditor) {
+      setBloqueioAta(true);
+    } else {
+      setBloqueioAta(false);
+    }
     
     setModalAberto(true);
   };
@@ -272,9 +285,12 @@ export default function ReunioesPage() {
           <h1 className="text-3xl font-bold text-gray-800">Reuniões e Atas</h1>
           <p className="text-gray-500 text-sm">Controle de pautas, atas digitadas e arquivamento de digitalizações.</p>
         </div>
-        <button onClick={abrirModalNovo} className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg shadow-sm font-semibold transition-all w-full md:w-auto text-sm">
-          + Agendar Reunião
-        </button>
+        {/* ESCONDE BOTÃO CADASTRAR SE NÃO FOR EDITOR */}
+        {ehEditor && (
+          <button onClick={abrirModalNovo} className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg shadow-sm font-semibold transition-all w-full md:w-auto text-sm">
+            + Agendar Reunião
+          </button>
+        )}
       </div>
 
       <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-gray-200">
@@ -282,7 +298,7 @@ export default function ReunioesPage() {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-gray-50 text-gray-700 uppercase text-xs font-bold tracking-wider border-b border-gray-200">
-                <th className="px-6 py-4">Data / Horário</th> {/* Título atualizado na tabela */}
+                <th className="px-6 py-4">Data / Horário</th>
                 <th className="px-6 py-4">Tema / Grupo</th>
                 <th className="px-6 py-4">Status</th>
                 <th className="px-6 py-4">Documentação</th>
@@ -318,10 +334,11 @@ export default function ReunioesPage() {
                     </td>
                     <td className="px-6 py-4 text-center flex items-center justify-center gap-4">
                       <button onClick={() => abrirModalEditar(r)} className="text-blue-600 hover:text-blue-800 font-bold text-sm transition-colors">
-                        {r.status !== 'Marcada' ? 'Ver Ata' : 'Editar'}
+                        {(!ehEditor || r.status !== 'Marcada') ? 'Ver Ata' : 'Editar'}
                       </button>
                       
-                      {r.status === "Marcada" && (
+                      {/* SÓ MOSTRA O BOTÃO DE CANCELAR SE A REUNIÃO ESTIVER MARCADA E O USUÁRIO FOR EDITOR */}
+                      {r.status === "Marcada" && ehEditor && (
                         <button onClick={() => handleCancelarReuniao(r.id)} className="text-red-600 hover:text-red-900 font-bold text-sm transition-colors">
                           Cancelar
                         </button>
@@ -343,7 +360,9 @@ export default function ReunioesPage() {
               <div className="p-5 border-b border-gray-200">
                 <div className="flex justify-between items-center">
                   <h2 className="text-xl md:text-2xl font-bold text-gray-800">
-                    {formData.id ? "Ajustar Informações da Reunião" : "Agendar Nova Reunião"}
+                    {!ehEditor 
+                      ? "Visualizar Reunião" 
+                      : formData.id ? "Ajustar Informações da Reunião" : "Agendar Nova Reunião"}
                   </h2>
                   <button onClick={() => setModalAberto(false)} className="text-gray-400 hover:text-red-600 text-3xl font-light transition-colors">
                     &times;
@@ -352,7 +371,6 @@ export default function ReunioesPage() {
               </div>
 
               <div className="p-5 md:p-6 space-y-6">
-                {/* Grid atualizado para comportar o campo de horário lado a lado */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   <div>
                     <label className="block text-xs font-bold uppercase text-gray-600 mb-2">Data Marcada</label>
@@ -365,7 +383,6 @@ export default function ReunioesPage() {
                     />
                   </div>
 
-                  {/* NOVO CAMPO ADICIONADO NO FORMULÁRIO */}
                   <div>
                     <label className="block text-xs font-bold uppercase text-gray-600 mb-2">Horário de Início</label>
                     <input
@@ -408,7 +425,8 @@ export default function ReunioesPage() {
                 <div className="border border-gray-300 rounded-lg overflow-hidden flex flex-col shadow-sm">
                   <div className="flex flex-wrap justify-between items-center bg-gray-50 px-4 py-2.5 border-b border-gray-300 gap-2">
                     <span className="block text-xs font-bold uppercase text-gray-700">Transcrição da Ata</span>
-                    {bloqueioAta && (
+                    {/* SÓ MOSTRA O BOTÃO "HABILITAR EDIÇÃO" SE O USUÁRIO FOR EDITOR */}
+                    {bloqueioAta && ehEditor && (
                       <button onClick={() => setBloqueioAta(false)} className="flex items-center gap-1.5 text-xs font-bold text-blue-700 hover:text-blue-900 bg-blue-100 px-3 py-1.5 rounded-md border border-blue-200 transition-colors shadow-sm">
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                         Habilitar Edição
@@ -439,22 +457,27 @@ export default function ReunioesPage() {
                   ></div>
                 </div>
 
-                <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
-                  <label className="block text-xs font-bold uppercase text-gray-600 mb-2">Anexar Ata Digitalizada</label>
-                  <div className="flex flex-wrap items-center gap-4">
-                    <input
-                      type="file"
-                      disabled={bloqueioAta}
-                      accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
-                      onChange={handleUploadAnexo}
-                      className="block text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 file:cursor-pointer disabled:opacity-50 transition-all w-full md:w-auto"
-                    />
-                    {uploading && <span className="text-blue-600 text-xs font-bold animate-pulse">Enviando documento...</span>}
+                {/* SÓ MOSTRA O QUADRO DE ANEXO SE NÃO FOR APENAS VISUALIZAÇÃO, OU SE JÁ TIVER ANEXO (pra ele clicar no link) */}
+                {(!bloqueioAta || formData.anexo_url) && (
+                  <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
+                    <label className="block text-xs font-bold uppercase text-gray-600 mb-2">Anexar Ata Digitalizada</label>
+                    <div className="flex flex-wrap items-center gap-4">
+                      {!bloqueioAta && (
+                        <input
+                          type="file"
+                          disabled={bloqueioAta}
+                          accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                          onChange={handleUploadAnexo}
+                          className="block text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 file:cursor-pointer disabled:opacity-50 transition-all w-full md:w-auto"
+                        />
+                      )}
+                      {uploading && <span className="text-blue-600 text-xs font-bold animate-pulse">Enviando documento...</span>}
+                    </div>
+                    {formData.anexo_url && !uploading && (
+                      <p className="mt-3 text-xs text-green-600 font-bold flex items-center gap-1">✓ Documento anexado no servidor. (Link na listagem)</p>
+                    )}
                   </div>
-                  {formData.anexo_url && !uploading && (
-                    <p className="mt-3 text-xs text-green-600 font-bold flex items-center gap-1">✓ Documento anexado com sucesso!</p>
-                  )}
-                </div>
+                )}
 
                 {formData.updated_at && (
                   <div className="text-right text-xs font-medium text-gray-400 italic">
@@ -468,6 +491,7 @@ export default function ReunioesPage() {
                   Voltar
                 </button>
                 
+                {/* ESCONDE O BOTÃO SALVAR SE TIVER BLOQUEADO */}
                 {!bloqueioAta && (
                   <button onClick={(e) => handleSalvar(e)} disabled={salvando || uploading} className="px-6 py-2.5 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 text-sm disabled:opacity-50 shadow-md transition-colors">
                     {salvando ? "Salvando..." : "Salvar Reunião"}

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabase";
+import { podeEditar, formatarPerfis } from "../../lib/permissoes";
 
 interface Programacao {
   id?: number;
@@ -19,6 +20,7 @@ export default function ProgramacaoPage() {
   const [programacoes, setProgramacoes] = useState<Programacao[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [igrejaId, setIgrejaId] = useState<string | null>(null);
+  const [perfisUsuario, setPerfisUsuario] = useState<string[]>([]); // Estado de Controle de Perfis
 
   const dataAtual = new Date();
   const [mesSelecionado, setMesSelecionado] = useState(dataAtual.getMonth() + 1);
@@ -50,6 +52,10 @@ export default function ProgramacaoPage() {
     if (userLocal) {
       try {
         const parsedUser = JSON.parse(userLocal);
+        
+        // Armazena os perfis para controle visual
+        setPerfisUsuario(formatarPerfis(parsedUser.perfis || parsedUser.nivel_acesso));
+        
         setIgrejaId(parsedUser.igreja_id || parsedUser.id_igreja || parsedUser.idIgreja);
       } catch (e) {
         console.error("Erro ao ler usuário");
@@ -154,6 +160,9 @@ export default function ProgramacaoPage() {
     return dataItem.getMonth() + 1 === mesSelecionado && dataItem.getFullYear() === anoSelecionado;
   }).sort((a, b) => new Date(a.data + "T00:00:00").getTime() - new Date(b.data + "T00:00:00").getTime());
 
+  // Trava central de permissão para esse módulo
+  const ehEditor = podeEditar(perfisUsuario, 'programacao');
+
   if (carregando && !modalAberto) {
     return <div className="p-6 flex justify-center items-center h-screen text-indigo-600 font-medium animate-pulse">Carregando quadro de programações...</div>;
   }
@@ -172,17 +181,21 @@ export default function ProgramacaoPage() {
             <p className="text-sm text-gray-500 mt-0.5">Gerencie as atividades fixas e os eventos periódicos.</p>
           </div>
         </div>
-        <button
-          onClick={() => abrirModal()}
-          className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-6 py-3 rounded-lg transition-all shadow-md hover:shadow-lg focus:ring-4 focus:ring-indigo-100 outline-none"
-        >
-          + Adicionar Programação
-        </button>
+        
+        {/* ESCONDE BOTÃO CADASTRAR SE NÃO FOR EDITOR */}
+        {ehEditor && (
+          <button
+            onClick={() => abrirModal()}
+            className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-6 py-3 rounded-lg transition-all shadow-md hover:shadow-lg focus:ring-4 focus:ring-indigo-100 outline-none"
+          >
+            + Adicionar Programação
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
         
-        {/* COLUNA 1: FIXAS (Estilizada com Roxo/Indigo) */}
+        {/* COLUNA 1: FIXAS */}
         <div className="lg:col-span-1 bg-white border border-indigo-100 rounded-2xl shadow-sm overflow-hidden flex flex-col">
           <div className="bg-indigo-600 p-4 border-b border-indigo-700">
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
@@ -207,14 +220,18 @@ export default function ProgramacaoPage() {
                       <h3 className="font-bold text-gray-800 text-base">{p.titulo}</h3>
                       {p.descricao && <p className="text-xs text-gray-500 line-clamp-2">{p.descricao}</p>}
                     </div>
-                    <div className="flex flex-col gap-2 ml-3">
-                      <button onClick={() => abrirModal(p)} className="w-8 h-8 flex items-center justify-center rounded-full bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white transition-colors">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                      </button>
-                      <button onClick={() => p.id && excluirProgramacao(p.id)} className="w-8 h-8 flex items-center justify-center rounded-full bg-red-50 text-red-500 hover:bg-red-500 hover:text-white transition-colors">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                      </button>
-                    </div>
+                    
+                    {/* ESCONDE AÇÕES DA ROTINA FIXA SE NÃO FOR EDITOR */}
+                    {ehEditor && (
+                      <div className="flex flex-col gap-2 ml-3">
+                        <button onClick={() => abrirModal(p)} className="w-8 h-8 flex items-center justify-center rounded-full bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white transition-colors">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                        </button>
+                        <button onClick={() => p.id && excluirProgramacao(p.id)} className="w-8 h-8 flex items-center justify-center rounded-full bg-red-50 text-red-500 hover:bg-red-500 hover:text-white transition-colors">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -222,7 +239,7 @@ export default function ProgramacaoPage() {
           </div>
         </div>
 
-        {/* COLUNA 2 E 3: EVENTOS DO MÊS (Estilizada com Teal/Verde) */}
+        {/* COLUNA 2 E 3: EVENTOS DO MÊS */}
         <div className="lg:col-span-2 bg-white border border-teal-100 rounded-2xl shadow-sm overflow-hidden flex flex-col">
           <div className="bg-teal-600 p-4 border-b border-teal-700 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
@@ -263,7 +280,10 @@ export default function ProgramacaoPage() {
                       <th className="p-4 font-black uppercase tracking-wider text-xs">Data / Hora</th>
                       <th className="p-4 font-black uppercase tracking-wider text-xs">Título e Descrição</th>
                       <th className="p-4 font-black uppercase tracking-wider text-xs">Tipo</th>
-                      <th className="p-4 font-black uppercase tracking-wider text-xs text-right">Ações</th>
+                      {/* SÓ MOSTRA O CABEÇALHO DA COLUNA 'AÇÕES' SE FOR EDITOR */}
+                      {ehEditor && (
+                        <th className="p-4 font-black uppercase tracking-wider text-xs text-right">Ações</th>
+                      )}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-teal-50">
@@ -289,18 +309,22 @@ export default function ProgramacaoPage() {
                               {p.tipo}
                             </span>
                           </td>
-                          <td className="p-4 text-right whitespace-nowrap">
-                            <div className="flex justify-end gap-2">
-                              {p.tipo !== "Reunião" && (
-                                <button onClick={() => abrirModal(p)} className="px-3 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white rounded-lg font-bold text-xs transition-colors">
-                                  Editar
+                          
+                          {/* SÓ MOSTRA OS BOTÕES SE FOR EDITOR */}
+                          {ehEditor && (
+                            <td className="p-4 text-right whitespace-nowrap">
+                              <div className="flex justify-end gap-2">
+                                {p.tipo !== "Reunião" && (
+                                  <button onClick={() => abrirModal(p)} className="px-3 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white rounded-lg font-bold text-xs transition-colors">
+                                    Editar
+                                  </button>
+                                )}
+                                <button onClick={() => p.id && excluirProgramacao(p.id)} className="px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white rounded-lg font-bold text-xs transition-colors">
+                                  Remover
                                 </button>
-                              )}
-                              <button onClick={() => p.id && excluirProgramacao(p.id)} className="px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white rounded-lg font-bold text-xs transition-colors">
-                                Remover
-                              </button>
-                            </div>
-                          </td>
+                              </div>
+                            </td>
+                          )}
                         </tr>
                       );
                     })}
@@ -312,7 +336,7 @@ export default function ProgramacaoPage() {
         </div>
       </div>
 
-      {/* MODAL (Totalmente Colorido e Destacado) */}
+      {/* MODAL */}
       {modalAberto && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border-t-8 border-indigo-600">
@@ -328,7 +352,6 @@ export default function ProgramacaoPage() {
 
             <form onSubmit={salvarProgramacao} className="p-6 space-y-5">
               
-              {/* Botões de Seleção de Tipo VIVOS E COLORIDOS */}
               <div>
                 <label className="block text-xs font-black text-gray-400 uppercase tracking-wider mb-2">Selecione o Tipo</label>
                 <div className="grid grid-cols-2 gap-3">
