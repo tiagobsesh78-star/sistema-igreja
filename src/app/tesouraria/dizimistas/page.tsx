@@ -3,11 +3,12 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../../../src/lib/supabase";
+import { podeEditar, formatarPerfis } from "../../../../src/lib/permissoes";
 
 export default function DizimistasPage() {
   const router = useRouter();
 
-  // Estados dos Dados
+  // 1. TODOS OS STATES NO TOPO
   const [dizimistas, setDizimistas] = useState<any[]>([]);
   const [membros, setMembros] = useState<any[]>([]);
   const [lancamentos, setLancamentos] = useState<any[]>([]);
@@ -17,12 +18,10 @@ export default function DizimistasPage() {
   const [erroBanco, setErroBanco] = useState<string | null>(null);
   const [igrejaIdLogada, setIgrejaIdLogada] = useState<string | null>(null);
 
-  // Estados do Formulário
   const [congregacaoForm, setCongregacaoForm] = useState("");
   const [membroSelecionado, setMembroSelecionado] = useState("");
   const [salvando, setSalvando] = useState(false);
 
-  // Filtro de Congregação do Dashboard
   const [congregacaoFiltro, setCongregacaoFiltro] = useState("");
 
   const obterNomeMembro = (m: any) => {
@@ -35,70 +34,115 @@ export default function DizimistasPage() {
     return m.congregacao || m.Congregacao || "Geral";
   };
 
+  // 2. EFFECT PRINCIPAL COM A TRAVA DE ROTA DE EDIÇÃO
   useEffect(() => {
-    // 1. IDENTIFICA A IGREJA LOGADA AO ABRIR A TELA
     const usuarioLocal = localStorage.getItem("usuarioLogado");
     if (!usuarioLocal) {
       router.push("/login");
       return;
     }
+    
     const usuario = JSON.parse(usuarioLocal);
+    const perfisLogado = formatarPerfis(usuario.perfis || usuario.nivel_acesso);
+
+    // ==================================================
+    // TRAVA DE ROTA: CHUTA INVASORES PARA A HOME
+    // ==================================================
+    if (!podeEditar(perfisLogado, 'tesouraria')) {
+      router.push("/");
+      return; // Interrompe a execução
+    }
+    // ==================================================
+
     const igrejaId = usuario.igreja_id;
     setIgrejaIdLogada(igrejaId);
+
+    async function carregarDados(idIgreja: string) {
+      setCarregando(true);
+      setErroBanco(null);
+      
+      try {
+        const { data: dadosMembros, error: errMembros } = await supabase
+          .from("membros")
+          .select("*")
+          .eq("igreja_id", idIgreja);
+
+        if (errMembros) throw new Error(`Erro ao buscar membros: ${errMembros.message}`);
+
+        const { data: dadosLancamentos, error: errLancamentos } = await supabase
+          .from("tesouraria_lancamentos")
+          .select("*")
+          .eq("igreja_id", idIgreja);
+
+        if (errLancamentos) throw new Error(`Erro ao buscar lançamentos: ${errLancamentos.message}`);
+
+        const { data: dadosDizimistas, error: errDizimistas } = await supabase
+          .from("tesouraria_dizimistas")
+          .select("*")
+          .eq("igreja_id", idIgreja);
+
+        if (errDizimistas) throw new Error(`Erro nos dizimistas: ${errDizimistas.message}`);
+
+        if (dadosMembros) {
+          dadosMembros.sort((a, b) => obterNomeMembro(a).localeCompare(obterNomeMembro(b)));
+          setMembros(dadosMembros);
+
+          const listaCongs = Array.from(
+            new Set(dadosMembros.map((m) => obterCongregacaoMembro(m).trim()).filter((c) => c !== ""))
+          ).sort() as string[];
+          setCongregacoes(listaCongs);
+
+          if (dadosDizimistas) {
+            const dizimistasUnidos = dadosDizimistas.map((d: any) => {
+              const dadosDoMembro = dadosMembros.find(m => String(m.id) === String(d.membro_id));
+              return {
+                ...d,
+                membros: dadosDoMembro || null
+              };
+            });
+            setDizimistas(dizimistasUnidos);
+          }
+        }
+
+        if (dadosLancamentos) setLancamentos(dadosLancamentos);
+
+      } catch (error: any) {
+        setErroBanco(error.message);
+      } finally {
+        setCarregando(false);
+      }
+    }
 
     carregarDados(igrejaId);
   }, [router]);
 
-  async function carregarDados(igrejaId: string) {
+  // Função extra de recarga manual usada no caso de erro
+  async function recarregarDadosManualmente() {
+    if (!igrejaIdLogada) return;
     setCarregando(true);
     setErroBanco(null);
     
     try {
-      // 2. APLICA A TRAVA NAS CONSULTAS
-      const { data: dadosMembros, error: errMembros } = await supabase
-        .from("membros")
-        .select("*")
-        .eq("igreja_id", igrejaId); // TRAVA
-
-      if (errMembros) throw new Error(`Erro ao buscar membros: ${errMembros.message}`);
-
-      const { data: dadosLancamentos, error: errLancamentos } = await supabase
-        .from("tesouraria_lancamentos")
-        .select("*")
-        .eq("igreja_id", igrejaId); // TRAVA
-
-      if (errLancamentos) throw new Error(`Erro ao buscar lançamentos: ${errLancamentos.message}`);
-
-      const { data: dadosDizimistas, error: errDizimistas } = await supabase
-        .from("tesouraria_dizimistas")
-        .select("*")
-        .eq("igreja_id", igrejaId); // TRAVA
-
-      if (errDizimistas) throw new Error(`Erro nos dizimistas: ${errDizimistas.message}`);
+      const { data: dadosMembros } = await supabase.from("membros").select("*").eq("igreja_id", igrejaIdLogada);
+      const { data: dadosLancamentos } = await supabase.from("tesouraria_lancamentos").select("*").eq("igreja_id", igrejaIdLogada);
+      const { data: dadosDizimistas } = await supabase.from("tesouraria_dizimistas").select("*").eq("igreja_id", igrejaIdLogada);
 
       if (dadosMembros) {
         dadosMembros.sort((a, b) => obterNomeMembro(a).localeCompare(obterNomeMembro(b)));
         setMembros(dadosMembros);
-
-        const listaCongs = Array.from(
-          new Set(dadosMembros.map((m) => obterCongregacaoMembro(m).trim()).filter((c) => c !== ""))
-        ).sort() as string[];
+        const listaCongs = Array.from(new Set(dadosMembros.map((m) => obterCongregacaoMembro(m).trim()).filter((c) => c !== ""))).sort() as string[];
         setCongregacoes(listaCongs);
 
         if (dadosDizimistas) {
-          const dizimistasUnidos = dadosDizimistas.map((d: any) => {
-            const dadosDoMembro = dadosMembros.find(m => String(m.id) === String(d.membro_id));
-            return {
-              ...d,
-              membros: dadosDoMembro || null
-            };
-          });
+          const dizimistasUnidos = dadosDizimistas.map((d: any) => ({
+            ...d,
+            membros: dadosMembros.find(m => String(m.id) === String(d.membro_id)) || null
+          }));
           setDizimistas(dizimistasUnidos);
         }
       }
 
       if (dadosLancamentos) setLancamentos(dadosLancamentos);
-
     } catch (error: any) {
       setErroBanco(error.message);
     } finally {
@@ -106,6 +150,7 @@ export default function DizimistasPage() {
     }
   }
 
+  // 3. FUNÇÕES COMUNS
   const membrosDisponiveis = membros.filter(m => 
     !dizimistas.some(d => String(d.membro_id) === String(m.id))
   );
@@ -119,7 +164,6 @@ export default function DizimistasPage() {
     if (!membroSelecionado || !igrejaIdLogada) return;
 
     setSalvando(true);
-    // 3. CARIMBA A IGREJA NO REGISTRO
     const { error } = await supabase
       .from("tesouraria_dizimistas")
       .insert([{ 
@@ -131,7 +175,7 @@ export default function DizimistasPage() {
       alert("Erro ao salvar: " + error.message);
     } else {
       setMembroSelecionado("");
-      carregarDados(igrejaIdLogada);
+      recarregarDadosManualmente();
     }
     setSalvando(false);
   };
@@ -140,17 +184,15 @@ export default function DizimistasPage() {
     if (!confirm("Remover este membro dos dizimistas ativos?")) return;
     if (!igrejaIdLogada) return;
 
-    // 4. TRAVA NA EXCLUSÃO
     const { error } = await supabase
       .from("tesouraria_dizimistas")
       .delete()
       .eq("id", id)
       .eq("igreja_id", igrejaIdLogada);
       
-    if (!error) carregarDados(igrejaIdLogada);
+    if (!error) recarregarDadosManualmente();
   };
 
-  // ========== METRICAS E FILTROS ==========
   const dizimistasFiltrados = dizimistas.filter((d) => {
     const cong = obterCongregacaoMembro(d.membros);
     return congregacaoFiltro === "" || cong === congregacaoFiltro;
@@ -165,18 +207,14 @@ export default function DizimistasPage() {
   const mediaDizimo = qtdDizimistasAtivos > 0 ? valorTotalDizimosMes / qtdDizimistasAtivos : 0;
 
   const formatarMoeda = (v: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v || 0);
-  const formatarData = (dataSql: string) => {
-    if (!dataSql) return "-";
-    const data = new Date(dataSql);
-    return data.toLocaleDateString("pt-BR");
-  };
 
+  // 4. RETORNOS
   if (erroBanco) {
     return (
       <div className="max-w-2xl mx-auto mt-10 bg-white border border-red-200 rounded-xl p-6 text-center shadow-sm">
         <h2 className="text-lg font-bold text-red-600 mb-2">Diagnóstico de Sincronização</h2>
         <p className="text-sm text-gray-600 mb-4">{erroBanco}</p>
-        <button onClick={() => igrejaIdLogada && carregarDados(igrejaIdLogada)} className="px-4 py-2 bg-gray-900 text-white text-sm font-semibold rounded-lg hover:bg-black transition">Tentar Novamente</button>
+        <button onClick={recarregarDadosManualmente} className="px-4 py-2 bg-gray-900 text-white text-sm font-semibold rounded-lg hover:bg-black transition">Tentar Novamente</button>
       </div>
     );
   }

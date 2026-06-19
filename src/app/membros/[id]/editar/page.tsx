@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "../../../../../src/lib/supabase"; 
+import { podeEditar, formatarPerfis } from "../../../../../src/lib/permissoes";
 
 const PERFIS_DISPONIVEIS = [
   'Secretário',
@@ -17,6 +18,8 @@ const PERFIS_DISPONIVEIS = [
 export default function EditarMembro() {
   const { id } = useParams();
   const router = useRouter();
+
+  // 1. TODOS OS STATES DEVEM FICAR NO TOPO DA FUNÇÃO (REGRA DO REACT)
   const [carregando, setCarregando] = useState(true);
   const [salvando, setSalvando] = useState(false);
   const [fotoArquivo, setFotoArquivo] = useState<File | null>(null);
@@ -34,14 +37,12 @@ export default function EditarMembro() {
     status: "Ativo", 
     foto_url: "",
     congregacao: "",
-    // Campos de acesso
     acessa_sistema: false,
     senha: "",
     nivel_acesso: "Membro",
-    perfis: [] as string[] // Novo array de perfis
+    perfis: [] as string[]
   });
 
-  // Função para alternar a seleção dos perfis
   const togglePerfil = (perfil: string) => {
     setDadosMembro(prev => ({
       ...prev,
@@ -51,28 +52,36 @@ export default function EditarMembro() {
     }));
   };
 
+  // 2. O EFFECT EXECUTA A TRAVA DE SEGURANÇA SEM QUEBRAR A ORDEM DE RENDERIZAÇÃO
   useEffect(() => {
-    // 1. RECUPERA A IGREJA DO UTILIZADOR LOGADO AO ABRIR A TELA
     const usuarioLocal = localStorage.getItem("usuarioLogado");
-    let currentIgrejaId = null;
     
     if (!usuarioLocal) {
-      alert("Sessão expirada. Faça login novamente.");
       router.push("/login");
       return;
-    } else {
-      const usuario = JSON.parse(usuarioLocal);
-      currentIgrejaId = usuario.igreja_id;
-      setIgrejaIdLogada(currentIgrejaId);
+    } 
+    
+    const usuario = JSON.parse(usuarioLocal);
+    const perfisUsuarioLogado = formatarPerfis(usuario.perfis || usuario.nivel_acesso);
+
+    // ==================================================
+    // TRAVA DE ROTA: CHUTA INVASORES PELA URL PARA A HOME
+    // ==================================================
+    if (!podeEditar(perfisUsuarioLogado, 'membros')) {
+      router.push("/"); 
+      return; 
     }
+    // ==================================================
+
+    const currentIgrejaId = usuario.igreja_id;
+    setIgrejaIdLogada(currentIgrejaId);
 
     async function buscarMembro(igrejaId: string) {
-      // 2. APLICA A TRAVA NA BUSCA: Só retorna se o membro for desta igreja
       const { data, error } = await supabase
         .from("membros")
         .select("*")
         .eq("id", id)
-        .eq("igreja_id", igrejaId) // A TRAVA ESTÁ AQUI
+        .eq("igreja_id", igrejaId) 
         .single();
 
       if (error || !data) {
@@ -84,7 +93,6 @@ export default function EditarMembro() {
         };
         const cargoParaExibir = cargosParaMenu[data.cargo] || data.cargo;
 
-        // Migração suave: se o membro é antigo e não tem o array de perfis, transforma o nivel_acesso antigo num perfil
         let perfisAtuais = data.perfis || [];
         if (perfisAtuais.length === 0 && data.nivel_acesso) {
             perfisAtuais = [data.nivel_acesso];
@@ -100,7 +108,6 @@ export default function EditarMembro() {
           status: data.status || "Ativo", 
           foto_url: data.foto_url || "",
           congregacao: data.congregacao || "",
-          // Puxa os dados de acesso do banco
           acessa_sistema: data.acessa_sistema || false,
           senha: data.senha || "",
           nivel_acesso: data.nivel_acesso || "Membro",
@@ -149,14 +156,12 @@ export default function EditarMembro() {
     }
 
     try {
-      // 🚨 Validação de CPF para login
       if (dadosMembro.acessa_sistema && dadosMembro.status === "Ativo" && dadosMembro.cpf.length < 14) {
         alert("Para manter o acesso ao sistema, o CPF deve estar preenchido corretamente.");
         setSalvando(false);
         return;
       }
 
-      // Validação dos novos perfis
       if (dadosMembro.acessa_sistema && dadosMembro.status === "Ativo" && dadosMembro.perfis.length === 0) {
         alert("Selecione pelo menos um perfil de acesso para este utilizador.");
         setSalvando(false);
@@ -179,7 +184,6 @@ export default function EditarMembro() {
         cargoFinal = cargosFemininos[cargoFinal] || cargoFinal;
       }
 
-      // 🚨 REGRA DE NEGÓCIO: Se Inativo, bloqueia o acesso automaticamente
       let acessoFinal = dadosMembro.acessa_sistema;
       if (dadosMembro.status === "Inativo") {
         acessoFinal = false;
@@ -191,23 +195,20 @@ export default function EditarMembro() {
         data_nascimento: dadosMembro.data_nascimento || null,
         data_batismo: dadosMembro.data_batismo || null, 
         foto_url: novaFotoUrl,
-        // Garante que a regra de segurança seja enviada ao banco
         acessa_sistema: acessoFinal,
         perfis: acessoFinal ? dadosMembro.perfis : [],
-        nivel_acesso: acessoFinal && dadosMembro.perfis.length > 0 ? dadosMembro.perfis[0] : "Membro" // Fallback retrocompatível
+        nivel_acesso: acessoFinal && dadosMembro.perfis.length > 0 ? dadosMembro.perfis[0] : "Membro" 
       };
 
       if (id === "novo") {
-        // Se por acaso a URL /novo for acessada por este componente
         const { error } = await supabase.from("membros").insert([{...dadosParaSalvar, igreja_id: igrejaIdLogada}]);
         if (error) throw error;
       } else {
-        // 3. APLICA A TRAVA NA ATUALIZAÇÃO E NA EXCLUSÃO (Segurança extra contra injeções)
         const { error } = await supabase
           .from("membros")
           .update(dadosParaSalvar)
           .eq("id", id)
-          .eq("igreja_id", igrejaIdLogada); // TRAVA DE UPDATE AQUI
+          .eq("igreja_id", igrejaIdLogada); 
         
         if (error) throw error;
       }
@@ -225,14 +226,13 @@ export default function EditarMembro() {
     setMostrarModalExclusao(false);
     setCarregando(true);
     
-    // Trava de segurança extra na exclusão
     if (!igrejaIdLogada) return;
 
     const { error } = await supabase
       .from("membros")
       .delete()
       .eq("id", id)
-      .eq("igreja_id", igrejaIdLogada); // TRAVA DE DELETE AQUI
+      .eq("igreja_id", igrejaIdLogada); 
 
     if (error) {
       alert("Erro ao excluir: " + error.message);
@@ -249,6 +249,7 @@ export default function EditarMembro() {
   
   const finalizarERedirecionarExclusao = () => { router.push("/membros"); };
 
+  // O RETORNO CONDICIONAL FICA ABAIXO DE TODOS OS HOOKS
   if (carregando) return <div className="text-center py-20 text-gray-500 font-medium">Carregando formulário...</div>;
 
   const imagemPreview = fotoArquivo ? URL.createObjectURL(fotoArquivo) : dadosMembro.foto_url;
@@ -361,9 +362,7 @@ export default function EditarMembro() {
             </div>
           </div>
 
-          {/* ACESSO AO SISTEMA E PERFIS */}
           <div className="bg-blue-50 p-6 rounded-md border border-blue-100 mt-6 transition-all duration-300">
-            
             {dadosMembro.status === "Inativo" && (
               <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md text-yellow-800 text-sm font-medium flex items-center gap-2">
                 <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
@@ -382,9 +381,7 @@ export default function EditarMembro() {
                   type="button"
                   onClick={() => setDadosMembro({...dadosMembro, acessa_sistema: false})}
                   className={`px-5 py-2.5 text-sm font-semibold transition-colors duration-200 ${
-                    !dadosMembro.acessa_sistema
-                      ? "bg-red-600 text-white shadow-md"
-                      : "bg-white text-gray-700 hover:bg-gray-50"
+                    !dadosMembro.acessa_sistema ? "bg-red-600 text-white shadow-md" : "bg-white text-gray-700 hover:bg-gray-50"
                   }`}
                 >
                   Não
@@ -393,9 +390,7 @@ export default function EditarMembro() {
                   type="button"
                   onClick={() => setDadosMembro({...dadosMembro, acessa_sistema: true})}
                   className={`px-5 py-2.5 text-sm font-semibold transition-colors duration-200 border-l border-gray-200 ${
-                    dadosMembro.acessa_sistema
-                      ? "bg-blue-600 text-white shadow-md"
-                      : "bg-white text-gray-700 hover:bg-gray-50"
+                    dadosMembro.acessa_sistema ? "bg-blue-600 text-white shadow-md" : "bg-white text-gray-700 hover:bg-gray-50"
                   }`}
                 >
                   Sim
@@ -418,7 +413,6 @@ export default function EditarMembro() {
                   />
                 </div>
 
-                {/* NOVO QUADRO DE SELEÇÃO MÚLTIPLA DE PERFIS */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-800 mb-3">
                     Perfis de Acesso <span className="text-gray-500 font-normal text-xs ml-1">(Selecione um ou mais)</span>
@@ -428,9 +422,7 @@ export default function EditarMembro() {
                       <label 
                         key={perfil} 
                         className={`flex items-center p-3 border rounded-lg cursor-pointer transition-all duration-200 select-none ${
-                          dadosMembro.perfis.includes(perfil) 
-                            ? 'bg-white border-blue-500 shadow-[0_0_0_1px_rgba(59,130,246,1)]' 
-                            : 'bg-white border-gray-200 hover:bg-gray-50'
+                          dadosMembro.perfis.includes(perfil) ? 'bg-white border-blue-500 shadow-[0_0_0_1px_rgba(59,130,246,1)]' : 'bg-white border-gray-200 hover:bg-gray-50'
                         }`}
                       >
                         <input
@@ -504,6 +496,7 @@ export default function EditarMembro() {
         </form>
       </div>
 
+      {/* MODAIS */}
       {mostrarModalSucesso && (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 text-center transform transition-all">

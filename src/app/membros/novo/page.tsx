@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
+import { podeEditar, formatarPerfis } from "../../../lib/permissoes";
 
 const PERFIS_DISPONIVEIS = [
   'Secretário',
@@ -16,19 +17,37 @@ const PERFIS_DISPONIVEIS = [
 
 export default function NovoMembro() {
   const router = useRouter();
+
+  // 1. TODOS OS STATES DEVEM FICAR NO TOPO DA FUNÇÃO
   const [carregando, setCarregando] = useState(false);
   const [fotoArquivo, setFotoArquivo] = useState<File | null>(null);
   const [mostrarModalSucesso, setMostrarModalSucesso] = useState(false);
-  
   const [cpfFormatado, setCpfFormatado] = useState("");
   const [isDragging, setIsDragging] = useState(false);
-  
   const [acessaSistema, setAcessaSistema] = useState(false);
-  
-  // Estado para armazenar os múltiplos perfis selecionados
   const [perfisSelecionados, setPerfisSelecionados] = useState<string[]>(['Membro']);
 
-  // Função para alternar a seleção dos perfis
+  // 2. O EFFECT EXECUTA A TRAVA DE SEGURANÇA SEM QUEBRAR A ORDEM DE RENDERIZAÇÃO
+  useEffect(() => {
+    const usuarioLocal = localStorage.getItem("usuarioLogado");
+    if (!usuarioLocal) {
+      router.push("/login");
+      return;
+    }
+    
+    const usuario = JSON.parse(usuarioLocal);
+    const perfisUsuarioLogado = formatarPerfis(usuario.perfis || usuario.nivel_acesso);
+    
+    // ==================================================
+    // TRAVA DE ROTA: CHUTA INVASORES PELA URL PARA A HOME
+    // ==================================================
+    if (!podeEditar(perfisUsuarioLogado, 'membros')) {
+      router.push("/");
+    }
+    // ==================================================
+  }, [router]);
+
+  // 3. FUNÇÕES COMUNS
   const togglePerfil = (perfil: string) => {
     setPerfisSelecionados(prev => 
       prev.includes(perfil) 
@@ -37,7 +56,6 @@ export default function NovoMembro() {
     );
   };
 
-  // BLINDAGEM 1: Garante que o valor do input nunca seja lido como undefined
   const handleCpfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e || !e.target) return;
     const val = e.target.value || "";
@@ -54,7 +72,6 @@ export default function NovoMembro() {
   const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); };
   const handleDragLeave = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(false); };
   
-  // BLINDAGEM 2: Previne crash de '.length' se o Admin arrastar um arquivo inválido
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault(); setIsDragging(false);
     if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
@@ -75,10 +92,8 @@ export default function NovoMembro() {
       }
       
       const usuario = JSON.parse(usuarioLocal) || {};
-      
       let igrejaId = usuario?.igreja_id || usuario?.id_igreja || usuario?.idIgreja;
       
-      // BLINDAGEM 3: Verifica com segurança absoluta se 'igrejas' existe antes de ler o '.length'
       if (!igrejaId && Array.isArray(usuario?.igrejas) && usuario.igrejas.length > 0) {
         igrejaId = usuario.igrejas[0]?.id || usuario.igrejas[0]?.igreja_id;
       }
@@ -92,7 +107,6 @@ export default function NovoMembro() {
       const formData = new FormData(e.currentTarget);
       let fotoUrl = null;
 
-      // BLINDAGEM 4: Previne crash se o CPF tentar medir o tamanho do texto e for undefined
       const tamanhoCpf = cpfFormatado ? cpfFormatado.length : 0;
       if (acessaSistema && tamanhoCpf < 14) {
         alert("Para dar acesso ao sistema, o CPF deve ser preenchido corretamente, pois será o login.");
@@ -100,7 +114,6 @@ export default function NovoMembro() {
         return;
       }
 
-      // Validação dos novos perfis
       if (acessaSistema && perfisSelecionados.length === 0) {
         alert("Selecione pelo menos um perfil de acesso para este utilizador.");
         setCarregando(false);
@@ -125,7 +138,6 @@ export default function NovoMembro() {
         cargoFinal = cargosFemininos[cargoFinal] || cargoFinal;
       }
 
-      // Preenchimento de dados sem risco de variáveis soltas
       const dadosMembro = {
         igreja_id: igrejaId,
         nome_completo: formData.get("nome_completo") || "", 
@@ -146,8 +158,8 @@ export default function NovoMembro() {
         congregacao: formData.get("congregacao") || "",
         acessa_sistema: acessaSistema,
         senha: acessaSistema ? formData.get("senha") : null,
-        perfis: acessaSistema ? perfisSelecionados : [], // O novo Array de Permissões!
-        nivel_acesso: acessaSistema ? perfisSelecionados[0] : "Membro" // Mantido como fallback de retrocompatibilidade
+        perfis: acessaSistema ? perfisSelecionados : [], 
+        nivel_acesso: acessaSistema ? perfisSelecionados[0] : "Membro" 
       };
 
       const { error } = await supabase.from("membros").insert([dadosMembro]);
@@ -312,7 +324,7 @@ export default function NovoMembro() {
                   />
                 </div>
 
-                {/* NOVO QUADRO DE SELEÇÃO MÚLTIPLA DE PERFIS */}
+                {/* QUADRO DE SELEÇÃO MÚLTIPLA DE PERFIS */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-800 mb-3">
                     Perfis de Acesso <span className="text-gray-500 font-normal text-xs ml-1">(Selecione um ou mais)</span>

@@ -2,10 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "../../lib/supabase"; // Caminho corrigido para subir 2 níveis
+import { supabase } from "../../lib/supabase"; 
+import { podeEditar, formatarPerfis } from "../../lib/permissoes";
 
 export default function ConfiguracoesIgreja() {
   const router = useRouter();
+  
+  // 1. TODOS OS STATES NO TOPO (REGRA DO REACT)
   const [carregando, setCarregando] = useState(true);
   const [salvando, setSalvando] = useState(false);
   const [logoArquivo, setFotoArquivo] = useState<File | null>(null);
@@ -25,23 +28,37 @@ export default function ConfiguracoesIgreja() {
     logo_url: "",
   });
 
+  // 2. EFFECT PRINCIPAL COM A TRAVA DE SEGURANÇA NA ROTA
   useEffect(() => {
-    // 1. IDENTIFICA A IGREJA LOGADA
     const usuarioLocal = localStorage.getItem("usuarioLogado");
     if (!usuarioLocal) {
       router.push("/login");
       return;
     }
+    
     const usuario = JSON.parse(usuarioLocal);
+    const perfisLogado = formatarPerfis(usuario.perfis || usuario.nivel_acesso);
+
+    // ==================================================
+    // TRAVA DE ROTA: CHUTA INVASORES PARA A HOME
+    // As configurações gerais usam a regra do módulo 'membros' para definir quem é admin global (Pastor/Secretário)
+    // Se o usuário não puder editar membros, também não pode editar as configs da igreja.
+    // ==================================================
+    if (!podeEditar(perfisLogado, 'membros')) {
+      router.push("/");
+      return; // Interrompe a execução
+    }
+    // ==================================================
+
     const igrejaId = usuario.igreja_id;
     setIgrejaIdLogada(igrejaId);
 
-    async function buscarConfiguracoes(igrejaId: string) {
-      // 2. BUSCA AS CONFIGURAÇÕES APENAS DESTA IGREJA
+    async function buscarConfiguracoes(idIgreja: string) {
+      // BUSCA AS CONFIGURAÇÕES APENAS DESTA IGREJA
       const { data, error } = await supabase
         .from("configuracao_igreja")
         .select("*")
-        .eq("igreja_id", igrejaId) // TRAVA DE SEGURANÇA
+        .eq("igreja_id", idIgreja) // TRAVA DE SEGURANÇA
         .maybeSingle();
 
       if (data) {
@@ -59,9 +76,11 @@ export default function ConfiguracoesIgreja() {
       }
       setCarregando(false);
     }
+    
     buscarConfiguracoes(igrejaId);
   }, [router]);
 
+  // 3. FUNÇÕES COMUNS
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setDadosIgreja({ ...dadosIgreja, [name]: value });
@@ -118,6 +137,7 @@ export default function ConfiguracoesIgreja() {
     }
   };
 
+  // 4. RETORNOS
   if (carregando) return <div className="text-center py-20 text-gray-500 font-medium">Carregando configurações...</div>;
 
   const imagemPreview = logoArquivo ? URL.createObjectURL(logoArquivo) : dadosIgreja.logo_url;

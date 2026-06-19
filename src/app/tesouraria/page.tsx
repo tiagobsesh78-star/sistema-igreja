@@ -4,26 +4,27 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../../src/lib/supabase";
-import { podeEditar, formatarPerfis } from "../../../src/lib/permissoes";
+import { podeVisualizar, podeEditar, formatarPerfis } from "../../../src/lib/permissoes";
 
 export default function TesourariaPage() {
   const router = useRouter();
+  
+  // 1. TODOS OS STATES NO TOPO (REGRA DO REACT)
   const [lancamentos, setLancamentos] = useState<any[]>([]);
   const [carregando, setCarregando] = useState(true);
-  const [perfisUsuario, setPerfisUsuario] = useState<string[]>([]); // Estado de Controle de Perfis
+  const [perfisUsuario, setPerfisUsuario] = useState<string[]>([]); 
 
-  // Configurações e Dados Estruturados
   const [configIgreja, setConfigIgreja] = useState<any>(null);
   const [congregacoes, setCongregacoes] = useState<string[]>([]);
   const [congregacaoSelecionada, setCongregacaoSelecionada] = useState("");
   const [configuracoesGlobais, setConfiguracoesGlobais] = useState<any[]>([]);
   const [totalDizimistasGeral, setTotalDizimistasGeral] = useState<any[]>([]);
 
-  // Filtros
   const [mesesSelecionados, setMesesSelecionados] = useState<string[]>([]);
   const [anosSelecionados, setAnosSelecionados] = useState<string[]>([]);
   const [tiposSelecionados, setTiposSelecionados] = useState<string[]>([]);
   const [dropdownAberto, setDropdownAberto] = useState<string | null>(null);
+  const [opcoesAnos, setOpcoesAnos] = useState<string[]>([]);
 
   const opcoesMeses = [
     { valor: "01", rotulo: "Janeiro" }, { valor: "02", rotulo: "Fevereiro" },
@@ -34,28 +35,35 @@ export default function TesourariaPage() {
     { valor: "11", rotulo: "Novembro" }, { valor: "12", rotulo: "Dezembro" }
   ];
   const opcoesTipos = ["Culto", "EBD", "Consagração", "Círculo de oração", "Outros"];
-  const [opcoesAnos, setOpcoesAnos] = useState<string[]>([]);
 
   const obterCongregacaoMembro = (m: any) => {
     if (!m) return "Geral";
     return m.congregacao || m.Congregacao || "Geral";
   };
 
+  // 2. EFFECT PRINCIPAL COM A TRAVA DE ROTA (SEGURANÇA TOTAL)
   useEffect(() => {
     async function carregarDados() {
-      // 1. RECUPERA A IGREJA E OS PERFIS DO UTILIZADOR LOGADO
       const usuarioLocal = localStorage.getItem("usuarioLogado");
       if (!usuarioLocal) {
         router.push("/login");
         return;
       }
       const usuario = JSON.parse(usuarioLocal);
-      const igrejaId = usuario.igreja_id;
+      const perfisLogado = formatarPerfis(usuario.perfis || usuario.nivel_acesso);
       
-      // Armazena os perfis para controle visual
-      setPerfisUsuario(formatarPerfis(usuario.perfis || usuario.nivel_acesso));
+      // ==================================================
+      // TRAVA DE ROTA: SÓ ENTRA QUEM PODE VER A TESOURARIA
+      // ==================================================
+      if (!podeVisualizar(perfisLogado, 'tesouraria')) {
+        router.push("/");
+        return; // Interrompe a execução e expulsa o usuário
+      }
+      // ==================================================
 
-      // 2. APLICA A TRAVA 'igreja_id' EM TODAS AS BUSCAS
+      setPerfisUsuario(perfisLogado);
+      const igrejaId = usuario.igreja_id;
+
       const { data: dadosIgreja } = await supabase.from("configuracao_igreja").select("*").eq("igreja_id", igrejaId).limit(1).maybeSingle();
       if (dadosIgreja) setConfigIgreja(dadosIgreja);
 
@@ -68,7 +76,6 @@ export default function TesourariaPage() {
       const { data: configs } = await supabase.from("tesouraria_configuracoes").select("*").eq("igreja_id", igrejaId);
       if (configs) setConfiguracoesGlobais(configs);
 
-      // CARREGA DIZIMISTAS ATIVOS PARA CRUZAMENTO (Da mesma igreja)
       const { data: dadosDizimistas } = await supabase.from("tesouraria_dizimistas").select("*").eq("igreja_id", igrejaId);
       if (dadosDizimistas && dadosMembros) {
         const unidos = dadosDizimistas.map(d => ({
@@ -90,6 +97,7 @@ export default function TesourariaPage() {
     carregarDados();
   }, [router]);
 
+  // 3. FUNÇÕES COMUNS
   const toggleFiltro = (lista: string[], setLista: any, valor: string) => {
     if (lista.includes(valor)) setLista(lista.filter((v) => v !== valor));
     else setLista([...lista, valor]);
@@ -105,7 +113,6 @@ export default function TesourariaPage() {
     return matchCongregacao && matchMes && matchAno && matchTipo;
   });
 
-  // ========== CÁLCULOS TOTAIS DO FILTRO ATUAL ==========
   const totalOfertas = lancamentosFiltrados.reduce((acc, lanc) => acc + (Number(lanc.ofertas) || 0), 0);
   const totalDizimos = lancamentosFiltrados.reduce((acc, lanc) => acc + (Number(lanc.dizimos) || 0), 0);
   const totalEspecial = lancamentosFiltrados.reduce((acc, lanc) => acc + (Number(lanc.oferta_especial) || 0), 0);
@@ -120,13 +127,11 @@ export default function TesourariaPage() {
   const totalRepassesFixos = saidasFixasCalculadas.reduce((acc, s) => acc + s.valorCalculado, 0);
   const saldoLiquidoParcial = totalEntradasBrutas - totalSaidasManuais - totalRepassesFixos;
 
-  // CONTAGEM DE DIZIMISTAS ATIVOS BASEADO NO FILTRO DE CONGREGAÇÃO
   const contagemDizimistasFiltrados = totalDizimistasGeral.filter(d => {
     if (congregacaoSelecionada === "") return true;
     return obterCongregacaoMembro(d.membros) === congregacaoSelecionada;
   }).length;
 
-  // FORMATADORES
   const formatarMoeda = (valor: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(valor || 0);
   const formatarMoedaExcel = (valor: number) => (valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const formatarData = (dataSql: string) => {
@@ -166,7 +171,6 @@ export default function TesourariaPage() {
     document.body.removeChild(link);
   };
 
-  // Trava central de permissão para esse módulo
   const ehEditor = podeEditar(perfisUsuario, 'tesouraria');
 
   if (carregando) return <div className="p-8 text-center text-gray-600">Carregando tesouraria...</div>;
@@ -187,7 +191,6 @@ export default function TesourariaPage() {
         }
       `}} />
 
-      {/* CABEÇALHO IMPRESSÃO */}
       <div className="cabecalho-impressao text-center mb-8 border-b-2 border-black pb-4">
         {configIgreja?.logo_url && <img src={configIgreja.logo_url} alt="Logo" className="h-20 mx-auto mb-3 object-contain" />}
         <h1 className="text-2xl font-black uppercase tracking-wide text-gray-900">{nomeIgrejaPrincipal}</h1>
@@ -201,14 +204,12 @@ export default function TesourariaPage() {
 
       {dropdownAberto && <div className="fixed inset-0 z-10 print-oculto" onClick={() => setDropdownAberto(null)}></div>}
 
-      {/* PAINEL SUPERIOR */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-xl shadow-sm border border-gray-100 print-oculto">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Tesouraria</h1>
           <p className="text-sm text-gray-500 mt-1">Gestão de entradas, saídas e relatórios financeiros.</p>
         </div>
         
-        {/* ESCONDE AÇÕES ADMINISTRATIVAS SE NÃO FOR EDITOR DE TESOURARIA */}
         {ehEditor && (
           <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
             <Link href="/tesouraria/configuracoes" className="flex-1 md:flex-none px-4 py-2 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition text-sm text-center">Configurações Globais</Link>
@@ -218,7 +219,6 @@ export default function TesourariaPage() {
         )}
       </div>
 
-      {/* FILTROS */}
       <div className="bg-white p-4 md:p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col space-y-4 print-oculto">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between border-b border-gray-100 pb-4 gap-4">
           <div className="flex-1 w-full">
@@ -240,7 +240,6 @@ export default function TesourariaPage() {
         
         <div className="flex flex-wrap gap-4 w-full relative z-20 items-center justify-between">
           <div className="flex flex-wrap gap-4">
-            {/* MESES */}
             <div className="relative">
               <button type="button" onClick={() => setDropdownAberto(dropdownAberto === 'meses' ? null : 'meses')} className="px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 font-medium w-full md:w-48 text-left flex justify-between items-center hover:bg-gray-100 transition">
                 {mesesSelecionados.length === 0 ? "Selecionar Mês" : `Meses (${mesesSelecionados.length})`}
@@ -257,7 +256,6 @@ export default function TesourariaPage() {
               )}
             </div>
 
-            {/* ANOS */}
             <div className="relative">
               <button type="button" onClick={() => setDropdownAberto(dropdownAberto === 'anos' ? null : 'anos')} className="px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 font-medium w-full md:w-36 text-left flex justify-between items-center hover:bg-gray-100 transition">
                 {anosSelecionados.length === 0 ? "Selecionar Ano" : `Anos (${anosSelecionados.length})`}
@@ -274,7 +272,6 @@ export default function TesourariaPage() {
               )}
             </div>
 
-            {/* TRABALHOS */}
             <div className="relative">
               <button type="button" onClick={() => setDropdownAberto(dropdownAberto === 'tipos' ? null : 'tipos')} className="px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 font-medium w-full md:w-48 text-left flex justify-between items-center hover:bg-gray-100 transition">
                 {tiposSelecionados.length === 0 ? "Reunião" : `Trabalhos (${tiposSelecionados.length})`}
@@ -295,7 +292,6 @@ export default function TesourariaPage() {
         </div>
       </div>
 
-      {/* TABELA PRINCIPAL */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
@@ -335,7 +331,6 @@ export default function TesourariaPage() {
         </div>
       </div>
 
-      {/* RESUMO FINANCEIRO */}
       {lancamentosFiltrados.length > 0 && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden resumo-print">
           <div className="p-4 bg-gray-900 border-b border-gray-800 flex justify-between items-center">
@@ -343,7 +338,6 @@ export default function TesourariaPage() {
               <h3 className="text-lg font-bold text-white tracking-wide">Resumo Financeiro e Repasses</h3>
               <p className="text-xs text-gray-400">Cálculos baseados nos lançamentos exibidos acima.</p>
             </div>
-            {/* INFORMAÇÃO COMPLEMENTAR PEDIDA */}
             <div className="text-right">
               <span className="text-xs font-bold text-teal-400 uppercase tracking-wider block">Dizimistas Ativos</span>
               <span className="text-xl font-black text-white">{contagemDizimistasFiltrados}</span>

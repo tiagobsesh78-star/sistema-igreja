@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
+import { podeEditar, formatarPerfis } from "../../../lib/permissoes";
 import {
   format,
   addMonths,
@@ -20,6 +21,7 @@ import { ptBR } from "date-fns/locale";
 export default function NovaEscala() {
   const router = useRouter();
   
+  // 1. TODOS OS STATES DEVEM FICAR NO TOPO DA FUNÇÃO
   const [salvando, setSalvando] = useState(false);
   const [modalSucesso, setModalSucesso] = useState(false);
   const [igrejaIdLogada, setIgrejaIdLogada] = useState<string | null>(null);
@@ -32,16 +34,28 @@ export default function NovaEscala() {
   const [dataExpandida, setDataExpandida] = useState<string | null>(null);
   
   const [dadosPorData, setDadosPorData] = useState<Record<string, any[]>>({});
-  const [descricoesPorData, setDescricoesPorData] = useState<Record<string, string>>({}); // NOVO ESTADO PARA DESCRIÇÃO
+  const [descricoesPorData, setDescricoesPorData] = useState<Record<string, string>>({}); 
 
+  // 2. EFFECT PRINCIPAL COM A TRAVA DE SEGURANÇA
   useEffect(() => {
-    // IDENTIFICA A IGREJA LOGADA AO ABRIR A TELA
     const usuarioLocal = localStorage.getItem("usuarioLogado");
     if (!usuarioLocal) {
       router.push("/login");
       return;
     }
+
     const usuario = JSON.parse(usuarioLocal);
+    const perfisLogado = formatarPerfis(usuario.perfis || usuario.nivel_acesso);
+
+    // ==================================================
+    // TRAVA DE ROTA: CHUTA INVASORES PELA URL PARA A HOME
+    // ==================================================
+    if (!podeEditar(perfisLogado, 'escalas')) {
+      router.push("/");
+      return; // Interrompe a execução
+    }
+    // ==================================================
+
     setIgrejaIdLogada(usuario.igreja_id);
   }, [router]);
 
@@ -147,7 +161,7 @@ export default function NovaEscala() {
         tipo_personalizado: tipo === "Outro" ? tipoOutro : null,
         data: d,
         detalhes: dadosPorData[d],
-        descricao: descricoesPorData[d] || null // ENVIA A DESCRIÇÃO PARA O BANCO
+        descricao: descricoesPorData[d] || null 
       }));
       
       const { error } = await supabase.from("escalas").insert(inserts);

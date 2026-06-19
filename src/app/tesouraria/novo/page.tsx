@@ -3,11 +3,12 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
+import { podeEditar, formatarPerfis } from "../../../lib/permissoes";
 
 export default function NovoLancamento() {
   const router = useRouter();
   
-  // Estados do formulário
+  // 1. TODOS OS STATES DEVEM FICAR NO TOPO
   const [dataLancamento, setDataLancamento] = useState("");
   const [tipoTrabalho, setTipoTrabalho] = useState("Culto");
   const [congregacao, setCongregacao] = useState("");
@@ -16,35 +17,43 @@ export default function NovoLancamento() {
   const [ofertaEspecial, setOfertaEspecial] = useState<number | "">("");
   const [saidas, setSaidas] = useState<number | "">("");
   
-  // Lista de congregações vindas do banco
   const [listaCongregacoes, setListaCongregacoes] = useState<string[]>([]);
   
-  // Estados de controle
   const [salvando, setSalvando] = useState(false);
   const [mostrarModalSucesso, setMostrarModalSucesso] = useState(false);
   const [igrejaIdLogada, setIgrejaIdLogada] = useState<string | null>(null);
 
-  // Carrega a data de hoje e as congregações do sistema
+  // 2. EFFECT PRINCIPAL COM A TRAVA DE ROTA (SEGURANÇA TOTAL)
   useEffect(() => {
     const hoje = new Date().toISOString().split("T")[0];
     setDataLancamento(hoje);
 
-    // 1. IDENTIFICA A IGREJA LOGADA
     const usuarioLocal = localStorage.getItem("usuarioLogado");
     if (!usuarioLocal) {
       router.push("/login");
       return;
     }
+
     const usuario = JSON.parse(usuarioLocal);
+    const perfisLogado = formatarPerfis(usuario.perfis || usuario.nivel_acesso);
+
+    // ==================================================
+    // TRAVA DE ROTA: CHUTA INVASORES PELA URL PARA A HOME
+    // ==================================================
+    if (!podeEditar(perfisLogado, 'tesouraria')) {
+      router.push("/");
+      return; // Interrompe a execução
+    }
+    // ==================================================
+
     const igrejaId = usuario.igreja_id;
     setIgrejaIdLogada(igrejaId);
 
     async function buscarCongregacoes() {
-      // 2. BUSCA AS CONGREGAÇÕES APENAS DESTA IGREJA
       const { data } = await supabase
         .from("membros")
         .select("congregacao")
-        .eq("igreja_id", igrejaId); // A TRAVA DE LEITURA
+        .eq("igreja_id", igrejaId);
 
       if (data) {
         const filtradas = Array.from(
@@ -80,7 +89,7 @@ export default function NovoLancamento() {
     setSalvando(true);
 
     const dadosLancamento = {
-      igreja_id: igrejaIdLogada, // 3. CARIMBO DA IGREJA NO INSERT
+      igreja_id: igrejaIdLogada,
       data: dataLancamento,
       tipo_trabalho: tipoTrabalho,
       congregacao: congregacao,
@@ -124,7 +133,6 @@ export default function NovoLancamento() {
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       
-      {/* CABEÇALHO */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Novo Lançamento</h1>
@@ -139,11 +147,9 @@ export default function NovoLancamento() {
         </button>
       </div>
 
-      {/* FORMULÁRIO */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
         <form onSubmit={salvarLancamento} className="p-6 md:p-8 space-y-8">
           
-          {/* SEÇÃO 1: Dados Gerais */}
           <div>
             <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider border-b border-gray-100 pb-2 mb-4">Informações do Trabalho</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -194,7 +200,6 @@ export default function NovoLancamento() {
             </div>
           </div>
 
-          {/* SEÇÃO 2: Valores */}
           <div>
             <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider border-b border-gray-100 pb-2 mb-4">Valores (R$)</h3>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -252,7 +257,6 @@ export default function NovoLancamento() {
             </div>
           </div>
 
-          {/* SEÇÃO 3: Total Calculado */}
           <div className={`p-6 rounded-xl flex flex-col md:flex-row items-center justify-between border ${totalCalculado >= 0 ? 'bg-teal-50 border-teal-100' : 'bg-red-50 border-red-100'}`}>
             <span className={`text-sm font-bold uppercase tracking-wider ${totalCalculado >= 0 ? 'text-teal-800' : 'text-red-800'}`}>
               Total do Trabalho
@@ -262,7 +266,6 @@ export default function NovoLancamento() {
             </span>
           </div>
 
-          {/* BOTÃO DE SALVAR */}
           <div className="pt-4 border-t border-gray-100">
             <button 
               type="submit" 
@@ -276,7 +279,6 @@ export default function NovoLancamento() {
         </form>
       </div>
 
-      {/* MODAL DE SUCESSO */}
       {mostrarModalSucesso && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[9999] p-4 cursor-pointer" onClick={fecharModalELimpar}>
           <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-8 text-center cursor-default" onClick={(e) => e.stopPropagation()}>
