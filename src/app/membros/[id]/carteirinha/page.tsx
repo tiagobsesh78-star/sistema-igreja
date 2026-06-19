@@ -16,14 +16,31 @@ export default function CarteirinhaMembro() {
 
   useEffect(() => {
     async function buscarDetalhes() {
-      const { data: membroData, error: membroError } = await supabase.from("membros").select("*").eq("id", id).single();
-      if (!membroError) setMembro(membroData);
+      // 1. Primeiro busca o membro específico
+      const { data: membroData, error: membroError } = await supabase
+        .from("membros")
+        .select("*")
+        .eq("id", id)
+        .single();
 
-      const { data: configData } = await supabase.from("configuracao_igreja").select("*").maybeSingle();
-      if (configData) setConfigIgreja(configData);
+      if (!membroError && membroData) {
+        setMembro(membroData);
+
+        // 2. Com o membro em mãos, busca a configuração EXATAMENTE da igreja dele
+        const { data: configData } = await supabase
+          .from("configuracao_igreja")
+          .select("*")
+          .eq("igreja_id", membroData.igreja_id)
+          .maybeSingle();
+
+        if (configData) {
+          setConfigIgreja(configData);
+        }
+      }
 
       setCarregando(false);
     }
+    
     if (id) buscarDetalhes();
   }, [id]);
 
@@ -172,8 +189,9 @@ export default function CarteirinhaMembro() {
                   {nomeIgreja}
                 </h2>
                 
+                {/* Validação aprimorada: garante que o CNPJ existe e não está vazio */}
                 <p style={{ margin: 0, fontSize: '8px', opacity: 0.9, textTransform: 'uppercase', letterSpacing: '1px' }}>
-                  Ministério / Congregação
+                  {configIgreja?.cnpj && configIgreja.cnpj.trim() !== "" ? `CNPJ: ${configIgreja.cnpj}` : "Ministério / Congregação"}
                 </p>
               </div>
 

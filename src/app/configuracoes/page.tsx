@@ -19,6 +19,7 @@ export default function ConfiguracoesIgreja() {
 
   const [dadosIgreja, setDadosIgreja] = useState({
     nome_igreja: "",
+    cnpj: "", // Novo campo adicionado ao estado inicial
     nome_pastor: "",
     endereco_rua: "",
     endereco_numero: "",
@@ -65,6 +66,7 @@ export default function ConfiguracoesIgreja() {
         setConfigId(data.id);
         setDadosIgreja({
           nome_igreja: data.nome_igreja || "",
+          cnpj: data.cnpj || "", // Preenche o CNPJ vindo do banco
           nome_pastor: data.nome_pastor || "",
           endereco_rua: data.endereco_rua || "",
           endereco_numero: data.endereco_numero || "",
@@ -83,6 +85,22 @@ export default function ConfiguracoesIgreja() {
   // 3. FUNÇÕES COMUNS
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
+    
+    // Máscara Inteligente e Automática de CNPJ (00.000.000/0000-00)
+    if (name === "cnpj") {
+      let valorLimpo = value.replace(/\D/g, ""); // Remove tudo que não for número
+      if (valorLimpo.length > 14) valorLimpo = valorLimpo.slice(0, 14); // Limita em 14 dígitos
+
+      valorLimpo = valorLimpo
+        .replace(/^(\d{2})(\d)/, "$1.$2")
+        .replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3")
+        .replace(/\.(\d{3})(\d)/, ".$1/$2")
+        .replace(/(\d{4})(\d)/, "$1-$2");
+
+      setDadosIgreja({ ...dadosIgreja, [name]: valorLimpo });
+      return;
+    }
+
     setDadosIgreja({ ...dadosIgreja, [name]: value });
   };
 
@@ -153,11 +171,19 @@ export default function ConfiguracoesIgreja() {
         </div>
 
         <form onSubmit={salvarConfiguracoes} className="space-y-6">
+          {/* Ajustado o grid para suportar a nova disposição incluindo o CNPJ */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
+            <div className="md:col-span-2">
               <label className="block text-sm font-semibold text-gray-700 mb-1">Nome Oficial da Igreja *</label>
               <input required name="nome_igreja" value={dadosIgreja.nome_igreja} onChange={handleChange} type="text" className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ex: Igreja Evangélica..." />
             </div>
+            
+            {/* NOVO CAMPO: CNPJ */}
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">CNPJ</label>
+              <input name="cnpj" value={dadosIgreja.cnpj} onChange={handleChange} type="text" className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500" placeholder="00.000.000/0000-00" maxLength={18} inputMode="numeric" />
+            </div>
+
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">Pastor Presidente *</label>
               <input required name="nome_pastor" value={dadosIgreja.nome_pastor} onChange={handleChange} type="text" className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ex: Pr. João Silva" />

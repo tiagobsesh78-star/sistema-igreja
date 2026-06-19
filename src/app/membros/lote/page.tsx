@@ -44,7 +44,7 @@ function LoteDeCarteirinhas() {
         setMembros(membrosData);
       }
 
-      // 3. BUSCA AS CONFIGURAÇÕES DA IGREJA ESPECÍFICA (Logo e Pastor)
+      // 3. BUSCA AS CONFIGURAÇÕES DA IGREJA ESPECÍFICA (Logo e Pastor e CNPJ)
       const { data: configData } = await supabase
         .from("configuracao_igreja")
         .select("*")
@@ -188,7 +188,10 @@ function LoteDeCarteirinhas() {
                 }}>
                   {nomeIgreja}
                 </h2>
-                <p style={{ margin: 0, fontSize: '8px', opacity: 0.9, textTransform: 'uppercase', letterSpacing: '1px' }}>Ministério / Congregação</p>
+                {/* Validação do CNPJ aqui, idêntica à tela individual */}
+                <p style={{ margin: 0, fontSize: '8px', opacity: 0.9, textTransform: 'uppercase', letterSpacing: '1px' }}>
+                  {configIgreja?.cnpj && configIgreja.cnpj.trim() !== "" ? `CNPJ: ${configIgreja.cnpj}` : "Ministério / Congregação"}
+                </p>
               </div>
 
               <div style={{ position: 'absolute', top: '48px', left: '10px', width: '55px', height: '55px', border: '1px solid #5eead4', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8fafc', color: '#0d9488', overflow: 'hidden' }}>
