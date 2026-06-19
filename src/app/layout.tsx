@@ -20,6 +20,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const [fotoUrl, setFotoUrl] = useState<string | null>(null);
   const [userMenuAberto, setUserMenuAberto] = useState(false);
   
+  // Estado para Armazenar Dinamicamente o Nome da Igreja na Interface
+  const [nomeIgreja, setNomeIgreja] = useState<string>("Sistema Igreja");
+  
   // Estados do Modal de Alteração de Senha
   const [modalSenhaAberto, setModalSenhaAberto] = useState(false);
   const [novaSenha, setNovaSenha] = useState("");
@@ -29,7 +32,44 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const ehPaginaLogin = pathname === "/login";
   const fecharMenu = () => setMenuAberto(false);
 
-  // Carrega os dados do utilizador e a foto do Supabase
+  // Carrega o nome da igreja salvo em cache imediatamente para evitar "pulos" visuais
+  useEffect(() => {
+    const nomeSalvo = localStorage.getItem("nomeIgrejaCadastrada");
+    if (nomeSalvo) {
+      setNomeIgreja(nomeSalvo);
+    }
+  }, []);
+
+  // ---------------------------------------------------------
+  // Controle Dinâmico do Título da Aba (Sempre Doxo Hub)
+  // ---------------------------------------------------------
+  useEffect(() => {
+    // Regra Exclusiva para a Tela de Login (Porta de Entrada)
+    if (pathname === '/login') {
+      document.title = 'Doxo Hub';
+      return;
+    }
+
+    const rotaBase = `/${pathname.split('/')[1]}`;
+    
+    const titulosSistema: Record<string, string> = {
+      '/': 'Início',
+      '/membros': 'Membros',
+      '/tesouraria': 'Tesouraria',
+      '/patrimonio': 'Patrimônio',
+      '/escalas': 'Escalas',
+      '/reunioes': 'Reuniões',
+      '/programacao': 'Programação',
+      '/configuracoes': 'Configurações',
+    };
+
+    const paginaAtual = titulosSistema[rotaBase] || titulosSistema[pathname] || '';
+    
+    // Altera o título da aba sempre mantendo o padrão "Doxo Hub"
+    document.title = paginaAtual ? `${paginaAtual} | Doxo Hub` : 'Doxo Hub';
+  }, [pathname]);
+
+  // Carrega os dados do utilizador, a foto e as configurações da Igreja
   useEffect(() => {
     if (ehPaginaLogin) return;
 
@@ -39,17 +79,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         const parsedUser = JSON.parse(userLocal);
         setUsuario(parsedUser);
 
-        async function buscarFoto() {
+        // Busca dados do Membro
+        async function buscarDadosMembro() {
           const { data } = await supabase
             .from("membros")
-            .select("foto_url, perfis") // Garante que busca os perfis atualizados
+            .select("foto_url, perfis")
             .eq("id", parsedUser.id)
             .single();
             
           if (data) {
             if (data.foto_url) setFotoUrl(data.foto_url);
             
-            // Atualiza os perfis no localStorage caso tenham mudado no banco
             if (data.perfis && JSON.stringify(data.perfis) !== JSON.stringify(parsedUser.perfis)) {
                const updatedUser = { ...parsedUser, perfis: data.perfis };
                localStorage.setItem("usuarioLogado", JSON.stringify(updatedUser));
@@ -57,7 +97,37 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             }
           }
         }
-        buscarFoto();
+
+        // Busca o nome real da Igreja baseado nas Configurações cadastradas
+        async function buscarConfiguracoesIgreja() {
+          if (!parsedUser.igreja_id) return;
+
+          const { data } = await supabase
+            .from("configuracao_igreja")
+            .select("nome_igreja")
+            .eq("igreja_id", parsedUser.igreja_id)
+            .maybeSingle();
+
+          if (data?.nome_igreja) {
+            setNomeIgreja(data.nome_igreja);
+            localStorage.setItem("nomeIgrejaCadastrada", data.nome_igreja);
+          } else {
+            // Fallback caso a tabela principal seja a de "igrejas"
+            const { data: dataIgreja } = await supabase
+              .from("igrejas")
+              .select("nome")
+              .eq("id", parsedUser.igreja_id)
+              .maybeSingle();
+              
+            if (dataIgreja?.nome) {
+              setNomeIgreja(dataIgreja.nome);
+              localStorage.setItem("nomeIgrejaCadastrada", dataIgreja.nome);
+            }
+          }
+        }
+
+        buscarDadosMembro();
+        buscarConfiguracoesIgreja();
       } catch (e) {
         console.error("Erro ao carregar sessão do utilizador.");
       }
@@ -78,6 +148,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
   const handleSair = () => {
     localStorage.removeItem("usuarioLogado");
+    localStorage.removeItem("nomeIgrejaCadastrada");
     setUsuario(null);
     setUserMenuAberto(false);
     router.push("/login");
@@ -116,7 +187,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const nomeParaExibir = usuario?.nome ? usuario.nome.split(" ")[0] : "Utilizador";
   const inicial = usuario?.nome ? usuario.nome.charAt(0).toUpperCase() : "U";
   
-  // Formata a lista de perfis do usuário logado para uso na navegação e exibição
   const perfisUsuario = formatarPerfis(usuario?.perfis);
   const textoPerfis = perfisUsuario.length > 0 ? perfisUsuario.join(", ") : "Membro";
 
@@ -134,20 +204,26 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 menuAberto ? "translate-x-0" : "-translate-x-full"
               }`}
             >
-              <div className="flex items-center justify-between p-5 border-b border-gray-800 h-16">
-                <Link href="/" onClick={fecharMenu} className="text-xl font-bold tracking-wide hover:opacity-80 transition-opacity">
-                  <span className="text-blue-500">Igreja</span>Admin
-                </Link>
-                <button onClick={fecharMenu} className="text-gray-400 hover:text-white transition-colors">
-                  <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+              {/* TOPO DO MENU: LOGO PERSONALIZADA (SEM DISTORÇÃO) */}
+              <div className="flex items-center justify-between p-4 border-b border-gray-800 h-16">
+                <div className="flex-1 flex justify-center items-center pl-2">
+                  <Link href="/" onClick={fecharMenu} className="hover:opacity-80 transition-opacity block">
+                    {/* Ajustado: h-10 (altura fixa segura), w-auto (largura proporcional), max-w garante que não quebre o layout */}
+                    <img 
+                      src="/logobranco.png" 
+                      alt="Logo Igreja" 
+                      className="h-10 w-auto max-w-[180px] object-contain block" 
+                    />
+                  </Link>
+                </div>
+                <button onClick={fecharMenu} className="text-gray-400 hover:text-white transition-colors shrink-0 ml-1">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
               </div>
 
               <nav className="p-4 space-y-3 mt-2 flex-1 overflow-y-auto">
-                {/* A Tela Inicial é livre para todos */}
                 <Link href="/" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname === '/' ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Início</Link>
                 
-                {/* Links Condicionais Baseados em Perfil */}
                 {podeVisualizar(perfisUsuario, 'membros') && (
                   <Link href="/membros" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/membros') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Membros</Link>
                 )}
@@ -172,7 +248,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   <Link href="/programacao" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/programacao') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Programação</Link>
                 )}
                 
-                {/* Apenas Pastores e Secretários devem ver as Configurações Globais */}
                 {(perfisUsuario.includes('Secretário') || perfisUsuario.includes('Pastor/Presbítero')) && (
                   <Link href="/configuracoes" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname === '/configuracoes' ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Configurações</Link>
                 )}
@@ -184,20 +259,22 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             {/* ÁREA DO CONTEÚDO PRINCIPAL */}
             <div className={`flex flex-col min-h-screen transition-all duration-300 ease-in-out ${menuAberto ? "md:ml-64" : "ml-0"} print:ml-0`}>
               
-              {/* CABEÇALHO PRETO ORIGINAL COM PERFIL INTEGRADO */}
+              {/* BARRA SUPERIOR: APENAS O NOME DA IGREJA SEM ÍCONE */}
               <header className="bg-black text-white h-16 flex items-center px-4 md:px-8 justify-between shadow-md z-30 sticky top-0 print:hidden">
-                <div className="flex items-center gap-4">
-                  <button onClick={() => setMenuAberto(!menuAberto)} className="text-white hover:text-blue-400 focus:outline-none transition-colors">
-                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
+                <div className="flex items-center gap-4 overflow-hidden mr-2">
+                  <button onClick={() => setMenuAberto(!menuAberto)} className="text-white hover:text-blue-400 focus:outline-none transition-colors shrink-0">
+                    <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
                   </button>
                   
-                  <Link href="/" className="text-xl font-bold tracking-wide hover:opacity-80 transition-opacity">
-                    <span className="text-blue-500">Igreja</span>Admin
+                  <Link href="/" className="hover:opacity-90 transition-opacity overflow-hidden">
+                    <span className="text-lg font-bold tracking-wide truncate block max-w-[160px] sm:max-w-[320px] md:max-w-[500px]" title={nomeIgreja}>
+                      {nomeIgreja}
+                    </span>
                   </Link>
                 </div>
 
-                {/* BLOCO DO MENU DO UTILIZADOR (CANTO DIREITO) */}
-                <div className="relative user-menu-container">
+                {/* BLOCO DO MENU DO UTILIZADOR */}
+                <div className="relative user-menu-container shrink-0">
                   {usuario ? (
                     <>
                       <button 
@@ -257,7 +334,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                       )}
                     </>
                   ) : (
-                    /* Fallback caso não encontre sessão ativa */
                     <div className="flex items-center gap-3">
                       <span className="text-sm text-gray-400 font-medium">Sessão expirada</span>
                       <Link href="/login" className="w-10 h-10 rounded-full bg-gray-800 border-2 border-gray-700 flex items-center justify-center text-gray-400 hover:text-white transition-colors">
