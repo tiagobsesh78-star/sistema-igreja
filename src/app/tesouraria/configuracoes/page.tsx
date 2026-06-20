@@ -3,9 +3,12 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../../../src/lib/supabase";
+import { podeEditar, formatarPerfis } from "../../../../src/lib/permissoes";
 
 export default function ConfiguracoesTesouraria() {
   const router = useRouter();
+  
+  // 1. TODOS OS STATES DEVEM FICAR NO TOPO
   const [configuracoes, setConfiguracoes] = useState<any[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [igrejaIdLogada, setIgrejaIdLogada] = useState<string | null>(null);
@@ -17,28 +20,56 @@ export default function ConfiguracoesTesouraria() {
   const [origemDestino, setOrigemDestino] = useState("");
   const [salvando, setSalvando] = useState(false);
 
+  // 2. EFFECT PRINCIPAL COM A TRAVA DE SEGURANÇA NA ROTA
   useEffect(() => {
-    // 1. IDENTIFICA A IGREJA LOGADA AO ABRIR A TELA
     const usuarioLocal = localStorage.getItem("usuarioLogado");
     if (!usuarioLocal) {
       router.push("/login");
       return;
     }
+    
     const usuario = JSON.parse(usuarioLocal);
+    const perfisLogado = formatarPerfis(usuario.perfis || usuario.nivel_acesso);
+
+    // ==================================================
+    // TRAVA DE ROTA: CHUTA INVASORES PELA URL PARA A HOME
+    // ==================================================
+    if (!podeEditar(perfisLogado, 'tesouraria')) {
+      router.push("/");
+      return; // Interrompe a execução
+    }
+    // ==================================================
+
     const igrejaId = usuario.igreja_id;
     setIgrejaIdLogada(igrejaId);
 
+    async function carregarConfiguracoes(idIgreja: string) {
+      setCarregando(true);
+      
+      const { data, error } = await supabase
+        .from("tesouraria_configuracoes")
+        .select("*")
+        .eq("igreja_id", idIgreja) 
+        .order("categoria", { ascending: false })
+        .order("id", { ascending: true });
+
+      if (!error && data) {
+        setConfiguracoes(data);
+      }
+      setCarregando(false);
+    }
+    
     carregarConfiguracoes(igrejaId);
   }, [router]);
 
-  async function carregarConfiguracoes(igrejaId: string) {
+  // Função isolada de carregamento para uso local (após inserção/deleção)
+  async function recarregarConfiguracoesLocalmente() {
+    if (!igrejaIdLogada) return;
     setCarregando(true);
-    
-    // 2. APLICA A TRAVA NA BUSCA
     const { data, error } = await supabase
       .from("tesouraria_configuracoes")
       .select("*")
-      .eq("igreja_id", igrejaId) // Filtra apenas as configurações desta igreja
+      .eq("igreja_id", igrejaIdLogada)
       .order("categoria", { ascending: false })
       .order("id", { ascending: true });
 
@@ -48,6 +79,7 @@ export default function ConfiguracoesTesouraria() {
     setCarregando(false);
   }
 
+  // 3. FUNÇÕES COMUNS DE MANIPULAÇÃO DE DADOS
   const salvarConfiguracao = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!tipo || percentual === "" || !origemDestino) {
@@ -62,7 +94,7 @@ export default function ConfiguracoesTesouraria() {
 
     setSalvando(true);
     const novaConfig = {
-      igreja_id: igrejaIdLogada, // 3. CARIMBO DA IGREJA NO INSERT
+      igreja_id: igrejaIdLogada,
       categoria,
       tipo,
       percentual: Number(percentual),
@@ -79,7 +111,7 @@ export default function ConfiguracoesTesouraria() {
       setTipo("");
       setPercentual("");
       setOrigemDestino("");
-      carregarConfiguracoes(igrejaIdLogada); // Recarrega a lista com o ID correto
+      recarregarConfiguracoesLocalmente(); 
     }
   };
 
@@ -87,23 +119,23 @@ export default function ConfiguracoesTesouraria() {
     if (!confirm("Tem certeza que deseja remover esta configuração?")) return;
     if (!igrejaIdLogada) return;
 
-    // 4. TRAVA DE SEGURANÇA NA EXCLUSÃO
     const { error } = await supabase
       .from("tesouraria_configuracoes")
       .delete()
       .eq("id", id)
-      .eq("igreja_id", igrejaIdLogada); // Impede deletar config de outra igreja
+      .eq("igreja_id", igrejaIdLogada); 
 
     if (error) {
       alert("Erro ao deletar: " + error.message);
     } else {
-      carregarConfiguracoes(igrejaIdLogada);
+      recarregarConfiguracoesLocalmente();
     }
   };
 
   const configuracoesSaida = configuracoes.filter(c => c.categoria === "Saída");
   const configuracoesEntrada = configuracoes.filter(c => c.categoria === "Entrada");
 
+  // 4. RETORNOS E COMPONENTES VISUAIS
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       

@@ -1,14 +1,18 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase"; 
-import { podeEditar, formatarPerfis } from "../../lib/permissoes";
+import { podeVisualizar, podeEditar, formatarPerfis } from "../../lib/permissoes";
 
 export default function ReunioesPage() {
+  const router = useRouter();
+
+  // 1. TODOS OS STATES NO TOPO (REGRA DO REACT)
   const [reunioes, setReunioes] = useState<any[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [igrejaId, setIgrejaId] = useState<string | null>(null);
-  const [perfisUsuario, setPerfisUsuario] = useState<string[]>([]); // Estado de Controle de Perfis
+  const [perfisUsuario, setPerfisUsuario] = useState<string[]>([]);
 
   const [modalAberto, setModalAberto] = useState(false);
   const [salvando, setSalvando] = useState(false);
@@ -29,28 +33,39 @@ export default function ReunioesPage() {
 
   const editorRef = useRef<HTMLDivElement>(null);
 
+  // 2. EFFECT PRINCIPAL COM A TRAVA DE ROTA (SEGURANÇA TOTAL)
   useEffect(() => {
     const carregarContexto = async () => {
       try {
         const userLocal = localStorage.getItem("usuarioLogado");
-        if (userLocal) {
-          const parsedUser = JSON.parse(userLocal);
-          
-          // Armazena os perfis para controle visual
-          setPerfisUsuario(formatarPerfis(parsedUser.perfis || parsedUser.nivel_acesso));
-          
-          const idIgrejaDetectado = parsedUser.igreja_id || parsedUser.id_igreja || parsedUser.idIgreja;
-          
-          if (idIgrejaDetectado && idIgrejaDetectado !== "undefined" && idIgrejaDetectado !== "null") {
-            const idLimpo = String(idIgrejaDetectado).trim();
-            setIgrejaId(idLimpo);
-            buscarReunioes(idLimpo);
-            return;
-          }
+        if (!userLocal) {
+          router.push("/login");
+          return;
         }
+
+        const parsedUser = JSON.parse(userLocal);
+        const perfisLogado = formatarPerfis(parsedUser.perfis || parsedUser.nivel_acesso);
+
+        // ==================================================
+        // TRAVA DE ROTA: CHUTA INVASORES PARA A HOME
+        // ==================================================
+        if (!podeVisualizar(perfisLogado, 'reunioes')) {
+          router.push("/");
+          return; // Interrompe a execução
+        }
+        // ==================================================
+
+        setPerfisUsuario(perfisLogado);
+        const idIgrejaDetectado = parsedUser.igreja_id || parsedUser.id_igreja || parsedUser.idIgreja;
         
-        alert("Aviso de Sessão: Não identificamos o vínculo da Igreja. Por favor, saia do sistema e faça login novamente.");
-        setCarregando(false);
+        if (idIgrejaDetectado && idIgrejaDetectado !== "undefined" && idIgrejaDetectado !== "null") {
+          const idLimpo = String(idIgrejaDetectado).trim();
+          setIgrejaId(idLimpo);
+          buscarReunioes(idLimpo);
+        } else {
+          alert("Aviso de Sessão: Não identificamos o vínculo da Igreja. Por favor, saia do sistema e faça login novamente.");
+          setCarregando(false);
+        }
       } catch (error) {
         console.error("Erro ao ler dados de sessão:", error);
         setCarregando(false);
@@ -58,7 +73,7 @@ export default function ReunioesPage() {
     };
 
     carregarContexto();
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     if (modalAberto && editorRef.current) {
@@ -66,6 +81,7 @@ export default function ReunioesPage() {
     }
   }, [modalAberto, formData.id, bloqueioAta]);
 
+  // 3. FUNÇÕES COMUNS
   const buscarReunioes = async (idIgreja: string) => {
     try {
       const { data, error } = await supabase
@@ -111,7 +127,7 @@ export default function ReunioesPage() {
         const { error } = await supabase.from("reunioes").update(dadosParaSalvar).eq("id", formData.id).eq("igreja_id", igrejaId); 
         if (error) throw error;
 
-        // --- INTEGRAÇÃO BLINDADA COM MÓDULO DE PROGRAMAÇÃO ---
+        // --- INTEGRAÇÃO COM MÓDULO DE PROGRAMAÇÃO ---
         try {
           if (formData.status === "Cancelada") {
             await supabase.from("programacao").delete().eq("reuniao_id", String(formData.id)).eq("igreja_id", igrejaId);
@@ -144,7 +160,7 @@ export default function ReunioesPage() {
         const { data: insertedData, error } = await supabase.from("reunioes").insert([dadosParaSalvar]).select();
         if (error) throw error;
 
-        // --- INTEGRAÇÃO BLINDADA COM MÓDULO DE PROGRAMAÇÃO ---
+        // --- INTEGRAÇÃO COM MÓDULO DE PROGRAMAÇÃO ---
         try {
           if (insertedData && insertedData.length > 0) {
             const novaReuniaoId = insertedData[0].id;
@@ -236,7 +252,6 @@ export default function ReunioesPage() {
     setModalAberto(true);
   };
 
-  // Trava central de permissão para esse módulo
   const ehEditor = podeEditar(perfisUsuario, 'reunioes');
 
   const abrirModalEditar = (reuniao: any) => {
@@ -251,7 +266,7 @@ export default function ReunioesPage() {
       updated_at: reuniao.updated_at || reuniao.created_at || "",
     });
     
-    // Se a reunião já aconteceu OU se o usuário NÃO é editor, tranca a ata inteira (modo visualização)
+    // Se a reunião já aconteceu OU se o usuário NÃO é editor, tranca a ata inteira
     if (reuniao.status !== "Marcada" || !ehEditor) {
       setBloqueioAta(true);
     } else {
@@ -276,6 +291,7 @@ export default function ReunioesPage() {
     }
   };
 
+  // 4. RETORNOS
   if (carregando) return <div className="p-8 text-center text-gray-600 font-medium">Sincronizando Módulo de Reuniões...</div>;
 
   return (
@@ -285,6 +301,7 @@ export default function ReunioesPage() {
           <h1 className="text-3xl font-bold text-gray-800">Reuniões e Atas</h1>
           <p className="text-gray-500 text-sm">Controle de pautas, atas digitadas e arquivamento de digitalizações.</p>
         </div>
+        
         {/* ESCONDE BOTÃO CADASTRAR SE NÃO FOR EDITOR */}
         {ehEditor && (
           <button onClick={abrirModalNovo} className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg shadow-sm font-semibold transition-all w-full md:w-auto text-sm">
@@ -352,6 +369,7 @@ export default function ReunioesPage() {
         </div>
       </div>
 
+      {/* MODAL GERAL (VISUALIZAR / EDITAR / CRIAR) */}
       {modalAberto && (
         <div className="fixed inset-0 z-[9999] overflow-y-auto bg-black/70 backdrop-blur-sm">
           <div className="flex min-h-screen items-center justify-center p-4">
@@ -457,7 +475,6 @@ export default function ReunioesPage() {
                   ></div>
                 </div>
 
-                {/* SÓ MOSTRA O QUADRO DE ANEXO SE NÃO FOR APENAS VISUALIZAÇÃO, OU SE JÁ TIVER ANEXO (pra ele clicar no link) */}
                 {(!bloqueioAta || formData.anexo_url) && (
                   <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
                     <label className="block text-xs font-bold uppercase text-gray-600 mb-2">Anexar Ata Digitalizada</label>

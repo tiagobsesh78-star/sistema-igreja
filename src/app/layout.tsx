@@ -60,6 +60,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       '/escalas': 'Escalas',
       '/reunioes': 'Reuniões',
       '/programacao': 'Programação',
+      '/visitantes': 'Visitantes',
       '/configuracoes': 'Configurações',
     };
 
@@ -247,6 +248,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 {podeVisualizar(perfisUsuario, 'programacao') && (
                   <Link href="/programacao" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/programacao') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Programação</Link>
                 )}
+
+                <Link href="/visitantes" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/visitantes') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Visitantes</Link>
                 
                 {(perfisUsuario.includes('Secretário') || perfisUsuario.includes('Pastor/Presbítero')) && (
                   <Link href="/configuracoes" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname === '/configuracoes' ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Configurações</Link>

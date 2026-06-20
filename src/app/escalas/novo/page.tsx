@@ -56,7 +56,7 @@ export default function NovaEscala() {
     }
     // ==================================================
 
-    setIgrejaIdLogada(usuario.igreja_id);
+    setIgrejaIdLogada(usuario.igreja_id || usuario.id_igreja || usuario.idIgreja);
   }, [router]);
 
   const inicioMes = startOfMonth(mesCalendario);
@@ -235,8 +235,8 @@ export default function NovaEscala() {
           </label>
           <div className="flex flex-col md:flex-row gap-8 items-start">
             
-            {/* Calendário Redondo */}
-            <div className="w-full md:w-[320px] bg-white border border-gray-100 shadow-sm rounded-2xl p-5 flex-shrink-0">
+            {/* Calendário Redesenhado e Responsivo */}
+            <div className="w-full md:w-[340px] bg-white border border-gray-100 shadow-sm rounded-2xl p-4 sm:p-5 flex-shrink-0">
               <div className="flex justify-between items-center mb-6">
                 <button type="button" onClick={() => setMesCalendario(subMonths(mesCalendario, 1))} className="p-2 text-gray-400 hover:bg-gray-100 rounded-full transition">
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
@@ -249,26 +249,26 @@ export default function NovaEscala() {
                 </button>
               </div>
               
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '8px', textAlign: 'center', marginBottom: '12px' }}>
+              <div className="grid grid-cols-7 gap-1 sm:gap-2 text-center mb-3">
                 {['D', 'S', 'T', 'Q', 'Q', 'S', 'S'].map((d, i) => (
                   <div key={i} className="text-[10px] font-black text-gray-400 uppercase">{d}</div>
                 ))}
               </div>
               
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '8px', textAlign: 'center' }}>
+              <div className="grid grid-cols-7 gap-1 sm:gap-2 text-center">
                 {diasDoCalendario.map((dia, index) => {
                   const dataStr = format(dia, "yyyy-MM-dd");
                   const isSelecionado = datasSelecionadas.includes(dataStr);
                   const isMesmoMes = isSameMonth(dia, mesCalendario);
 
-                  if (!isMesmoMes) return <div key={index} className="h-9 w-9"></div>;
+                  if (!isMesmoMes) return <div key={index} className="h-8 w-8 sm:h-9 sm:w-9 mx-auto"></div>;
 
                   return (
                     <button
                       key={index}
                       type="button"
                       onClick={() => toggleDataStr(dataStr)}
-                      className={`h-9 w-9 mx-auto flex items-center justify-center rounded-full text-sm transition-all duration-200 ${
+                      className={`h-8 w-8 sm:h-9 sm:w-9 mx-auto flex items-center justify-center rounded-full text-xs sm:text-sm transition-all duration-200 ${
                         isSelecionado
                           ? 'bg-teal-600 text-white font-bold shadow-md transform scale-110'
                           : 'text-gray-700 hover:bg-teal-50 hover:text-teal-700 border border-transparent'

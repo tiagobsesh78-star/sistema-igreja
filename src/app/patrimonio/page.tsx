@@ -1,14 +1,18 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
-import { podeEditar, formatarPerfis } from "../../lib/permissoes";
+import { podeVisualizar, podeEditar, formatarPerfis } from "../../lib/permissoes";
 
 export default function PatrimonioPage() {
+  const router = useRouter();
+
+  // 1. TODOS OS STATES NO TOPO (REGRA DO REACT)
   const [patrimonios, setPatrimonios] = useState<any[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [igrejaId, setIgrejaId] = useState<string | null>(null);
-  const [perfisUsuario, setPerfisUsuario] = useState<string[]>([]); // Novo estado para os perfis
+  const [perfisUsuario, setPerfisUsuario] = useState<string[]>([]);
 
   // Estados de Ordenação
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: "asc" | "desc" } | null>(null);
@@ -30,19 +34,35 @@ export default function PatrimonioPage() {
   const [historicoItem, setHistoricoItem] = useState<any[]>([]);
   const [carregandoHistorico, setCarregandoHistorico] = useState(false);
 
+  // 2. EFFECT PRINCIPAL COM A TRAVA DE ROTA (SEGURANÇA TOTAL)
   useEffect(() => {
     const carregarIgreja = () => {
       try {
         const userLocal = localStorage.getItem("usuarioLogado");
-        if (userLocal) {
-          const parsedUser = JSON.parse(userLocal);
-          
-          // Armazena os perfis para controle visual
-          setPerfisUsuario(formatarPerfis(parsedUser.perfis || parsedUser.nivel_acesso));
-          
-          const currentIgrejaId = parsedUser.igreja_id || parsedUser.id_igreja || parsedUser.idIgreja || parsedUser.igreja;
-          setIgrejaId(currentIgrejaId ? String(currentIgrejaId) : null);
-          if (currentIgrejaId) buscarPatrimonios(String(currentIgrejaId));
+        if (!userLocal) {
+          router.push("/login");
+          return;
+        }
+
+        const parsedUser = JSON.parse(userLocal);
+        const perfisLogado = formatarPerfis(parsedUser.perfis || parsedUser.nivel_acesso);
+
+        // ==================================================
+        // TRAVA DE ROTA: CHUTA INVASORES PARA A HOME
+        // ==================================================
+        if (!podeVisualizar(perfisLogado, 'patrimonio')) {
+          router.push("/");
+          return; // Interrompe a execução
+        }
+        // ==================================================
+
+        setPerfisUsuario(perfisLogado);
+
+        const currentIgrejaId = parsedUser.igreja_id || parsedUser.id_igreja || parsedUser.idIgreja || parsedUser.igreja;
+        setIgrejaId(currentIgrejaId ? String(currentIgrejaId) : null);
+        
+        if (currentIgrejaId) {
+          buscarPatrimonios(String(currentIgrejaId));
         } else {
           setCarregando(false);
         }
@@ -51,7 +71,7 @@ export default function PatrimonioPage() {
       }
     };
     carregarIgreja();
-  }, []);
+  }, [router]);
 
   const buscarPatrimonios = async (idIgreja: string) => {
     setCarregando(true);
@@ -75,38 +95,6 @@ export default function PatrimonioPage() {
       return acc;
     }, 0);
   }, [patrimonios]);
-
-  // --- LÓGICA DE EXPORTAÇÃO EXCEL (CSV PT-BR) ---
-  const handleExportarExcel = () => {
-    if (patrimonios.length === 0) {
-      alert("Não há dados cadastrados para exportar.");
-      return;
-    }
-
-    // \uFEFF força o Excel a abrir o arquivo interpretando caracteres e acentos em UTF-8 corretamente
-    let conteudoCSV = "\uFEFF";
-    conteudoCSV += "ID;Item;Data de Entrada;Valor (R$);Status\n";
-
-    patrimoniosOrdenados.forEach((item) => {
-      const idFmt = `#${item.id}`;
-      const itemFmt = item.item.replace(/"/g, '""'); // Escapa aspas
-      const dataFmt = formatarData(item.data_entrada);
-      const valorFmt = (item.valor || 0).toFixed(2).replace(".", ",");
-      const statusFmt = item.status || "Disponível";
-
-      conteudoCSV += `${idFmt};"${itemFmt}";${dataFmt};${valorFmt};${statusFmt}\n`;
-    });
-
-    const blob = new Blob([conteudoCSV], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `patrimonio_igreja_${new Date().toISOString().slice(0, 10)}.csv`);
-    link.style.visibility = "hidden";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
 
   // --- LÓGICA DE ORDENAÇÃO ---
   const handleSort = (key: string) => {
@@ -138,6 +126,37 @@ export default function PatrimonioPage() {
     }
     return itensOrdenaveis;
   }, [patrimonios, sortConfig]);
+
+  // --- LÓGICA DE EXPORTAÇÃO EXCEL (CSV PT-BR) ---
+  const handleExportarExcel = () => {
+    if (patrimonios.length === 0) {
+      alert("Não há dados cadastrados para exportar.");
+      return;
+    }
+
+    let conteudoCSV = "\uFEFF";
+    conteudoCSV += "ID;Item;Data de Entrada;Valor (R$);Status\n";
+
+    patrimoniosOrdenados.forEach((item) => {
+      const idFmt = `#${item.id}`;
+      const itemFmt = item.item.replace(/"/g, '""'); 
+      const dataFmt = formatarData(item.data_entrada);
+      const valorFmt = (item.valor || 0).toFixed(2).replace(".", ",");
+      const statusFmt = item.status || "Disponível";
+
+      conteudoCSV += `${idFmt};"${itemFmt}";${dataFmt};${valorFmt};${statusFmt}\n`;
+    });
+
+    const blob = new Blob([conteudoCSV], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `patrimonio_igreja_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const renderIconeOrdenacao = (key: string) => {
     if (sortConfig?.key !== key) {
@@ -194,7 +213,8 @@ export default function PatrimonioPage() {
         data_entrada: dataEntrada,
         valor: isNaN(valorTratado) ? 0 : valorTratado,
       })
-      .eq("id", itemSelecionado.id);
+      .eq("id", itemSelecionado.id)
+      .eq("igreja_id", igrejaId); // Trava de update
 
     if (!error) {
       setModalEditarAberto(false);
@@ -207,8 +227,15 @@ export default function PatrimonioPage() {
 
   const handleExcluir = async (id: number) => {
     if (!confirm("Tem certeza que deseja excluir permanentemente este item do patrimônio?")) return;
-    const { error } = await supabase.from("patrimonio").delete().eq("id", id);
-    if (!error && igrejaId) buscarPatrimonios(igrejaId);
+    if (!igrejaId) return;
+    
+    const { error } = await supabase
+      .from("patrimonio")
+      .delete()
+      .eq("id", id)
+      .eq("igreja_id", igrejaId); // Trava de exclusão
+      
+    if (!error) buscarPatrimonios(igrejaId);
   };
 
   const abrirModalMovimentacao = async (item: any) => {
@@ -237,7 +264,8 @@ export default function PatrimonioPage() {
     const { error: erroPrincipal } = await supabase
       .from("patrimonio")
       .update({ status: statusFinal })
-      .eq("id", itemSelecionado.id);
+      .eq("id", itemSelecionado.id)
+      .eq("igreja_id", igrejaId);
 
     if (!erroPrincipal) {
       await supabase.from("patrimonio_historico").insert([
@@ -283,8 +311,9 @@ export default function PatrimonioPage() {
     return "text-gray-800 font-medium dark:text-gray-200";
   };
 
-  // Trava central de permissão para esse módulo
   const ehEditor = podeEditar(perfisUsuario, 'patrimonio');
+
+  if (carregando) return <div className="p-8 text-center text-gray-500 font-medium">Carregando patrimônio...</div>;
 
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto w-full">
@@ -376,16 +405,13 @@ export default function PatrimonioPage() {
               >
                 Status {renderIconeOrdenacao("status")}
               </th>
-              {/* SÓ MOSTRA O CABEÇALHO DA COLUNA 'AÇÕES' SE FOR EDITOR */}
               {ehEditor && (
                 <th className="p-4 font-bold text-center">Ações</th>
               )}
             </tr>
           </thead>
           <tbody>
-            {carregando ? (
-              <tr><td colSpan={ehEditor ? 6 : 5} className="p-8 text-center text-gray-500 font-medium">Carregando ativos...</td></tr>
-            ) : patrimoniosOrdenados.length === 0 ? (
+            {patrimoniosOrdenados.length === 0 ? (
               <tr><td colSpan={ehEditor ? 6 : 5} className="p-8 text-center text-gray-500 font-medium">Nenhum patrimônio registrado.</td></tr>
             ) : (
               patrimoniosOrdenados.map((item) => (

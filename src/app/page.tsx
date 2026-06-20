@@ -153,10 +153,13 @@ export default function Dashboard() {
         </div>
         <div className="mt-4 md:mt-0 flex flex-wrap gap-3">
           <Link href="/programacao" className="px-5 py-2.5 bg-indigo-600 text-white font-medium text-sm rounded-lg hover:bg-indigo-700 transition shadow-sm">
-            Ver Programação
+            Programação
           </Link>
           <Link href="/escalas" className="px-5 py-2.5 bg-teal-600 text-white font-medium text-sm rounded-lg hover:bg-teal-700 transition shadow-sm">
-            Ver Escalas
+            Escalas
+          </Link>
+          <Link href="/visitantes" className="px-5 py-2.5 bg-rose-600 text-white font-medium text-sm rounded-lg hover:bg-rose-700 transition shadow-sm">
+            Visitantes
           </Link>
           
           {/* TRAVA DO BOTÃO NOVO MEMBRO */}
