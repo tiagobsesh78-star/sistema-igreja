@@ -26,6 +26,12 @@ export default function TesourariaPage() {
   const [dropdownAberto, setDropdownAberto] = useState<string | null>(null);
   const [opcoesAnos, setOpcoesAnos] = useState<string[]>([]);
 
+  // Estados do Modal de Exclusão Lógica
+  const [modalExcluirAberto, setModalExcluirAberto] = useState(false);
+  const [lancamentoParaExcluir, setLancamentoParaExcluir] = useState<any>(null);
+  const [justificativa, setJustificativa] = useState("");
+  const [excluindo, setExcluindo] = useState(false);
+
   const opcoesMeses = [
     { valor: "01", rotulo: "Janeiro" }, { valor: "02", rotulo: "Fevereiro" },
     { valor: "03", rotulo: "Março" }, { valor: "04", rotulo: "Abril" },
@@ -57,7 +63,7 @@ export default function TesourariaPage() {
       // ==================================================
       if (!podeVisualizar(perfisLogado, 'tesouraria')) {
         router.push("/");
-        return; // Interrompe a execução e expulsa o usuário
+        return; 
       }
       // ==================================================
 
@@ -103,6 +109,33 @@ export default function TesourariaPage() {
     else setLista([...lista, valor]);
   };
 
+  // Função para efetivar a exclusão lógica no Supabase
+  const executarExclusaoLogica = async () => {
+    if (!justificativa.trim() || !lancamentoParaExcluir) return;
+    setExcluindo(true);
+
+    const { error } = await supabase
+      .from("tesouraria_lancamentos")
+      .update({
+        excluido: true,
+        justificativa_exclusao: justificativa.trim()
+      })
+      .eq("id", lancamentoParaExcluir.id);
+
+    if (error) {
+      alert("Erro ao excluir lançamento: " + error.message);
+    } else {
+      // Atualiza o estado local imediatamente sem precisar recarregar a página inteira
+      setLancamentos(prev =>
+        prev.map(l => l.id === lancamentoParaExcluir.id ? { ...l, excluido: true, justificativa_exclusao: justificativa.trim() } : l)
+      );
+      setModalExcluirAberto(false);
+      setLancamentoParaExcluir(null);
+      setJustificativa("");
+    }
+    setExcluindo(false);
+  };
+
   const lancamentosFiltrados = lancamentos.filter((lanc) => {
     if (!lanc.data) return false;
     const [ano, mes] = lanc.data.split("-");
@@ -113,10 +146,13 @@ export default function TesourariaPage() {
     return matchCongregacao && matchMes && matchAno && matchTipo;
   });
 
-  const totalOfertas = lancamentosFiltrados.reduce((acc, lanc) => acc + (Number(lanc.ofertas) || 0), 0);
-  const totalDizimos = lancamentosFiltrados.reduce((acc, lanc) => acc + (Number(lanc.dizimos) || 0), 0);
-  const totalEspecial = lancamentosFiltrados.reduce((acc, lanc) => acc + (Number(lanc.oferta_especial) || 0), 0);
-  const totalSaidasManuais = lancamentosFiltrados.reduce((acc, lanc) => acc + (Number(lanc.saidas) || 0), 0);
+  // FILTRO ADICIONAL: Ignora registros excluídos para cálculos, Excel e PDF
+  const lancamentosAtivos = lancamentosFiltrados.filter(l => !l.excluido);
+
+  const totalOfertas = lancamentosAtivos.reduce((acc, lanc) => acc + (Number(lanc.ofertas) || 0), 0);
+  const totalDizimos = lancamentosAtivos.reduce((acc, lanc) => acc + (Number(lanc.dizimos) || 0), 0);
+  const totalEspecial = lancamentosAtivos.reduce((acc, lanc) => acc + (Number(lanc.oferta_especial) || 0), 0);
+  const totalSaidasManuais = lancamentosAtivos.reduce((acc, lanc) => acc + (Number(lanc.saidas) || 0), 0);
   
   const totalEntradasBrutas = totalOfertas + totalDizimos + totalEspecial;
 
@@ -148,7 +184,9 @@ export default function TesourariaPage() {
   const exportarExcel = () => {
     let csv = `Relatório Financeiro - ${nomeIgrejaPrincipal}\nCongregação: ${nomeCongregacao}\nDizimistas Ativos no Filtro: ${contagemDizimistasFiltrados}\nData de Geração: ${new Date().toLocaleDateString('pt-BR')}\n\n`;
     csv += "Data;Congregação;Trabalho;Ofertas;Dízimos;Oferta Especial;Saídas;Total\n";
-    lancamentosFiltrados.forEach((lanc) => {
+    
+    // Puxa apenas os ativos no relatório Excel, conforme solicitado
+    lancamentosAtivos.forEach((lanc) => {
       csv += `${formatarData(lanc.data)};${lanc.congregacao || 'Não informada'};${lanc.tipo_trabalho};${formatarMoedaExcel(lanc.ofertas)};${formatarMoedaExcel(lanc.dizimos)};${formatarMoedaExcel(lanc.oferta_especial)};${formatarMoedaExcel(lanc.saidas)};${formatarMoedaExcel(lanc.total)}\n`;
     });
     
@@ -198,7 +236,7 @@ export default function TesourariaPage() {
         <div className="flex justify-between items-center text-xs text-gray-500 mt-4 px-2">
           <span>Data de Emissão: {new Date().toLocaleDateString('pt-BR')}</span>
           <span>Dizimistas Ativos: {contagemDizimistasFiltrados}</span>
-          <span>Total de Lançamentos: {lancamentosFiltrados.length}</span>
+          <span>Total de Lançamentos: {lancamentosAtivos.length}</span>
         </div>
       </div>
 
@@ -305,25 +343,54 @@ export default function TesourariaPage() {
                 <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Especial</th>
                 <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Saídas</th>
                 <th className="px-6 py-4 text-xs font-bold text-gray-800 uppercase tracking-wider text-right bg-gray-100/50">Total</th>
+                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider text-center print-oculto">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {lancamentosFiltrados.length > 0 ? (
                 lancamentosFiltrados.map((lanc) => (
-                  <tr key={lanc.id} className="hover:bg-gray-50/50 transition">
-                    <td className="px-6 py-4 text-sm text-gray-700 font-medium whitespace-nowrap">{formatarData(lanc.data)}</td>
-                    <td className="px-6 py-4 text-sm text-gray-900 font-bold">{lanc.congregacao || "Geral"}</td>
-                    <td className="px-6 py-4 text-sm text-gray-600 font-medium">{lanc.tipo_trabalho}</td>
-                    <td className="px-6 py-4 text-sm text-gray-600 text-right">{formatarMoeda(lanc.ofertas)}</td>
-                    <td className="px-6 py-4 text-sm text-gray-600 text-right">{formatarMoeda(lanc.dizimos)}</td>
-                    <td className="px-6 py-4 text-sm text-gray-600 text-right">{formatarMoeda(lanc.oferta_especial)}</td>
-                    <td className="px-6 py-4 text-sm text-red-600 font-medium text-right">{formatarMoeda(lanc.saidas)}</td>
-                    <td className="px-6 py-4 text-sm text-teal-800 font-black text-right bg-gray-50/30">{formatarMoeda(lanc.total)}</td>
+                  /* print:hidden faz com que a linha excluída seja completamente ignorada e ocultada no relatório em PDF */
+                  <tr key={lanc.id} className={`hover:bg-gray-50/50 transition ${lanc.excluido ? 'bg-red-50/30 text-gray-400 print:hidden' : ''}`}>
+                    <td className={`px-6 py-4 text-sm font-medium whitespace-nowrap ${lanc.excluido ? 'line-through decoration-red-500 decoration-2 text-gray-400' : 'text-gray-700'}`}>{formatarData(lanc.data)}</td>
+                    <td className={`px-6 py-4 text-sm font-bold ${lanc.excluido ? 'line-through decoration-red-500 decoration-2 text-gray-400' : 'text-gray-900'}`}>{lanc.congregacao || "Geral"}</td>
+                    <td className="px-6 py-4 text-sm font-medium text-gray-600">
+                      <span className={lanc.excluido ? 'line-through decoration-red-500 decoration-2 text-gray-400' : ''}>{lanc.tipo_trabalho}</span>
+                      {lanc.excluido && lanc.justificativa_exclusao && (
+                        <div className="text-xs text-red-600 font-bold mt-1 bg-red-100/60 px-2 py-1 rounded border border-red-200/50 block normal-case max-w-xs break-words">
+                          Justificativa: {lanc.justificativa_exclusao}
+                        </div>
+                      )}
+                    </td>
+                    <td className={`px-6 py-4 text-sm text-right ${lanc.excluido ? 'line-through decoration-red-500 text-gray-400' : 'text-gray-600'}`}>{formatarMoeda(lanc.ofertas)}</td>
+                    <td className={`px-6 py-4 text-sm text-right ${lanc.excluido ? 'line-through decoration-red-500 text-gray-400' : 'text-gray-600'}`}>{formatarMoeda(lanc.dizimos)}</td>
+                    <td className={`px-6 py-4 text-sm text-right ${lanc.excluido ? 'line-through decoration-red-500 text-gray-400' : 'text-gray-600'}`}>{formatarMoeda(lanc.oferta_especial)}</td>
+                    <td className={`px-6 py-4 text-sm text-right font-medium ${lanc.excluido ? 'line-through decoration-red-500 text-gray-400' : 'text-red-600'}`}>{formatarMoeda(lanc.saidas)}</td>
+                    <td className={`px-6 py-4 text-sm font-black text-right bg-gray-50/30 ${lanc.excluido ? 'line-through decoration-red-500 text-gray-400' : 'text-teal-800'}`}>{formatarMoeda(lanc.total)}</td>
+                    <td className="px-6 py-4 text-sm text-center whitespace-nowrap print-oculto">
+                      {ehEditor ? (
+                        !lanc.excluido ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setLancamentoParaExcluir(lanc);
+                              setModalExcluirAberto(true);
+                            }}
+                            className="px-2.5 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg text-xs font-bold transition border border-red-100 shadow-sm"
+                          >
+                            Excluir
+                          </button>
+                        ) : (
+                          <span className="text-xs text-red-500 font-bold uppercase tracking-wider bg-red-50 px-2 py-1 rounded border border-red-100/50">Excluído</span>
+                        )
+                      ) : (
+                        <span className="text-gray-300">-</span>
+                      )}
+                    </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={8} className="px-6 py-12 text-center text-gray-500 text-sm">Nenhum lançamento encontrado.</td>
+                  <td colSpan={9} className="px-6 py-12 text-center text-gray-500 text-sm">Nenhum lançamento encontrado.</td>
                 </tr>
               )}
             </tbody>
@@ -331,7 +398,7 @@ export default function TesourariaPage() {
         </div>
       </div>
 
-      {lancamentosFiltrados.length > 0 && (
+      {lancamentosAtivos.length > 0 && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden resumo-print">
           <div className="p-4 bg-gray-900 border-b border-gray-800 flex justify-between items-center">
             <div>
@@ -385,6 +452,53 @@ export default function TesourariaPage() {
             </div>
             <div className={`text-3xl font-black tracking-tight ${saldoLiquidoParcial >= 0 ? 'text-teal-700' : 'text-red-600'}`}>
               {formatarMoeda(saldoLiquidoParcial)}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE JUSTIFICATIVA (UX ENTERPRISE MODERNA E RESPONSIVA) */}
+      {modalExcluirAberto && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm transition-opacity animate-fadeIn">
+          <div className="bg-white rounded-xl shadow-xl border border-gray-100 max-w-md w-full overflow-hidden transform transition-all scale-100">
+            <div className="p-5 border-b border-gray-100 bg-gray-50">
+              <h3 className="text-lg font-bold text-gray-900">Justificativa de Exclusão</h3>
+              <p className="text-xs text-gray-500 mt-1">
+                Informe o motivo da exclusão deste lançamento. Ele permanecerá listado com marcação visual, mas será completamente ignorado nos relatórios e saldos.
+              </p>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Por que você está excluindo este lançamento?</label>
+                <textarea
+                  value={justificativa}
+                  onChange={(e) => setJustificativa(e.target.value)}
+                  placeholder="Ex: Lançamento duplicado no sistema, valor digitado incorretamente..."
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none text-sm min-h-[110px] resize-none transition"
+                />
+              </div>
+            </div>
+            <div className="p-4 bg-gray-50 border-t border-gray-100 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                disabled={excluindo}
+                onClick={() => {
+                  setModalExcluirAberto(false);
+                  setLancamentoParaExcluir(null);
+                  setJustificativa("");
+                }}
+                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium text-sm rounded-lg transition"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={excluindo || !justificativa.trim()}
+                onClick={executarExclusaoLogica}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-medium text-sm rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm font-bold"
+              >
+                {excluindo ? "Excluindo..." : "Confirmar Exclusão"}
+              </button>
             </div>
           </div>
         </div>
