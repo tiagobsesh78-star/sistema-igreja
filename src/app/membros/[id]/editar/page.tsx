@@ -238,6 +238,8 @@ export default function EditarMembro() {
       alert("Erro ao excluir: " + error.message);
       setCarregando(false);
     } else {
+      // CORREÇÃO AQUI: Remove o estado de carregando para que o modal de sucesso possa aparecer
+      setCarregando(false); 
       setMostrarModalExclusaoSucesso(true);
     }
   };
