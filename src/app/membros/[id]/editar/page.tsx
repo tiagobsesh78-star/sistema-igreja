@@ -22,6 +22,7 @@ export default function EditarMembro() {
   // 1. TODOS OS STATES DEVEM FICAR NO TOPO DA FUNÇÃO (REGRA DO REACT)
   const [carregando, setCarregando] = useState(true);
   const [salvando, setSalvando] = useState(false);
+  const [processandoImagem, setProcessandoImagem] = useState(false); 
   const [fotoArquivo, setFotoArquivo] = useState<File | null>(null);
   const [mostrarModalSucesso, setMostrarModalSucesso] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -124,6 +125,103 @@ export default function EditarMembro() {
     }
   }, [id, router]);
 
+  // ==================================================
+  // COMPRESSOR DE IMAGEM NO LADO DO CLIENTE
+  // ==================================================
+  const comprimirImagem = (arquivoOriginal: File): Promise<File> => {
+    return new Promise((resolve, reject) => {
+      const leitor = new FileReader();
+      
+      leitor.onload = (eventoBase64) => {
+        const imagemElemento = new Image();
+        imagemElemento.src = eventoBase64.target?.result as string;
+        
+        imagemElemento.onload = () => {
+          const canvas = document.createElement("canvas");
+          const ctx = canvas.getContext("2d");
+          
+          if (!ctx) {
+            reject(new Error("Não foi possível processar a imagem."));
+            return;
+          }
+
+          // Define as dimensões máximas (800x800 é excelente)
+          const MAX_LARGURA = 800;
+          const MAX_ALTURA = 800;
+          let largura = imagemElemento.width;
+          let altura = imagemElemento.height;
+
+          // Calcula a proporção
+          if (largura > altura) {
+            if (largura > MAX_LARGURA) {
+              altura *= MAX_LARGURA / largura;
+              largura = MAX_LARGURA;
+            }
+          } else {
+            if (altura > MAX_ALTURA) {
+              largura *= MAX_ALTURA / altura;
+              altura = MAX_ALTURA;
+            }
+          }
+
+          canvas.width = largura;
+          canvas.height = altura;
+          ctx.drawImage(imagemElemento, 0, 0, largura, altura);
+
+          // Gera o JPG com 80% de qualidade
+          canvas.toBlob(
+            (blob) => {
+              if (blob) {
+                const arquivoComprimido = new File([blob], arquivoOriginal.name.replace(/\.[^/.]+$/, ".jpg"), {
+                  type: "image/jpeg",
+                  lastModified: Date.now(),
+                });
+                resolve(arquivoComprimido);
+              } else {
+                reject(new Error("Falha ao criar o arquivo da imagem."));
+              }
+            },
+            "image/jpeg",
+            0.8 
+          );
+        };
+        
+        imagemElemento.onerror = () => reject(new Error("Falha ao carregar a imagem."));
+      };
+
+      leitor.onerror = () => reject(new Error("Falha na leitura do arquivo."));
+      leitor.readAsDataURL(arquivoOriginal);
+    });
+  };
+
+  const processarArquivoFoto = async (arquivoOriginal: File) => {
+    const TRAVA_SEGURANCA_MB = 15 * 1024 * 1024; // 15MB
+    if (arquivoOriginal.size > TRAVA_SEGURANCA_MB) {
+        alert("A imagem selecionada é muito grande (acima de 15MB). Por favor, selecione uma foto menor.");
+        return;
+    }
+
+    try {
+        setProcessandoImagem(true);
+        const arquivoFinal = await comprimirImagem(arquivoOriginal);
+        
+        if (arquivoFinal.size > 1024 * 1024) { // Limite estrito de 1MB após compressão
+            alert("A imagem ainda ficou pesada após a otimização. Tente uma foto com menos detalhes.");
+            setFotoArquivo(null);
+        } else {
+            setFotoArquivo(arquivoFinal);
+        }
+    } catch (erro) {
+        console.error("Erro na compressão:", erro);
+        alert("Ocorreu um erro ao otimizar a imagem. Tente enviar outra foto.");
+    } finally {
+        setProcessandoImagem(false);
+    }
+  };
+
+  // ==================================================
+  // HANDLERS E FUNÇÕES DE FORMULÁRIO
+  // ==================================================
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     if (name === "cpf") {
@@ -140,8 +238,11 @@ export default function EditarMembro() {
   const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); };
   const handleDragLeave = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(false); };
   const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault(); setIsDragging(false);
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) setFotoArquivo(e.dataTransfer.files[0]);
+    e.preventDefault(); 
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      processarArquivoFoto(e.dataTransfer.files[0]);
+    }
   };
 
   const atualizarMembro = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -168,10 +269,26 @@ export default function EditarMembro() {
         return;
       }
 
+      // Se uma nova foto foi enviada...
       if (fotoArquivo) {
+        // 1. Apaga a foto antiga do Storage para não acumular lixo
+        if (dadosMembro.foto_url) {
+          try {
+            const partesUrl = dadosMembro.foto_url.split('/fotos/');
+            if (partesUrl.length > 1) {
+              const nomeArquivoAntigo = partesUrl[1].split('?')[0]; // Pega o nome e remove queries se houver
+              await supabase.storage.from('fotos').remove([nomeArquivoAntigo]);
+            }
+          } catch (err) {
+            console.error("Falha ao remover a foto antiga do storage:", err);
+          }
+        }
+
+        // 2. Faz o upload da nova foto
         const nomeArquivo = `${Date.now()}-${fotoArquivo.name}`;
         const { error: erroUpload } = await supabase.storage.from("fotos").upload(nomeArquivo, fotoArquivo);
         if (erroUpload) throw erroUpload;
+        
         const { data: dataUrl } = supabase.storage.from("fotos").getPublicUrl(nomeArquivo);
         novaFotoUrl = dataUrl.publicUrl;
       }
@@ -224,10 +341,24 @@ export default function EditarMembro() {
 
   const confirmarEExcluir = async () => {
     setMostrarModalExclusao(false);
-    setCarregando(true);
+    setCarregando(true); 
     
     if (!igrejaIdLogada) return;
 
+    // 1. Exclui a imagem do Storage para não deixar lixo!
+    if (dadosMembro.foto_url) {
+      try {
+        const partesUrl = dadosMembro.foto_url.split('/fotos/');
+        if (partesUrl.length > 1) {
+          const nomeArquivoStorage = partesUrl[1].split('?')[0];
+          await supabase.storage.from('fotos').remove([nomeArquivoStorage]);
+        }
+      } catch (err) {
+        console.error("Erro ao excluir imagem do storage:", err);
+      }
+    }
+
+    // 2. Exclui o Membro do Banco de Dados
     const { error } = await supabase
       .from("membros")
       .delete()
@@ -238,7 +369,6 @@ export default function EditarMembro() {
       alert("Erro ao excluir: " + error.message);
       setCarregando(false);
     } else {
-      // CORREÇÃO AQUI: Remove o estado de carregando para que o modal de sucesso possa aparecer
       setCarregando(false); 
       setMostrarModalExclusaoSucesso(true);
     }
@@ -458,9 +588,25 @@ export default function EditarMembro() {
           <div className="mt-8">
             <label className="block text-sm font-bold text-gray-700 mb-2">Alterar Foto (Opcional)</label>
             <div onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop} className={`relative flex flex-col items-center justify-center w-full p-8 border-2 border-dashed rounded-xl transition-colors ${isDragging ? "border-blue-500 bg-blue-50" : "border-gray-300 bg-gray-50 hover:bg-gray-100"}`}>
-              <input type="file" id="foto-upload" accept="image/*" onChange={(e) => setFotoArquivo(e.target.files?.[0] || null)} className="hidden" />
+              <input 
+                type="file" 
+                id="foto-upload" 
+                accept="image/*" 
+                onChange={(e) => {
+                  if (e.target.files && e.target.files.length > 0) {
+                    processarArquivoFoto(e.target.files[0]);
+                  }
+                }} 
+                className="hidden" 
+              />
               <label htmlFor="foto-upload" className="flex flex-col items-center justify-center cursor-pointer w-full h-full">
-                {imagemPreview ? (
+                
+                {processandoImagem ? (
+                  <div className="flex flex-col items-center text-center py-4">
+                    <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mb-3"></div>
+                    <span className="text-sm font-semibold text-blue-700">Otimizando imagem...</span>
+                  </div>
+                ) : imagemPreview ? (
                   <div className="flex flex-col items-center text-center">
                     <img src={imagemPreview} alt="Preview" className="w-24 h-24 rounded-full object-cover shadow-md border-4 border-white mb-3" />
                     {fotoArquivo && <span className="text-sm font-semibold text-blue-700 mb-1">Nova Foto: {fotoArquivo.name}</span>}
@@ -472,15 +618,16 @@ export default function EditarMembro() {
                       <svg className="w-6 h-6 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
                     </div>
                     <p className="mb-1 text-sm text-gray-600"><span className="font-bold text-blue-600">Clique para buscar</span> ou arraste a foto até aqui</p>
-                    <p className="text-xs text-gray-400">Suporta JPG, PNG ou GIF</p>
+                    <p className="text-xs text-gray-400">A imagem será otimizada automaticamente</p>
                   </div>
                 )}
+
               </label>
             </div>
           </div>
 
           <div className="pt-6 border-t mt-8 flex flex-col md:flex-row items-center justify-between gap-4">
-            <button type="submit" disabled={salvando} className="w-full md:w-auto px-10 py-4 bg-green-600 text-white font-bold rounded-md hover:bg-green-700 transition duration-300 shadow-lg disabled:bg-gray-400">
+            <button type="submit" disabled={salvando || processandoImagem} className="w-full md:w-auto px-10 py-4 bg-green-600 text-white font-bold rounded-md hover:bg-green-700 transition duration-300 shadow-lg disabled:bg-gray-400 disabled:cursor-not-allowed">
               {salvando ? "Salvando Alterações..." : "Atualizar Cadastro"}
             </button>
 
@@ -488,7 +635,8 @@ export default function EditarMembro() {
               <button 
                 type="button" 
                 onClick={pedirConfirmacaoExclusao} 
-                className="w-full md:w-auto px-6 py-4 bg-red-600 text-white font-bold rounded-md hover:bg-red-700 transition duration-300 shadow-sm flex items-center justify-center gap-2"
+                disabled={salvando || processandoImagem}
+                className="w-full md:w-auto px-6 py-4 bg-red-600 text-white font-bold rounded-md hover:bg-red-700 transition duration-300 shadow-sm flex items-center justify-center gap-2 disabled:bg-gray-400 disabled:cursor-not-allowed"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                 Excluir Membro

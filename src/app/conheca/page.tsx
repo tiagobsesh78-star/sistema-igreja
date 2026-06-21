@@ -1,23 +1,40 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 
 export default function LandingPageConheca() {
   // =========================================================================
   // CONFIGURAÇÃO DOS LINKS DE PAGAMENTO (ASAAS, MERCADO PAGO, ETC)
-  // Cole aqui os links gerados no seu gateway de pagamento para cada plano.
   // =========================================================================
   const LINKS_CHECKOUT = {
-    iniciante: "https://www.asaas.com/c/f9yeno9z8fvfq9b0", // Link do plano de 39,90
-    crescimento: "https://www.asaas.com/c/vj6jgd7xzetrhu56", // Link do plano de 69,90
-    avancado: "https://www.asaas.com/c/sdycxyq4d8f6yj5y", // Link do plano de 109,90
+    iniciante: "https://www.asaas.com/c/f9yeno9z8fvfq9b0", 
+    crescimento: "https://www.asaas.com/c/vj6jgd7xzetrhu56", 
+    avancado: "https://www.asaas.com/c/sdycxyq4d8f6yj5y", 
   };
 
-  // Estados dos Módulos (Tour) e Modal Comercial
+  // =========================================================================
+  // ESTADOS DA PÁGINA
+  // =========================================================================
   const [moduloAtivo, setModuloAtivo] = useState("dashboard");
   const [modalComercialAberto, setModalComercialAberto] = useState(false);
   const [textoCopiado, setTextoCopiado] = useState(false);
+  const [modulosExpandidos, setModulosExpandidos] = useState(false);
+  const [mostrarVoltarTopo, setMostrarVoltarTopo] = useState(false);
+
+  // Monitora o scroll para mostrar/esconder o botão de voltar ao topo
+  useEffect(() => {
+    const handleScroll = () => {
+      if (window.scrollY > 400) {
+        setMostrarVoltarTopo(true);
+      } else {
+        setMostrarVoltarTopo(false);
+      }
+    };
+
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
 
   // Função para copiar o e-mail
   const handleCopiarEmail = () => {
@@ -53,9 +70,84 @@ export default function LandingPageConheca() {
     }
   };
 
+  // Lista Completa de Módulos para o botão Expandir
+  const todosOsModulos = [
+    {
+      titulo: "Tela Inicial (Dashboard)",
+      icone: "🏠",
+      descricao: "O coração do sistema. Resumo completo do que está acontecendo na sua igreja em tempo real.",
+      subitens: ["Métricas Gerais", "Quadro de Programação", "Escalas Ativas", "Aniversariantes do Mês"]
+    },
+    {
+      titulo: "Membros e Carteirinhas",
+      icone: "👥",
+      descricao: "Gestão inteligente do rebanho com emissão de credenciais de identificação automáticas.",
+      subitens: ["Listagem e Cargos", "Carteirinha de Membro", "Impressão Individual ou em Lote"]
+    },
+    {
+      titulo: "Tesouraria e Financeiro",
+      icone: "📊",
+      descricao: "Controle seguro de caixa, prestação de contas transparente e relatórios à prova de erros.",
+      subitens: ["Lançamentos por Trabalho", "Controle de Dizimistas", "Chave PIX de Ofertas", "Relatórios Mensais/Anuais"]
+    },
+    {
+      titulo: "Escalas de Voluntários",
+      icone: "📅",
+      descricao: "Escale ministérios de louvor, portaria, ensino e outros departamentos sem choques de horário.",
+      subitens: ["Cadastro de Escalas", "Atribuição de Membros", "Avisos na Tela Inicial"]
+    },
+    {
+      titulo: "Programação e Eventos",
+      icone: "🗓️",
+      descricao: "O calendário oficial da igreja atualizado. Todos sabem os dias e horários de cada culto.",
+      subitens: ["Programação Fixa Mensal", "Eventos Avulsos"]
+    },
+    {
+      titulo: "Reuniões e Atas",
+      icone: "✍️",
+      descricao: "Digitalize o histórico de decisões da liderança com segurança e facilidade de busca.",
+      subitens: ["Cadastro de Reuniões", "Editor de Ata Digital", "Anexo de Atas Manuscritas"]
+    },
+    {
+      titulo: "Controle de Patrimônio",
+      icone: "🏢",
+      descricao: "Zele pelos bens da igreja registrando tudo o que entra e seu respectivo valor estimado.",
+      subitens: ["Cadastro de Bens", "Histórico de Entradas", "Valoração do Patrimônio"]
+    },
+    {
+      titulo: "Visitantes",
+      icone: "👋",
+      descricao: "Acolhimento perfeito. Registre os visitantes de cada culto para contatos e orações.",
+      subitens: ["Ficha do Visitante", "Registro para Contato Posterior"]
+    },
+    {
+      titulo: "Configurações Globais",
+      icone: "⚙️",
+      descricao: "A identidade visual e institucional da sua igreja refletida em todos os relatórios.",
+      subitens: ["Cadastro de CNPJ e Logo", "Dados do Pastor Presidente", "Configurações de Acesso"]
+    }
+  ];
+
+  const rolarParaTopo = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 text-gray-800 font-sans selection:bg-blue-200 antialiased relative scroll-smooth overflow-x-hidden">
       
+      {/* BOTÃO FLUTUANTE VOLTAR AO TOPO */}
+      <button
+        onClick={rolarParaTopo}
+        title="Voltar ao início"
+        className={`fixed bottom-6 right-6 p-3.5 rounded-full bg-gray-900 text-white shadow-xl transition-all duration-300 z-[100] hover:bg-blue-600 hover:-translate-y-1 focus:outline-none ${
+          mostrarVoltarTopo ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10 pointer-events-none'
+        }`}
+      >
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 15l7-7 7 7" />
+        </svg>
+      </button>
+
       {/* 1. HEADER REVISADO E 100% RESPONSIVO */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-50 shadow-sm backdrop-blur-md bg-white/95 w-full">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
@@ -186,31 +278,54 @@ export default function LandingPageConheca() {
         </div>
       </section>
 
-      {/* 4. FUNCIONALIDADES RESUMIDAS */}
+      {/* 4. EXPANSÃO DE MÓDULOS (NOVO RECURSO) */}
       <section className="bg-white py-16 lg:py-24 w-full">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl font-extrabold text-gray-900 tracking-normal">Recursos Prontos para Atender Sua Comunidade</h2>
-            <p className="mt-3 text-lg text-gray-500 font-medium">Uma estrutura robusta que trabalha de forma integrada.</p>
+          <div className="text-center mb-10">
+            <h2 className="text-3xl font-extrabold text-gray-900 tracking-normal">Um Sistema Robusto e Completo</h2>
+            <p className="mt-3 text-lg text-gray-500 font-medium max-w-2xl mx-auto">
+              Cada módulo foi pensado para resolver problemas reais do dia a dia da igreja. Descubra tudo o que o Doxo Hub pode fazer por você.
+            </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div className="p-6 bg-gray-50 rounded-2xl border border-gray-100">
-              <div className="w-10 h-10 bg-green-100 text-green-600 rounded-lg flex items-center justify-center mb-4 text-xl">🏦</div>
-              <h3 className="text-lg font-extrabold text-gray-900 mb-2 tracking-normal">Multi-Congregações</h3>
-              <p className="text-sm text-gray-600">Ideal para igrejas sede que administram diversas sub-congregações ou setores de forma isolada e segura.</p>
-            </div>
-            <div className="p-6 bg-gray-50 rounded-2xl border border-gray-100">
-              <div className="w-10 h-10 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center mb-4 text-xl">🎉</div>
-              <h3 className="text-lg font-extrabold text-gray-900 mb-2 tracking-normal">Quadro de Aniversariantes</h3>
-              <p className="text-sm text-gray-600">Gere acolhimento automático destacando os aniversariantes do dia de forma inteligente no painel.</p>
-            </div>
-            <div className="p-6 bg-gray-50 rounded-2xl border border-gray-100">
-              <div className="w-10 h-10 bg-purple-100 text-purple-600 rounded-lg flex items-center justify-center mb-4 text-xl">🔒</div>
-              <h3 className="text-lg font-extrabold text-gray-900 mb-2 tracking-normal">Níveis de Acesso Rígidos</h3>
-              <p className="text-sm text-gray-600">Cada utilizador (Pastor, Tesoureiro, Secretário, Líder ou Membro) visualiza estritamente o necessário.</p>
-            </div>
+          <div className="flex justify-center mb-10">
+            <button 
+              onClick={() => setModulosExpandidos(!modulosExpandidos)}
+              className="bg-gray-900 hover:bg-gray-800 text-white px-8 py-3.5 rounded-full font-bold text-sm sm:text-base transition-all duration-300 shadow-lg flex items-center gap-2"
+            >
+              {modulosExpandidos ? "Ocultar Módulos Detalhados" : "Ver Todos os Módulos"}
+              <svg 
+                className={`w-5 h-5 transition-transform duration-300 ${modulosExpandidos ? 'rotate-180' : ''}`} 
+                fill="none" 
+                stroke="currentColor" 
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
           </div>
+
+          {/* Grid de Módulos Expansível */}
+          {modulosExpandidos && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-fade-in transition-all duration-500">
+              {todosOsModulos.map((modulo, index) => (
+                <div key={index} className="bg-gray-50 border border-gray-100 rounded-2xl p-6 hover:shadow-xl hover:border-blue-200 transition-all duration-300 flex flex-col h-full group">
+                  <div className="text-4xl mb-4 transform group-hover:scale-110 transition-transform origin-left">{modulo.icone}</div>
+                  <h3 className="text-lg font-extrabold text-gray-900 mb-2">{modulo.titulo}</h3>
+                  <p className="text-sm text-gray-600 mb-5 flex-grow">{modulo.descricao}</p>
+                  
+                  {/* Etiquetas (Pills) dos submódulos */}
+                  <div className="flex flex-wrap gap-2 mt-auto">
+                    {modulo.subitens.map((sub, idx) => (
+                      <span key={idx} className="inline-flex items-center text-[11px] font-bold text-blue-700 bg-blue-100 px-2.5 py-1 rounded-md border border-blue-200/50">
+                        {sub}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </section>
 

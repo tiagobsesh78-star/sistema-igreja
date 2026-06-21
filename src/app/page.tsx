@@ -28,6 +28,11 @@ export default function Dashboard() {
   const [anoSelecionado, setAnoSelecionado] = useState(dataAtual.getFullYear());
   const [programacoes, setProgramacoes] = useState<any[]>([]);
 
+  // Estados de Dízimos e Ofertas (PIX)
+  const [modalPixAberto, setModalPixAberto] = useState(false);
+  const [pixInfo, setPixInfo] = useState({ chave: "", qrCode: "" });
+  const [chaveCopiada, setChaveCopiada] = useState(false);
+
   const meses = [
     { valor: 1, nome: "Janeiro" }, { valor: 2, nome: "Fevereiro" },
     { valor: 3, nome: "Março" }, { valor: 4, nome: "Abril" },
@@ -53,10 +58,11 @@ export default function Dashboard() {
 
     async function carregarDadosDashboard() {
       try {
-        // Busca Membros e Programação ao mesmo tempo (Paralelo para maior velocidade)
-        const [resMembros, resProg] = await Promise.all([
+        // Busca Membros, Programação e PIX ao mesmo tempo (Paralelo para maior velocidade)
+        const [resMembros, resProg, resPix] = await Promise.all([
           supabase.from("membros").select("*").eq("igreja_id", igrejaId).order("id", { ascending: false }),
-          supabase.from("programacao").select("*").eq("igreja_id", igrejaId).order("horario", { ascending: true })
+          supabase.from("programacao").select("*").eq("igreja_id", igrejaId).order("horario", { ascending: true }),
+          supabase.from("configuracao_igreja").select("chave_pix, qr_code_pix").eq("igreja_id", igrejaId).maybeSingle()
         ]);
 
         // Processa Membros
@@ -71,9 +77,7 @@ export default function Dashboard() {
           setStats({ total, ativos, inativos, homens, mulheres });
           setRecentes(data.slice(0, 5));
 
-          // ==========================================
           // LÓGICA INTELIGENTE DE ANIVERSARIANTES
-          // ==========================================
           const hoje = new Date();
           const mesAtual = hoje.getMonth() + 1;
           const diaAtual = hoje.getDate();
@@ -102,6 +106,14 @@ export default function Dashboard() {
           setProgramacoes(resProg.data);
         }
 
+        // Processa Configurações de PIX
+        if (resPix.data) {
+          setPixInfo({
+            chave: resPix.data.chave_pix || "",
+            qrCode: resPix.data.qr_code_pix || ""
+          });
+        }
+
       } catch (error) {
         console.error("Erro ao carregar dashboard:", error);
       } finally {
@@ -115,6 +127,14 @@ export default function Dashboard() {
       setCarregando(false);
     }
   }, [router]);
+
+  // Função para copiar a chave PIX
+  const copiarChavePix = () => {
+    if (!pixInfo.chave) return;
+    navigator.clipboard.writeText(pixInfo.chave);
+    setChaveCopiada(true);
+    setTimeout(() => setChaveCopiada(false), 2000); // Retorna o texto original após 2 segundos
+  };
 
   // Filtros Locais da Programação
   const programacoesFixas = programacoes.filter((p) => p.tipo === "Fixa");
@@ -143,7 +163,7 @@ export default function Dashboard() {
   if (carregando) return <div className="flex h-screen items-center justify-center"><div className="text-xl text-gray-500 font-medium animate-pulse">Carregando painel administrativo...</div></div>;
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8 animate-fade-in pb-10">
+    <div className="max-w-7xl mx-auto space-y-8 animate-fade-in pb-10 relative">
       
       {/* 1. CABEÇALHO DE AÇÕES */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-6 rounded-xl shadow-sm border border-gray-100">
@@ -152,6 +172,7 @@ export default function Dashboard() {
           <p className="text-gray-500 text-sm mt-1">Bem-vindo ao painel administrativo da sua Igreja.</p>
         </div>
         <div className="mt-4 md:mt-0 flex flex-wrap gap-3">
+          
           <Link href="/programacao" className="px-5 py-2.5 bg-indigo-600 text-white font-medium text-sm rounded-lg hover:bg-indigo-700 transition shadow-sm">
             Programação
           </Link>
@@ -161,6 +182,14 @@ export default function Dashboard() {
           <Link href="/visitantes" className="px-5 py-2.5 bg-rose-600 text-white font-medium text-sm rounded-lg hover:bg-rose-700 transition shadow-sm">
             Visitantes
           </Link>
+
+          {/* BOTÃO DE OFERTAS/PIX PADRONIZADO REPOSICIONADO AQUI */}
+          <button 
+            onClick={() => setModalPixAberto(true)}
+            className="px-5 py-2.5 bg-emerald-600 text-white font-medium text-sm rounded-lg hover:bg-emerald-700 transition shadow-sm"
+          >
+            Ofertar
+          </button>
           
           {/* TRAVA DO BOTÃO NOVO MEMBRO */}
           {podeAdicionarMembro && (
@@ -455,6 +484,94 @@ export default function Dashboard() {
           )}
         </div>
       </div>
+
+      {/* 6. MODAL DE DÍZIMOS E OFERTAS (PIX) - COM TRAVA DE RESPONSIVIDADE */}
+      {modalPixAberto && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          
+          {/* Container do Modal com max-h e flex-col para controle rígido do tamanho */}
+          <div className="bg-white rounded-2xl w-full max-w-md max-h-[95vh] shadow-2xl flex flex-col relative transform scale-100 transition-all">
+            
+            {/* Cabeçalho do Modal Fixo (shrink-0 garante que ele não será esmagado) */}
+            <div className="bg-emerald-600 p-5 md:p-6 text-center relative shrink-0 rounded-t-2xl">
+              <button 
+                onClick={() => setModalPixAberto(false)}
+                className="absolute top-4 right-4 p-1 text-emerald-200 hover:text-white transition-colors"
+                title="Fechar"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+              </button>
+              
+              <div className="w-12 h-12 md:w-14 md:h-14 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-2 md:mb-3">
+                <svg className="w-6 h-6 md:w-7 md:h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"></path></svg>
+              </div>
+              <h3 className="text-lg md:text-xl font-bold text-white tracking-tight">Dízimos e Ofertas</h3>
+              <p className="text-emerald-100 text-xs md:text-sm mt-1">Contribua de forma rápida e segura</p>
+            </div>
+
+            {/* Corpo do Modal com Rolagem Interna Automática (overflow-y-auto) */}
+            <div className="p-5 md:p-8 overflow-y-auto">
+              {pixInfo.chave || pixInfo.qrCode ? (
+                <div className="flex flex-col items-center">
+                  
+                  {pixInfo.qrCode && (
+                    <div className="bg-white p-3 rounded-2xl border-2 border-gray-100 shadow-sm mb-6">
+                      <img src={pixInfo.qrCode} alt="QR Code PIX" className="w-40 h-40 md:w-48 md:h-48 object-contain rounded-xl" />
+                    </div>
+                  )}
+                  
+                  {pixInfo.chave && (
+                    <div className="w-full text-center">
+                      <p className="text-xs text-gray-500 font-bold uppercase tracking-wider mb-2">Chave PIX da Igreja</p>
+                      <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 flex flex-col items-center gap-3">
+                        <span className="font-mono text-sm md:text-base font-bold text-gray-800 break-all text-center px-2">
+                          {pixInfo.chave}
+                        </span>
+                        
+                        <button
+                          onClick={copiarChavePix}
+                          className={`w-full md:w-auto px-5 py-2.5 text-sm font-bold rounded-lg transition-colors flex items-center justify-center gap-2 shadow-sm ${
+                            chaveCopiada 
+                              ? 'bg-green-100 text-green-700 ring-2 ring-green-500 ring-offset-1' 
+                              : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+                          }`}
+                        >
+                          {chaveCopiada ? (
+                            <>
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"></path></svg>
+                              Chave Copiada!
+                            </>
+                          ) : (
+                            <>
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>
+                              Copiar Chave
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-center py-6">
+                  <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-gray-200">
+                    <svg className="w-8 h-8 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+                  </div>
+                  <h4 className="text-lg font-bold text-gray-800 mb-2">Chave não configurada</h4>
+                  <p className="text-sm text-gray-500 leading-relaxed px-4">
+                    Sua igreja ainda não cadastrou as informações de recebimento via PIX. Em breve essa opção estará disponível!
+                  </p>
+                </div>
+              )}
+              
+              <div className="mt-6 md:mt-8 pt-4 md:pt-5 border-t border-gray-100 text-center">
+                <p className="text-xs text-gray-400 font-medium italic">"Cada um contribua segundo propôs no seu coração..."<br/>— 2 Coríntios 9:7</p>
+              </div>
+            </div>
+            
+          </div>
+        </div>
+      )}
 
     </div>
   );

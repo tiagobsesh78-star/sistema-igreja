@@ -47,6 +47,109 @@ export default function NovoMembro() {
     // ==================================================
   }, [router]);
 
+  // ==================================================
+  // FUNÇÃO DE COMPRESSÃO DE IMAGEM NO LADO DO CLIENTE
+  // ==================================================
+  const comprimirImagem = (arquivoOriginal: File): Promise<File> => {
+    return new Promise((resolve, reject) => {
+      const leitor = new FileReader();
+      
+      leitor.onload = (eventoBase64) => {
+        const imagemElemento = new Image();
+        imagemElemento.src = eventoBase64.target?.result as string;
+        
+        imagemElemento.onload = () => {
+          const canvas = document.createElement("canvas");
+          const ctx = canvas.getContext("2d");
+          
+          if (!ctx) {
+            reject(new Error("Não foi possível processar a imagem."));
+            return;
+          }
+
+          // Define as dimensões máximas (800x800 é ótimo para perfil/carteirinha mantendo proporção)
+          const MAX_LARGURA = 800;
+          const MAX_ALTURA = 800;
+          let largura = imagemElemento.width;
+          let altura = imagemElemento.height;
+
+          // Calcula a nova proporção sem distorcer a imagem
+          if (largura > altura) {
+            if (largura > MAX_LARGURA) {
+              altura *= MAX_LARGURA / largura;
+              largura = MAX_LARGURA;
+            }
+          } else {
+            if (altura > MAX_ALTURA) {
+              largura *= MAX_ALTURA / altura;
+              altura = MAX_ALTURA;
+            }
+          }
+
+          canvas.width = largura;
+          canvas.height = altura;
+
+          // Desenha a imagem redimensionada no canvas
+          ctx.drawImage(imagemElemento, 0, 0, largura, altura);
+
+          // Converte o canvas para um arquivo JPG (qualidade 0.8 = 80%, excelente equilíbrio)
+          canvas.toBlob(
+            (blob) => {
+              if (blob) {
+                // Cria o novo arquivo compactado
+                const arquivoComprimido = new File([blob], arquivoOriginal.name.replace(/\.[^/.]+$/, ".jpg"), {
+                  type: "image/jpeg",
+                  lastModified: Date.now(),
+                });
+                resolve(arquivoComprimido);
+              } else {
+                reject(new Error("Falha ao criar o arquivo da imagem."));
+              }
+            },
+            "image/jpeg",
+            0.8 
+          );
+        };
+        
+        imagemElemento.onerror = () => reject(new Error("Falha ao carregar a imagem selecionada."));
+      };
+
+      leitor.onerror = () => reject(new Error("Falha na leitura do arquivo."));
+      
+      // Inicia a leitura do arquivo original
+      leitor.readAsDataURL(arquivoOriginal);
+    });
+  };
+
+  // Processa o arquivo selecionado ou solto na área de drag
+  const processarArquivoFoto = async (arquivoOriginal: File) => {
+    // 1MB = 1 * 1024 * 1024 bytes (Trava Inicial de Segurança para arquivos absurdamente gigantes que travariam o navegador, ex 50MB)
+    const TRAVA_SEGURANCA_MB = 15 * 1024 * 1024; 
+    if (arquivoOriginal.size > TRAVA_SEGURANCA_MB) {
+        alert("A imagem selecionada é muito grande (acima de 15MB). Por favor, selecione uma foto um pouco menor.");
+        return;
+    }
+
+    try {
+        setCarregando(true); // Opcional, para dar feedback que está processando
+        const arquivoFinal = await comprimirImagem(arquivoOriginal);
+        
+        // Verifica o tamanho final após a compressão (1MB máximo estrito)
+        if (arquivoFinal.size > 1024 * 1024) {
+            alert("A imagem ainda ficou muito pesada após otimização. Selecione uma imagem com menos detalhes ou resolução menor.");
+            setFotoArquivo(null);
+        } else {
+            setFotoArquivo(arquivoFinal);
+        }
+    } catch (erro) {
+        console.error("Erro na compressão:", erro);
+        alert("Ocorreu um erro ao otimizar a imagem. Tente enviar outra foto.");
+    } finally {
+        setCarregando(false);
+    }
+  };
+
+
   // 3. FUNÇÕES COMUNS
   const togglePerfil = (perfil: string) => {
     setPerfisSelecionados(prev => 
@@ -75,7 +178,7 @@ export default function NovoMembro() {
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault(); setIsDragging(false);
     if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      setFotoArquivo(e.dataTransfer.files[0]);
+      processarArquivoFoto(e.dataTransfer.files[0]);
     }
   };
 
@@ -373,7 +476,17 @@ export default function NovoMembro() {
               onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}
               className={`relative flex flex-col items-center justify-center w-full p-8 border-2 border-dashed rounded-xl transition-colors ${isDragging ? "border-blue-500 bg-blue-50" : "border-gray-300 bg-gray-50 hover:bg-gray-100"}`}
             >
-              <input type="file" id="foto-upload" accept="image/*" onChange={(e) => setFotoArquivo(e.target.files?.[0] || null)} className="hidden" />
+              <input 
+                type="file" 
+                id="foto-upload" 
+                accept="image/*" 
+                onChange={(e) => {
+                  if (e.target.files && e.target.files.length > 0) {
+                    processarArquivoFoto(e.target.files[0]);
+                  }
+                }} 
+                className="hidden" 
+              />
               <label htmlFor="foto-upload" className="flex flex-col items-center justify-center cursor-pointer w-full h-full">
                 {fotoArquivo ? (
                   <div className="flex flex-col items-center text-center">
@@ -387,7 +500,7 @@ export default function NovoMembro() {
                       <svg className="w-6 h-6 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
                     </div>
                     <p className="mb-1 text-sm text-gray-600"><span className="font-bold text-blue-600">Clique para buscar</span> ou arraste a foto até aqui</p>
-                    <p className="text-xs text-gray-400">Suporta JPG, PNG ou GIF</p>
+                    <p className="text-xs text-gray-400">A imagem será otimizada automaticamente</p>
                   </div>
                 )}
               </label>
