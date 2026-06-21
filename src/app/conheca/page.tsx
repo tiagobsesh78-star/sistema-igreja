@@ -71,9 +71,6 @@ export default function LandingPageConheca() {
                 }
               }}
             />
-            <span className="font-extrabold text-2xl tracking-normal text-gray-900">
-              Doxo Hub
-            </span>
           </div>
           <nav className="flex items-center gap-6">
             <Link href="/login" className="text-gray-600 hover:text-blue-600 font-semibold text-sm transition">
