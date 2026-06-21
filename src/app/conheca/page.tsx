@@ -54,16 +54,16 @@ export default function LandingPageConheca() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-800 font-sans selection:bg-blue-200 antialiased relative scroll-smooth">
+    <div className="min-h-screen bg-gray-50 text-gray-800 font-sans selection:bg-blue-200 antialiased relative scroll-smooth overflow-x-hidden">
       
-      {/* 1. HEADER */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-50 shadow-sm backdrop-blur-md bg-white/95">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+      {/* 1. HEADER REVISADO E 100% RESPONSIVO */}
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-50 shadow-sm backdrop-blur-md bg-white/95 w-full">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
+          <div className="flex items-center min-w-0 mr-2 sm:mr-4">
             <img 
               src="/LOGOTIPO.png" 
               alt="Logo Doxo Hub" 
-              className="h-10 w-auto object-contain"
+              className="h-8 sm:h-10 w-auto object-contain"
               onError={(e) => {
                 e.currentTarget.style.display = 'none';
                 if (e.currentTarget.nextElementSibling) {
@@ -72,11 +72,17 @@ export default function LandingPageConheca() {
               }}
             />
           </div>
-          <nav className="flex items-center gap-6">
-            <Link href="/login" className="text-gray-600 hover:text-blue-600 font-semibold text-sm transition">
+          <nav className="flex items-center gap-2 sm:gap-6 shrink-0">
+            <Link 
+              href="/login" 
+              className="text-gray-600 hover:text-blue-600 font-semibold text-[11px] sm:text-sm transition whitespace-nowrap"
+            >
               Já sou cliente
             </Link>
-            <Link href="#planos" className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-full font-bold text-sm transition shadow-md shadow-blue-200">
+            <Link 
+              href="#planos" 
+              className="bg-blue-600 hover:bg-blue-700 text-white px-3 sm:px-5 py-2 sm:py-2.5 rounded-full font-bold text-[11px] sm:text-sm transition whitespace-nowrap shadow-md shadow-blue-200"
+            >
               Começar Agora
             </Link>
           </nav>
@@ -84,7 +90,7 @@ export default function LandingPageConheca() {
       </header>
 
       {/* 2. HERO SECTION */}
-      <section className="relative bg-white pt-16 pb-12 lg:pt-20 lg:pb-16 overflow-hidden">
+      <section className="relative bg-white pt-16 pb-12 lg:pt-20 lg:pb-16 overflow-hidden w-full">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <span className="inline-flex items-center gap-1.5 py-1.5 px-3.5 rounded-full text-xs font-bold bg-blue-50 text-blue-600 mb-6 uppercase tracking-wider">
             Solução Exclusiva para Igrejas
@@ -108,7 +114,7 @@ export default function LandingPageConheca() {
       </section>
 
       {/* 3. TOUR DO SISTEMA */}
-      <section id="tour" className="bg-gray-100 py-16 border-y border-gray-200">
+      <section id="tour" className="bg-gray-100 py-16 border-y border-gray-200 w-full">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-10">
             <h2 className="text-3xl font-extrabold text-gray-900 tracking-normal">Veja o Doxo Hub em Ação</h2>
@@ -148,7 +154,7 @@ export default function LandingPageConheca() {
               </p>
               <div className="pt-2">
                 <span className="inline-flex items-center gap-1.5 text-xs font-bold text-green-600 bg-green-50 px-2.5 py-1 rounded-md uppercase tracking-wide">
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+                  <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
                   100% Responsivo e Fluido
                 </span>
               </div>
@@ -181,7 +187,7 @@ export default function LandingPageConheca() {
       </section>
 
       {/* 4. FUNCIONALIDADES RESUMIDAS */}
-      <section className="bg-white py-16 lg:py-24">
+      <section className="bg-white py-16 lg:py-24 w-full">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
             <h2 className="text-3xl font-extrabold text-gray-900 tracking-normal">Recursos Prontos para Atender Sua Comunidade</h2>
@@ -209,7 +215,7 @@ export default function LandingPageConheca() {
       </section>
 
       {/* 5. PLANOS E PREÇOS INTEGRADOS AO CHECKOUT */}
-      <section id="planos" className="bg-gray-100 py-16 lg:py-24 border-t border-gray-200">
+      <section id="planos" className="bg-gray-100 py-16 lg:py-24 border-t border-gray-200 w-full">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h2 className="text-3xl font-extrabold text-gray-900 mb-4 tracking-normal">Um Investimento Justo e Transparente</h2>
           <p className="text-gray-500 text-lg mb-12 max-w-2xl mx-auto font-medium">
@@ -249,7 +255,7 @@ export default function LandingPageConheca() {
             {/* PLANO 2 (Destaque) */}
             <div className="bg-blue-600 rounded-3xl shadow-xl border border-blue-600 overflow-hidden flex flex-col transition hover:shadow-2xl hover:-translate-y-1 transform lg:-translate-y-2">
               <div className="bg-blue-700 py-1.5 text-center text-xs font-bold text-white uppercase tracking-widest">
-                Mais Escolhido
+                Recomendado
               </div>
               <div className="p-6 border-b border-blue-500">
                 <h3 className="text-xl font-extrabold text-white mb-1 tracking-normal">Crescimento</h3>
@@ -338,7 +344,7 @@ export default function LandingPageConheca() {
       </section>
 
       {/* 6. RODAPÉ */}
-      <footer className="bg-gray-900 text-gray-400 py-12 text-center text-sm border-t border-gray-800">
+      <footer className="bg-gray-900 text-gray-400 py-12 text-center text-sm border-t border-gray-800 w-full">
         <p>© {new Date().getFullYear()} Doxo Hub. Todos os direitos reservados.</p>
         <p className="mt-2 text-xs text-gray-600 font-medium">Desenvolvido com excelência técnica para o serviço do Reino.</p>
       </footer>
@@ -363,7 +369,7 @@ export default function LandingPageConheca() {
                 Escolha a forma mais confortável para falar com nossa equipe sobre o plano personalizado para a sua igreja.
               </p>
 
-              <div className="bg-gray-50 border border-gray-200 rounded-xl p-3.5 mb-6 flex items-center justify-between gap-3">
+              <div className="bg-gray-50 border border-gray-200 rounded-xl p-3.5 mb-6 flex items-center justify-between gap-3 overflow-hidden">
                 <span className="font-mono text-sm sm:text-base text-gray-700 font-semibold select-all truncate">
                   comercial@doxohub.com.br
                 </span>
