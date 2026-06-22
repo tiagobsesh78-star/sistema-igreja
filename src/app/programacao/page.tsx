@@ -16,11 +16,40 @@ interface Programacao {
   reuniao_id?: string | null;
 }
 
+// Função auxiliar que identifica links no texto e os torna clicáveis
+const renderComLinks = (texto: string) => {
+  if (!texto) return null;
+  
+  // Regex para encontrar URLs (http, https ou www)
+  const urlRegex = /((?:https?:\/\/|www\.)[^\s]+)/g;
+  const partes = texto.split(urlRegex);
+
+  return partes.map((parte, index) => {
+    if (parte.match(urlRegex)) {
+      // Se começar só com www, adiciona o https:// para o navegador entender
+      const href = parte.startsWith("www.") ? `https://${parte}` : parte;
+      return (
+        <a
+          key={index}
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-blue-500 hover:text-blue-700 underline hover:no-underline transition-colors break-all"
+          onClick={(e) => e.stopPropagation()} // Evita que o clique acione outras ações da linha
+        >
+          {parte}
+        </a>
+      );
+    }
+    return <span key={index}>{parte}</span>;
+  });
+};
+
 export default function ProgramacaoPage() {
   const [programacoes, setProgramacoes] = useState<Programacao[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [igrejaId, setIgrejaId] = useState<string | null>(null);
-  const [perfisUsuario, setPerfisUsuario] = useState<string[]>([]); // Estado de Controle de Perfis
+  const [perfisUsuario, setPerfisUsuario] = useState<string[]>([]);
 
   const dataAtual = new Date();
   const [mesSelecionado, setMesSelecionado] = useState(dataAtual.getMonth() + 1);
@@ -52,10 +81,7 @@ export default function ProgramacaoPage() {
     if (userLocal) {
       try {
         const parsedUser = JSON.parse(userLocal);
-        
-        // Armazena os perfis para controle visual
         setPerfisUsuario(formatarPerfis(parsedUser.perfis || parsedUser.nivel_acesso));
-        
         setIgrejaId(parsedUser.igreja_id || parsedUser.id_igreja || parsedUser.idIgreja);
       } catch (e) {
         console.error("Erro ao ler usuário");
@@ -160,7 +186,6 @@ export default function ProgramacaoPage() {
     return dataItem.getMonth() + 1 === mesSelecionado && dataItem.getFullYear() === anoSelecionado;
   }).sort((a, b) => new Date(a.data + "T00:00:00").getTime() - new Date(b.data + "T00:00:00").getTime());
 
-  // Trava central de permissão para esse módulo
   const ehEditor = podeEditar(perfisUsuario, 'programacao');
 
   if (carregando && !modalAberto) {
@@ -182,7 +207,6 @@ export default function ProgramacaoPage() {
           </div>
         </div>
         
-        {/* ESCONDE BOTÃO CADASTRAR SE NÃO FOR EDITOR */}
         {ehEditor && (
           <button
             onClick={() => abrirModal()}
@@ -213,15 +237,14 @@ export default function ProgramacaoPage() {
               <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
                 {programacoesFixas.map((p) => (
                   <div key={p.id} className="p-4 bg-white border border-indigo-100 rounded-xl flex justify-between items-start group shadow-sm hover:shadow-md hover:border-indigo-300 transition-all">
-                    <div className="space-y-1.5">
+                    <div className="space-y-1.5 w-full">
                       <span className="inline-block text-xs font-black text-indigo-700 bg-indigo-100 px-2.5 py-1 rounded-md uppercase tracking-wide">
                         {p.dia_semana || '---'} • {p.horario ? p.horario.substring(0, 5) : '--:--'}
                       </span>
                       <h3 className="font-bold text-gray-800 text-base">{p.titulo}</h3>
-                      {p.descricao && <p className="text-xs text-gray-500 line-clamp-2">{p.descricao}</p>}
+                      {p.descricao && <p className="text-xs text-gray-500 line-clamp-2">{renderComLinks(p.descricao)}</p>}
                     </div>
                     
-                    {/* ESCONDE AÇÕES DA ROTINA FIXA SE NÃO FOR EDITOR */}
                     {ehEditor && (
                       <div className="flex flex-col gap-2 ml-3">
                         <button onClick={() => abrirModal(p)} className="w-8 h-8 flex items-center justify-center rounded-full bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white transition-colors">
@@ -280,7 +303,6 @@ export default function ProgramacaoPage() {
                       <th className="p-4 font-black uppercase tracking-wider text-xs">Data / Hora</th>
                       <th className="p-4 font-black uppercase tracking-wider text-xs">Título e Descrição</th>
                       <th className="p-4 font-black uppercase tracking-wider text-xs">Tipo</th>
-                      {/* SÓ MOSTRA O CABEÇALHO DA COLUNA 'AÇÕES' SE FOR EDITOR */}
                       {ehEditor && (
                         <th className="p-4 font-black uppercase tracking-wider text-xs text-right">Ações</th>
                       )}
@@ -299,7 +321,7 @@ export default function ProgramacaoPage() {
                           </td>
                           <td className="p-4">
                             <div className="font-bold text-gray-800 text-base">{p.titulo}</div>
-                            {p.descricao && <div className="text-sm text-gray-500 line-clamp-2 mt-0.5">{p.descricao}</div>}
+                            {p.descricao && <div className="text-sm text-gray-500 line-clamp-2 mt-0.5">{renderComLinks(p.descricao)}</div>}
                           </td>
                           <td className="p-4 whitespace-nowrap">
                             <span className={`inline-block text-xs font-black px-3 py-1.5 rounded-md uppercase tracking-wide shadow-sm border ${
@@ -310,7 +332,6 @@ export default function ProgramacaoPage() {
                             </span>
                           </td>
                           
-                          {/* SÓ MOSTRA OS BOTÕES SE FOR EDITOR */}
                           {ehEditor && (
                             <td className="p-4 text-right whitespace-nowrap">
                               <div className="flex justify-end gap-2">

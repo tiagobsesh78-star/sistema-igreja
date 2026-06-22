@@ -6,6 +6,35 @@ import { useRouter } from "next/navigation";
 import { supabase } from "../lib/supabase"; 
 import { podeEditar, formatarPerfis } from "../lib/permissoes";
 
+// Função auxiliar que identifica links no texto e os torna clicáveis
+const renderComLinks = (texto: string) => {
+  if (!texto) return null;
+  
+  // Regex para encontrar URLs (http, https ou www)
+  const urlRegex = /((?:https?:\/\/|www\.)[^\s]+)/g;
+  const partes = texto.split(urlRegex);
+
+  return partes.map((parte, index) => {
+    if (parte.match(urlRegex)) {
+      // Se começar só com www, adiciona o https:// para o navegador entender
+      const href = parte.startsWith("www.") ? `https://${parte}` : parte;
+      return (
+        <a
+          key={index}
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-blue-500 hover:text-blue-700 underline hover:no-underline transition-colors break-all"
+          onClick={(e) => e.stopPropagation()} // Evita que o clique acione outras ações
+        >
+          {parte}
+        </a>
+      );
+    }
+    return <span key={index}>{parte}</span>;
+  });
+};
+
 export default function Dashboard() {
   const router = useRouter();
   const [carregando, setCarregando] = useState(true);
@@ -310,7 +339,7 @@ export default function Dashboard() {
                       </div>
                       <div>
                         <p className="text-sm font-bold text-gray-800 leading-tight">{p.titulo}</p>
-                        {p.descricao && <p className="text-xs text-gray-500 line-clamp-1 mt-0.5">{p.descricao}</p>}
+                        {p.descricao && <p className="text-xs text-gray-500 line-clamp-1 mt-0.5">{renderComLinks(p.descricao)}</p>}
                       </div>
                     </div>
                   ))}
@@ -358,7 +387,7 @@ export default function Dashboard() {
                                 {p.horario ? p.horario.substring(0, 5) : '--:--'}
                               </span>
                               {p.descricao && (
-                                <span className="text-xs text-gray-500 truncate w-full">{p.descricao}</span>
+                                <span className="text-xs text-gray-500 truncate w-full">{renderComLinks(p.descricao)}</span>
                               )}
                             </div>
                           </div>
