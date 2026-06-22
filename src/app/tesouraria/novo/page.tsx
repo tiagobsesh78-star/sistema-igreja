@@ -18,6 +18,7 @@ export default function NovoLancamento() {
   const [saidas, setSaidas] = useState<number | "">("");
   
   const [listaCongregacoes, setListaCongregacoes] = useState<string[]>([]);
+  const [carregandoCongregacoes, setCarregandoCongregacoes] = useState(true);
   
   const [salvando, setSalvando] = useState(false);
   const [mostrarModalSucesso, setMostrarModalSucesso] = useState(false);
@@ -49,21 +50,40 @@ export default function NovoLancamento() {
     const igrejaId = usuario.igreja_id;
     setIgrejaIdLogada(igrejaId);
 
-    async function buscarCongregacoes() {
-      const { data } = await supabase
-        .from("membros")
-        .select("congregacao")
-        .eq("igreja_id", igrejaId);
+    // Nova função inteligente de busca de Congregações
+    async function buscarListaCongregacoes(idIgreja: string) {
+      try {
+        // 1. Busca o nome da Igreja Mãe (Sede)
+        const { data: config } = await supabase
+          .from("configuracao_igreja")
+          .select("nome_igreja")
+          .eq("igreja_id", idIgreja)
+          .maybeSingle();
 
-      if (data) {
-        const filtradas = Array.from(
-          new Set(data.map((m) => m.congregacao?.trim()).filter((c) => c && c !== ""))
-        ).sort() as string[];
-        setListaCongregacoes(filtradas);
-        if (filtradas.length > 0) setCongregacao(filtradas[0]);
+        const nomeSede = config?.nome_igreja || "Sede Principal";
+
+        // 2. Busca as Igrejas Filhas em ordem alfabética
+        const { data: filhas } = await supabase
+          .from("igrejas_filhas")
+          .select("nome")
+          .eq("igreja_id", idIgreja)
+          .order("nome", { ascending: true });
+
+        const nomesFilhas = filhas ? filhas.map(f => f.nome) : [];
+
+        // 3. Monta a lista final e salva no state
+        setListaCongregacoes([nomeSede, ...nomesFilhas]);
+      } catch (error) {
+        console.error("Erro ao buscar congregações:", error);
+        setListaCongregacoes(["Sede Principal"]); // Fallback em caso de erro
+      } finally {
+        setCarregandoCongregacoes(false);
       }
     }
-    buscarCongregacoes();
+
+    if (igrejaId) {
+      buscarListaCongregacoes(igrejaId);
+    }
   }, [router]);
 
   // Cálculo automático do Total
@@ -117,6 +137,8 @@ export default function NovoLancamento() {
 
   const fecharModalELimpar = () => {
     setMostrarModalSucesso(false);
+    // Deixei a congregação e data propositalmente sem limpar aqui. 
+    // Assim o tesoureiro consegue lançar vários eventos do mesmo dia/igreja mais rápido!
     setOfertas("");
     setDizimos("");
     setOfertaEspecial("");
@@ -164,20 +186,25 @@ export default function NovoLancamento() {
                 />
               </div>
 
+              {/* SELETOR ATUALIZADO: IGREJA SEDE E FILHAS */}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1">Congregação Responsável</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">Congregação Responsável *</label>
                 <select 
                   required
                   value={congregacao}
                   onChange={(e) => setCongregacao(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm text-gray-900 font-bold cursor-pointer"
+                  disabled={carregandoCongregacoes}
+                  className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm text-gray-900 font-bold cursor-pointer disabled:opacity-60"
                 >
-                  {listaCongregacoes.length === 0 ? (
-                    <option value="">Nenhuma congregação cadastrada nos membros</option>
+                  {carregandoCongregacoes ? (
+                    <option value="">Buscando congregações...</option>
                   ) : (
-                    listaCongregacoes.map((c) => (
-                      <option key={c} value={c}>{c}</option>
-                    ))
+                    <>
+                      <option value="" disabled>Selecione a Congregação</option>
+                      {listaCongregacoes.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </>
                   )}
                 </select>
               </div>
@@ -269,7 +296,7 @@ export default function NovoLancamento() {
           <div className="pt-4 border-t border-gray-100">
             <button 
               type="submit" 
-              disabled={salvando}
+              disabled={salvando || carregandoCongregacoes}
               className="w-full py-3.5 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl shadow-sm transition disabled:bg-teal-400 flex items-center justify-center gap-2"
             >
               {salvando ? "Salvando Lançamento..." : "Registrar na Tesouraria"}

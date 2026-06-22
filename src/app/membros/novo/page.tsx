@@ -26,8 +26,12 @@ export default function NovoMembro() {
   const [isDragging, setIsDragging] = useState(false);
   const [acessaSistema, setAcessaSistema] = useState(false);
   const [perfisSelecionados, setPerfisSelecionados] = useState<string[]>(['Membro']);
+  
+  // Novos states para listagem de congregações
+  const [congregacoes, setCongregacoes] = useState<string[]>([]);
+  const [carregandoCongregacoes, setCarregandoCongregacoes] = useState(true);
 
-  // 2. O EFFECT EXECUTA A TRAVA DE SEGURANÇA SEM QUEBRAR A ORDEM DE RENDERIZAÇÃO
+  // 2. O EFFECT EXECUTA A TRAVA DE SEGURANÇA E BUSCA AS CONGREGAÇÕES
   useEffect(() => {
     const usuarioLocal = localStorage.getItem("usuarioLogado");
     if (!usuarioLocal) {
@@ -43,8 +47,49 @@ export default function NovoMembro() {
     // ==================================================
     if (!podeEditar(perfisUsuarioLogado, 'membros')) {
       router.push("/");
+      return;
     }
     // ==================================================
+
+    const igrejaId = usuario?.igreja_id || usuario?.id_igreja || usuario?.idIgreja || (usuario?.igrejas && usuario.igrejas[0]?.id);
+
+    // Função para buscar Igreja Sede + Igrejas Filhas
+    async function buscarListaCongregacoes() {
+      if (!igrejaId) {
+        setCarregandoCongregacoes(false);
+        return;
+      }
+
+      try {
+        // 1. Busca o nome da Igreja Mãe (Sede)
+        const { data: config } = await supabase
+          .from("configuracao_igreja")
+          .select("nome_igreja")
+          .eq("igreja_id", igrejaId)
+          .maybeSingle();
+
+        const nomeSede = config?.nome_igreja || "Sede Principal";
+
+        // 2. Busca as Igrejas Filhas em ordem alfabética
+        const { data: filhas } = await supabase
+          .from("igrejas_filhas")
+          .select("nome")
+          .eq("igreja_id", igrejaId)
+          .order("nome", { ascending: true });
+
+        const nomesFilhas = filhas ? filhas.map(f => f.nome) : [];
+
+        // 3. Monta a lista final (Sede primeiro, depois filhas)
+        setCongregacoes([nomeSede, ...nomesFilhas]);
+      } catch (error) {
+        console.error("Erro ao buscar congregações:", error);
+        setCongregacoes(["Sede Principal"]); // Fallback de segurança
+      } finally {
+        setCarregandoCongregacoes(false);
+      }
+    }
+
+    buscarListaCongregacoes();
   }, [router]);
 
   // ==================================================
@@ -67,13 +112,11 @@ export default function NovoMembro() {
             return;
           }
 
-          // Define as dimensões máximas (800x800 é ótimo para perfil/carteirinha mantendo proporção)
           const MAX_LARGURA = 800;
           const MAX_ALTURA = 800;
           let largura = imagemElemento.width;
           let altura = imagemElemento.height;
 
-          // Calcula a nova proporção sem distorcer a imagem
           if (largura > altura) {
             if (largura > MAX_LARGURA) {
               altura *= MAX_LARGURA / largura;
@@ -89,14 +132,11 @@ export default function NovoMembro() {
           canvas.width = largura;
           canvas.height = altura;
 
-          // Desenha a imagem redimensionada no canvas
           ctx.drawImage(imagemElemento, 0, 0, largura, altura);
 
-          // Converte o canvas para um arquivo JPG (qualidade 0.8 = 80%, excelente equilíbrio)
           canvas.toBlob(
             (blob) => {
               if (blob) {
-                // Cria o novo arquivo compactado
                 const arquivoComprimido = new File([blob], arquivoOriginal.name.replace(/\.[^/.]+$/, ".jpg"), {
                   type: "image/jpeg",
                   lastModified: Date.now(),
@@ -116,14 +156,11 @@ export default function NovoMembro() {
 
       leitor.onerror = () => reject(new Error("Falha na leitura do arquivo."));
       
-      // Inicia a leitura do arquivo original
       leitor.readAsDataURL(arquivoOriginal);
     });
   };
 
-  // Processa o arquivo selecionado ou solto na área de drag
   const processarArquivoFoto = async (arquivoOriginal: File) => {
-    // 1MB = 1 * 1024 * 1024 bytes (Trava Inicial de Segurança para arquivos absurdamente gigantes que travariam o navegador, ex 50MB)
     const TRAVA_SEGURANCA_MB = 15 * 1024 * 1024; 
     if (arquivoOriginal.size > TRAVA_SEGURANCA_MB) {
         alert("A imagem selecionada é muito grande (acima de 15MB). Por favor, selecione uma foto um pouco menor.");
@@ -131,10 +168,9 @@ export default function NovoMembro() {
     }
 
     try {
-        setCarregando(true); // Opcional, para dar feedback que está processando
+        setCarregando(true);
         const arquivoFinal = await comprimirImagem(arquivoOriginal);
         
-        // Verifica o tamanho final após a compressão (1MB máximo estrito)
         if (arquivoFinal.size > 1024 * 1024) {
             alert("A imagem ainda ficou muito pesada após otimização. Selecione uma imagem com menos detalhes ou resolução menor.");
             setFotoArquivo(null);
@@ -291,7 +327,7 @@ export default function NovoMembro() {
             </div>
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">Gênero</label>
-              <select name="genero" className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500">
+              <select name="genero" className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500 bg-white">
                 <option value="Masculino">Masculino</option>
                 <option value="Feminino">Feminino</option>
               </select>
@@ -318,7 +354,7 @@ export default function NovoMembro() {
 
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">Estado Civil</label>
-              <select name="estado_civil" className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500">
+              <select name="estado_civil" className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500 bg-white">
                 <option value="Solteiro(a)">Solteiro(a)</option>
                 <option value="Casado(a)">Casado(a)</option>
                 <option value="Divorciado(a)">Divorciado(a)</option>
@@ -368,7 +404,7 @@ export default function NovoMembro() {
             </div>
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">Cargo / Função</label>
-              <select name="cargo" className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500">
+              <select name="cargo" className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500 bg-white">
                 <option value="Membro">Membro</option>
                 <option value="Obreiro">Obreiro</option>
                 <option value="Diácono">Diácono</option>
@@ -378,9 +414,27 @@ export default function NovoMembro() {
                 <option value="Pastor">Pastor</option>
               </select>
             </div>
+
+            {/* SELETOR ATUALIZADO: CONGREGAÇÃO / IGREJA FILHA */}
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">Congregação / Igreja *</label>
-              <input required name="congregacao" type="text" className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ex: Sede, Extensão..." />
+              <select 
+                required 
+                name="congregacao" 
+                className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:bg-gray-100"
+                disabled={carregandoCongregacoes}
+              >
+                {carregandoCongregacoes ? (
+                  <option value="">Carregando congregações...</option>
+                ) : (
+                  <>
+                    <option value="" disabled selected>Selecione a Congregação</option>
+                    {congregacoes.map((nome, index) => (
+                      <option key={index} value={nome}>{nome}</option>
+                    ))}
+                  </>
+                )}
+              </select>
             </div>
           </div>
 
@@ -508,7 +562,7 @@ export default function NovoMembro() {
           </div>
 
           <div className="pt-6 border-t mt-8 flex flex-col md:flex-row items-center gap-4">
-            <button type="submit" disabled={carregando} className="w-full md:w-auto px-10 py-4 bg-blue-600 text-white font-bold rounded-md hover:bg-blue-700 transition duration-300 shadow-lg disabled:bg-gray-400">
+            <button type="submit" disabled={carregando || carregandoCongregacoes} className="w-full md:w-auto px-10 py-4 bg-blue-600 text-white font-bold rounded-md hover:bg-blue-700 transition duration-300 shadow-lg disabled:bg-gray-400">
               {carregando ? "Enviando Dados..." : "Finalizar Cadastro"}
             </button>
             

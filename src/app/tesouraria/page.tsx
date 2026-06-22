@@ -70,14 +70,24 @@ export default function TesourariaPage() {
       setPerfisUsuario(perfisLogado);
       const igrejaId = usuario.igreja_id;
 
+      // 1. Busca os dados da Igreja Sede
       const { data: dadosIgreja } = await supabase.from("configuracao_igreja").select("*").eq("igreja_id", igrejaId).limit(1).maybeSingle();
       if (dadosIgreja) setConfigIgreja(dadosIgreja);
 
+      const nomeSede = dadosIgreja?.nome_igreja || "Sede Principal";
+
+      // 2. Busca as Igrejas Filhas para montar o filtro oficial
+      const { data: filhas } = await supabase
+        .from("igrejas_filhas")
+        .select("nome")
+        .eq("igreja_id", igrejaId)
+        .order("nome", { ascending: true });
+
+      const nomesFilhas = filhas ? filhas.map(f => f.nome) : [];
+      setCongregacoes([nomeSede, ...nomesFilhas]);
+
+      // 3. Busca membros apenas para cálculo e vínculo de dizimistas (não mais para gerar a lista de congregações)
       const { data: dadosMembros } = await supabase.from("membros").select("*").eq("igreja_id", igrejaId);
-      if (dadosMembros) {
-        const listaFiltrada = Array.from(new Set(dadosMembros.map((m) => obterCongregacaoMembro(m).trim()).filter((c) => c !== ""))).sort() as string[];
-        setCongregacoes(listaFiltrada);
-      }
 
       const { data: configs } = await supabase.from("tesouraria_configuracoes").select("*").eq("igreja_id", igrejaId);
       if (configs) setConfiguracoesGlobais(configs);
@@ -98,8 +108,10 @@ export default function TesourariaPage() {
         const anosUnicos = Array.from(new Set([...anosNoBanco, String(new Date().getFullYear())])).sort();
         setOpcoesAnos(anosUnicos);
       }
+      
       setCarregando(false);
     }
+    
     carregarDados();
   }, [router]);
 

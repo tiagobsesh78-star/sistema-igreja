@@ -62,6 +62,25 @@ export default function DizimistasPage() {
       setErroBanco(null);
       
       try {
+        // 1. Busca a lista oficial de congregações (Sede + Filhas)
+        const { data: config } = await supabase
+          .from("configuracao_igreja")
+          .select("nome_igreja")
+          .eq("igreja_id", idIgreja)
+          .maybeSingle();
+
+        const nomeSede = config?.nome_igreja || "Sede Principal";
+
+        const { data: filhas } = await supabase
+          .from("igrejas_filhas")
+          .select("nome")
+          .eq("igreja_id", idIgreja)
+          .order("nome", { ascending: true });
+
+        const nomesFilhas = filhas ? filhas.map(f => f.nome) : [];
+        setCongregacoes([nomeSede, ...nomesFilhas]);
+
+        // 2. Busca o restante dos dados
         const { data: dadosMembros, error: errMembros } = await supabase
           .from("membros")
           .select("*")
@@ -87,11 +106,6 @@ export default function DizimistasPage() {
           dadosMembros.sort((a, b) => obterNomeMembro(a).localeCompare(obterNomeMembro(b)));
           setMembros(dadosMembros);
 
-          const listaCongs = Array.from(
-            new Set(dadosMembros.map((m) => obterCongregacaoMembro(m).trim()).filter((c) => c !== ""))
-          ).sort() as string[];
-          setCongregacoes(listaCongs);
-
           if (dadosDizimistas) {
             const dizimistasUnidos = dadosDizimistas.map((d: any) => {
               const dadosDoMembro = dadosMembros.find(m => String(m.id) === String(d.membro_id));
@@ -116,7 +130,7 @@ export default function DizimistasPage() {
     carregarDados(igrejaId);
   }, [router]);
 
-  // Função extra de recarga manual usada no caso de erro
+  // Função extra de recarga manual usada no caso de erro ou após salvar
   async function recarregarDadosManualmente() {
     if (!igrejaIdLogada) return;
     setCarregando(true);
@@ -130,8 +144,6 @@ export default function DizimistasPage() {
       if (dadosMembros) {
         dadosMembros.sort((a, b) => obterNomeMembro(a).localeCompare(obterNomeMembro(b)));
         setMembros(dadosMembros);
-        const listaCongs = Array.from(new Set(dadosMembros.map((m) => obterCongregacaoMembro(m).trim()).filter((c) => c !== ""))).sort() as string[];
-        setCongregacoes(listaCongs);
 
         if (dadosDizimistas) {
           const dizimistasUnidos = dadosDizimistas.map((d: any) => ({

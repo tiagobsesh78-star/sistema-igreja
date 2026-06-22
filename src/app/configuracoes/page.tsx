@@ -17,9 +17,15 @@ export default function ConfiguracoesIgreja() {
   const [configId, setConfigId] = useState<number | null>(null);
   const [igrejaIdLogada, setIgrejaIdLogada] = useState<string | null>(null);
 
+  // Estados novos para o gerenciamento das Igrejas Filhas
+  const [igrejasFilhas, setIgrejasFilhas] = useState<any[]>([]);
+  const [modalFilhaAberto, setModalFilhaAberto] = useState(false);
+  const [nomeFilha, setNomeFilha] = useState("");
+  const [salvandoFilha, setSalvandoFilha] = useState(false);
+
   const [dadosIgreja, setDadosIgreja] = useState({
     nome_igreja: "",
-    cnpj: "", // Novo campo adicionado ao estado inicial
+    cnpj: "", 
     nome_pastor: "",
     endereco_rua: "",
     endereco_numero: "",
@@ -40,16 +46,10 @@ export default function ConfiguracoesIgreja() {
     const usuario = JSON.parse(usuarioLocal);
     const perfisLogado = formatarPerfis(usuario.perfis || usuario.nivel_acesso);
 
-    // ==================================================
-    // TRAVA DE ROTA: CHUTA INVASORES PARA A HOME
-    // As configurações gerais usam a regra do módulo 'membros' para definir quem é admin global (Pastor/Secretário)
-    // Se o usuário não puder editar membros, também não pode editar as configs da igreja.
-    // ==================================================
     if (!podeEditar(perfisLogado, 'membros')) {
       router.push("/");
-      return; // Interrompe a execução
+      return; 
     }
-    // ==================================================
 
     const igrejaId = usuario.igreja_id;
     setIgrejaIdLogada(igrejaId);
@@ -59,14 +59,14 @@ export default function ConfiguracoesIgreja() {
       const { data, error } = await supabase
         .from("configuracao_igreja")
         .select("*")
-        .eq("igreja_id", idIgreja) // TRAVA DE SEGURANÇA
+        .eq("igreja_id", idIgreja) 
         .maybeSingle();
 
       if (data) {
         setConfigId(data.id);
         setDadosIgreja({
           nome_igreja: data.nome_igreja || "",
-          cnpj: data.cnpj || "", // Preenche o CNPJ vindo do banco
+          cnpj: data.cnpj || "", 
           nome_pastor: data.nome_pastor || "",
           endereco_rua: data.endereco_rua || "",
           endereco_numero: data.endereco_numero || "",
@@ -76,20 +76,84 @@ export default function ConfiguracoesIgreja() {
           logo_url: data.logo_url || "",
         });
       }
+
+      // Carrega também as igrejas filhas vinculadas de forma assíncrona
+      await carregarIgrejasFilhas(idIgreja);
       setCarregando(false);
     }
     
     buscarConfiguracoes(igrejaId);
   }, [router]);
 
+  // Função para buscar as igrejas filhas do banco
+  const carregarIgrejasFilhas = async (idIgreja: string) => {
+    const { data, error } = await supabase
+      .from("igrejas_filhas")
+      .select("*")
+      .eq("igreja_id", idIgreja)
+      .order("nome", { ascending: true });
+
+    if (data) {
+      setIgrejasFilhas(data);
+    }
+  };
+
+  // Função para cadastrar uma nova igreja filha
+  const handleCadastrarFilha = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!nomeFilha.trim() || !igrejaIdLogada) return;
+
+    setSalvandoFilha(true);
+    try {
+      const { error } = await supabase
+        .from("igrejas_filhas")
+        .insert([
+          {
+            nome: nomeFilha.trim(),
+            igreja_id: igrejaIdLogada
+          }
+        ]);
+
+      if (error) throw error;
+
+      setNomeFilha("");
+      setModalFilhaAberto(false);
+      await carregarIgrejasFilhas(igrejaIdLogada);
+    } catch (error: any) {
+      alert("Erro ao cadastrar igreja filha: " + error.message);
+    } finally {
+      setSalvandoFilha(false);
+    }
+  };
+
+  // Função para excluir uma igreja filha cadastrada
+  const handleDeletarFilha = async (id: number) => {
+    if (!confirm("Tem certeza que deseja remover esta igreja filha / congregação?")) return;
+
+    try {
+      const { error } = await supabase
+        .from("igrejas_filhas")
+        .delete()
+        .eq("id", id)
+        .eq("igreja_id", igrejaIdLogada);
+
+      if (error) throw error;
+
+      if (igrejaIdLogada) {
+        await carregarIgrejasFilhas(igrejaIdLogada);
+      }
+    } catch (error: any) {
+      alert("Erro ao remover igreja filha: " + error.message);
+    }
+  };
+
   // 3. FUNÇÕES COMUNS
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     
-    // Máscara Inteligente e Automática de CNPJ (00.000.000/0000-00)
     if (name === "cnpj") {
-      let valorLimpo = value.replace(/\D/g, ""); // Remove tudo que não for número
-      if (valorLimpo.length > 14) valorLimpo = valorLimpo.slice(0, 14); // Limita em 14 dígitos
+      let valorLimpo = value.replace(/\D/g, ""); 
+      if (valorLimpo.length > 14) valorLimpo = valorLimpo.slice(0, 14); 
 
       valorLimpo = valorLimpo
         .replace(/^(\d{2})(\d)/, "$1.$2")
@@ -129,7 +193,7 @@ export default function ConfiguracoesIgreja() {
 
       const dadosParaSalvar = {
         ...dadosIgreja,
-        igreja_id: igrejaIdLogada, // CARIMBO DA IGREJA
+        igreja_id: igrejaIdLogada, 
         logo_url: novaLogoUrl,
       };
 
@@ -138,7 +202,7 @@ export default function ConfiguracoesIgreja() {
           .from("configuracao_igreja")
           .update(dadosParaSalvar)
           .eq("id", configId)
-          .eq("igreja_id", igrejaIdLogada); // TRAVA NO UPDATE
+          .eq("igreja_id", igrejaIdLogada); 
         if (error) throw error;
       } else {
         const { error } = await supabase
@@ -171,14 +235,12 @@ export default function ConfiguracoesIgreja() {
         </div>
 
         <form onSubmit={salvarConfiguracoes} className="space-y-6">
-          {/* Ajustado o grid para suportar a nova disposição incluindo o CNPJ */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="md:col-span-2">
               <label className="block text-sm font-semibold text-gray-700 mb-1">Nome Oficial da Igreja *</label>
               <input required name="nome_igreja" value={dadosIgreja.nome_igreja} onChange={handleChange} type="text" className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ex: Igreja Evangélica..." />
             </div>
             
-            {/* NOVO CAMPO: CNPJ */}
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">CNPJ</label>
               <input name="cnpj" value={dadosIgreja.cnpj} onChange={handleChange} type="text" className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500" placeholder="00.000.000/0000-00" maxLength={18} inputMode="numeric" />
@@ -240,6 +302,48 @@ export default function ConfiguracoesIgreja() {
             </div>
           </div>
 
+          {/* NOVO BLOCO PREMIUM: GERENCIAMENTO DE IGREJAS FILHAS */}
+          <div className="bg-gray-50 p-6 rounded-xl border border-gray-200 mt-8 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-bold text-gray-800">Igrejas Filhas / Congregações</h2>
+                <p className="text-xs text-gray-500">Cadastre e gerencie as filiais que aparecerão nas telas de membros.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalFilhaAberto(true)}
+                className="inline-flex items-center justify-center px-4 py-2.5 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-lg text-sm shadow-sm transition-all transform active:scale-95 shrink-0"
+              >
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+                </svg>
+                Cadastrar Igreja Filha
+              </button>
+            </div>
+
+            {igrejasFilhas.length === 0 ? (
+              <p className="text-sm text-gray-400 italic py-2">Nenhuma igreja filha cadastrada até o momento.</p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                {igrejasFilhas.map((filha) => (
+                  <div key={filha.id} className="flex items-center justify-between p-3 bg-white border border-gray-200 rounded-lg shadow-sm hover:border-teal-500 transition-colors">
+                    <span className="text-sm font-medium text-gray-700 truncate pr-2">{filha.nome}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleDeletarFilha(filha.id)}
+                      className="text-red-500 hover:text-red-700 p-1.5 rounded-md hover:bg-red-50 transition-colors shrink-0"
+                      title="Remover Congregação"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="pt-6 border-t mt-8">
             <button type="submit" disabled={salvando} className="w-full md:w-auto px-10 py-4 bg-blue-600 text-white font-bold rounded-md hover:bg-blue-700 transition duration-300 shadow-lg disabled:bg-gray-400">
               {salvando ? "Salvando Informações..." : "Salvar Configurações"}
@@ -248,6 +352,49 @@ export default function ConfiguracoesIgreja() {
         </form>
       </div>
 
+      {/* MODAL DE CADASTRO DE IGREJA FILHA */}
+      {modalFilhaAberto && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 transform transition-all border border-gray-100 animate-fadeIn">
+            <h3 className="text-xl font-bold text-gray-900 mb-1">Nova Igreja Filha</h3>
+            <p className="text-xs text-gray-500 mb-4">Adicione o nome completo da nova congregação/filial.</p>
+            
+            <form onSubmit={handleCadastrarFilha} className="space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">Nome da Congregação / Filha *</label>
+                <input
+                  required
+                  type="text"
+                  value={nomeFilha}
+                  onChange={(e) => setNomeFilha(e.target.value)}
+                  className="w-full p-3 border rounded-lg outline-none focus:ring-2 focus:ring-teal-500"
+                  placeholder="Ex: Congregação Setor Norte"
+                  autoFocus
+                />
+              </div>
+
+              <div className="flex items-center justify-end space-x-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => { setModalFilhaAberto(false); setNomeFilha(""); }}
+                  className="px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={salvandoFilha}
+                  className="px-5 py-2 text-sm font-bold text-white bg-teal-600 hover:bg-teal-700 rounded-lg transition shadow-md disabled:bg-teal-400"
+                >
+                  {salvandoFilha ? "Salvando..." : "Salvar Filha"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL GLOBAL DE SUCESSO */}
       {mostrarModalSucesso && (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 text-center transform transition-all">

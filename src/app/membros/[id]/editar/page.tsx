@@ -31,6 +31,10 @@ export default function EditarMembro() {
   const [mostrarModalExclusao, setMostrarModalExclusao] = useState(false);
   const [mostrarModalExclusaoSucesso, setMostrarModalExclusaoSucesso] = useState(false);
 
+  // Novos states para listagem de congregações
+  const [congregacoes, setCongregacoes] = useState<string[]>([]);
+  const [carregandoCongregacoes, setCarregandoCongregacoes] = useState(true);
+
   const [dadosMembro, setDadosMembro] = useState({
     nome_completo: "", genero: "Masculino", cpf: "", data_nascimento: "", estado_civil: "Solteiro(a)",
     telefone: "", endereco_rua: "", endereco_numero: "", endereco_bairro: "", endereco_cidade_uf: "",
@@ -77,6 +81,33 @@ export default function EditarMembro() {
     const currentIgrejaId = usuario.igreja_id;
     setIgrejaIdLogada(currentIgrejaId);
 
+    // Função para buscar Igreja Sede + Igrejas Filhas
+    async function buscarListaCongregacoes(igrejaId: string) {
+      try {
+        const { data: config } = await supabase
+          .from("configuracao_igreja")
+          .select("nome_igreja")
+          .eq("igreja_id", igrejaId)
+          .maybeSingle();
+
+        const nomeSede = config?.nome_igreja || "Sede Principal";
+
+        const { data: filhas } = await supabase
+          .from("igrejas_filhas")
+          .select("nome")
+          .eq("igreja_id", igrejaId)
+          .order("nome", { ascending: true });
+
+        const nomesFilhas = filhas ? filhas.map(f => f.nome) : [];
+        setCongregacoes([nomeSede, ...nomesFilhas]);
+      } catch (error) {
+        console.error("Erro ao buscar congregações:", error);
+        setCongregacoes(["Sede Principal"]);
+      } finally {
+        setCarregandoCongregacoes(false);
+      }
+    }
+
     async function buscarMembro(igrejaId: string) {
       const { data, error } = await supabase
         .from("membros")
@@ -118,10 +149,13 @@ export default function EditarMembro() {
       setCarregando(false);
     }
     
-    if (id && id !== "novo" && currentIgrejaId) {
-      buscarMembro(currentIgrejaId);
-    } else if (id === "novo") {
-      setCarregando(false);
+    if (currentIgrejaId) {
+      buscarListaCongregacoes(currentIgrejaId);
+      if (id && id !== "novo") {
+        buscarMembro(currentIgrejaId);
+      } else if (id === "novo") {
+        setCarregando(false);
+      }
     }
   }, [id, router]);
 
@@ -404,7 +438,7 @@ export default function EditarMembro() {
             </div>
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">Gênero</label>
-              <select name="genero" value={dadosMembro.genero} onChange={handleChange} className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500">
+              <select name="genero" value={dadosMembro.genero} onChange={handleChange} className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500 bg-white">
                 <option value="Masculino">Masculino</option>
                 <option value="Feminino">Feminino</option>
               </select>
@@ -421,7 +455,7 @@ export default function EditarMembro() {
 
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">Estado Civil</label>
-              <select name="estado_civil" value={dadosMembro.estado_civil} onChange={handleChange} className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500">
+              <select name="estado_civil" value={dadosMembro.estado_civil} onChange={handleChange} className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500 bg-white">
                 <option value="Solteiro(a)">Solteiro(a)</option>
                 <option value="Casado(a)">Casado(a)</option>
                 <option value="Divorciado(a)">Divorciado(a)</option>
@@ -471,7 +505,7 @@ export default function EditarMembro() {
             </div>
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">Cargo / Função</label>
-              <select name="cargo" value={dadosMembro.cargo} onChange={handleChange} className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500">
+              <select name="cargo" value={dadosMembro.cargo} onChange={handleChange} className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500 bg-white">
                 <option value="Membro">Membro</option>
                 <option value="Obreiro">Obreiro</option>
                 <option value="Diácono">Diácono</option>
@@ -483,14 +517,38 @@ export default function EditarMembro() {
             </div>
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">Status na Igreja</label>
-              <select name="status" value={dadosMembro.status} onChange={handleChange} className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500 font-medium">
+              <select name="status" value={dadosMembro.status} onChange={handleChange} className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500 font-medium bg-white">
                 <option value="Ativo">Ativo</option>
                 <option value="Inativo">Inativo (Afastado/Mudou)</option>
               </select>
             </div>
+            
+            {/* SELETOR ATUALIZADO: CONGREGAÇÃO / IGREJA FILHA */}
             <div className="md:col-span-2">
               <label className="block text-sm font-semibold text-gray-700 mb-1">Congregação / Igreja *</label>
-              <input required name="congregacao" value={dadosMembro.congregacao} onChange={handleChange} type="text" className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500" />
+              <select 
+                required 
+                name="congregacao" 
+                value={dadosMembro.congregacao} 
+                onChange={handleChange} 
+                className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:bg-gray-100"
+                disabled={carregandoCongregacoes}
+              >
+                {carregandoCongregacoes ? (
+                  <option value="">Carregando congregações...</option>
+                ) : (
+                  <>
+                    <option value="" disabled>Selecione a Congregação</option>
+                    {/* Se por acaso o membro tiver uma congregação antiga que não está na lista, garantimos que ela apareça */}
+                    {dadosMembro.congregacao && !congregacoes.includes(dadosMembro.congregacao) && (
+                      <option value={dadosMembro.congregacao}>{dadosMembro.congregacao}</option>
+                    )}
+                    {congregacoes.map((nome, index) => (
+                      <option key={index} value={nome}>{nome}</option>
+                    ))}
+                  </>
+                )}
+              </select>
             </div>
           </div>
 
@@ -627,7 +685,7 @@ export default function EditarMembro() {
           </div>
 
           <div className="pt-6 border-t mt-8 flex flex-col md:flex-row items-center justify-between gap-4">
-            <button type="submit" disabled={salvando || processandoImagem} className="w-full md:w-auto px-10 py-4 bg-green-600 text-white font-bold rounded-md hover:bg-green-700 transition duration-300 shadow-lg disabled:bg-gray-400 disabled:cursor-not-allowed">
+            <button type="submit" disabled={salvando || processandoImagem || carregandoCongregacoes} className="w-full md:w-auto px-10 py-4 bg-green-600 text-white font-bold rounded-md hover:bg-green-700 transition duration-300 shadow-lg disabled:bg-gray-400 disabled:cursor-not-allowed">
               {salvando ? "Salvando Alterações..." : "Atualizar Cadastro"}
             </button>
 
