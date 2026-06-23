@@ -31,9 +31,12 @@ export default function EditarMembro() {
   const [mostrarModalExclusao, setMostrarModalExclusao] = useState(false);
   const [mostrarModalExclusaoSucesso, setMostrarModalExclusaoSucesso] = useState(false);
 
-  // Novos states para listagem de congregações
+  // Estados do Multi-tenancy Hierárquico
   const [congregacoes, setCongregacoes] = useState<string[]>([]);
   const [carregandoCongregacoes, setCarregandoCongregacoes] = useState(true);
+  const [ehSede, setEhSede] = useState(false);
+  const [nomeSedeOficial, setNomeSedeOficial] = useState("Sede");
+  const [congregacaoUsuario, setCongregacaoUsuario] = useState("");
 
   const [dadosMembro, setDadosMembro] = useState({
     nome_completo: "", genero: "Masculino", cpf: "", data_nascimento: "", estado_civil: "Solteiro(a)",
@@ -57,7 +60,7 @@ export default function EditarMembro() {
     }));
   };
 
-  // 2. O EFFECT EXECUTA A TRAVA DE SEGURANÇA SEM QUEBRAR A ORDEM DE RENDERIZAÇÃO
+  // 2. O EFFECT EXECUTA A TRAVA DE SEGURANÇA E CARREGA TUDO DE FORMA SINCRONIZADA
   useEffect(() => {
     const usuarioLocal = localStorage.getItem("usuarioLogado");
     
@@ -78,85 +81,99 @@ export default function EditarMembro() {
     }
     // ==================================================
 
-    const currentIgrejaId = usuario.igreja_id;
+    const currentIgrejaId = usuario.igreja_id || usuario.id_igreja || usuario.idIgreja;
     setIgrejaIdLogada(currentIgrejaId);
 
-    // Função para buscar Igreja Sede + Igrejas Filhas
-    async function buscarListaCongregacoes(igrejaId: string) {
+    async function carregarDadosCompletos() {
+      if (!currentIgrejaId) {
+        setCarregando(false);
+        return;
+      }
+
       try {
+        // 1. Busca o nome oficial da Igreja Mãe (Sede)
         const { data: config } = await supabase
           .from("configuracao_igreja")
           .select("nome_igreja")
-          .eq("igreja_id", igrejaId)
+          .eq("igreja_id", currentIgrejaId)
           .maybeSingle();
 
         const nomeSede = config?.nome_igreja || "Sede Principal";
+        setNomeSedeOficial(nomeSede);
 
-        const { data: filhas } = await supabase
-          .from("igrejas_filhas")
-          .select("nome")
-          .eq("igreja_id", igrejaId)
-          .order("nome", { ascending: true });
+        // 2. Analisa quem é o usuário logado e de qual congregação ele é
+        const congUser = usuario?.congregacao?.trim() || "";
+        setCongregacaoUsuario(congUser);
+        
+        const congLow = congUser.toLowerCase();
+        const isUserSede = !congLow || congLow === "sede" || congLow === "matriz" || congLow === "geral" || congLow === nomeSede.toLowerCase();
+        
+        setEhSede(isUserSede);
 
-        const nomesFilhas = filhas ? filhas.map(f => f.nome) : [];
-        setCongregacoes([nomeSede, ...nomesFilhas]);
-      } catch (error) {
-        console.error("Erro ao buscar congregações:", error);
-        setCongregacoes(["Sede Principal"]);
-      } finally {
-        setCarregandoCongregacoes(false);
-      }
-    }
+        // 3. Busca as Igrejas Filhas se o usuário for da Sede
+        if (isUserSede) {
+          const { data: filhas } = await supabase
+            .from("igrejas_filhas")
+            .select("nome")
+            .eq("igreja_id", currentIgrejaId)
+            .order("nome", { ascending: true });
 
-    async function buscarMembro(igrejaId: string) {
-      const { data, error } = await supabase
-        .from("membros")
-        .select("*")
-        .eq("id", id)
-        .eq("igreja_id", igrejaId) 
-        .single();
-
-      if (error || !data) {
-        alert("Erro ao carregar dados ou acesso negado a este membro.");
-        router.push("/membros");
-      } else {
-        const cargosParaMenu: Record<string, string> = {
-          "Obreira": "Obreiro", "Diaconisa": "Diácono", "Presbítera": "Presbítero", "Missionária": "Missionário", "Pastora": "Pastor"
-        };
-        const cargoParaExibir = cargosParaMenu[data.cargo] || data.cargo;
-
-        let perfisAtuais = data.perfis || [];
-        if (perfisAtuais.length === 0 && data.nivel_acesso) {
-            perfisAtuais = [data.nivel_acesso];
+          const nomesFilhas = filhas ? filhas.map(f => f.nome) : [];
+          setCongregacoes([nomeSede, ...nomesFilhas]);
+        } else {
+          setCongregacoes([congUser]); // Filial só conhece a si mesma
         }
+        setCarregandoCongregacoes(false);
 
-        setDadosMembro({
-          nome_completo: data.nome_completo || "", genero: data.genero || "Masculino", cpf: data.cpf || "",
-          data_nascimento: data.data_nascimento || "", estado_civil: data.estado_civil || "Solteiro(a)",
-          telefone: data.telefone || "", endereco_rua: data.endereco_rua || "", endereco_numero: data.endereco_numero || "",
-          endereco_bairro: data.endereco_bairro || "", endereco_cidade_uf: data.endereco_cidade_uf || "",
-          endereco_cep: data.endereco_cep || "", data_batismo: data.data_batismo || "", igreja_batismo: data.igreja_batismo || "",
-          cargo: cargoParaExibir || "Membro", 
-          status: data.status || "Ativo", 
-          foto_url: data.foto_url || "",
-          congregacao: data.congregacao || "",
-          acessa_sistema: data.acessa_sistema || false,
-          senha: data.senha || "",
-          nivel_acesso: data.nivel_acesso || "Membro",
-          perfis: perfisAtuais
-        });
-      }
-      setCarregando(false);
-    }
-    
-    if (currentIgrejaId) {
-      buscarListaCongregacoes(currentIgrejaId);
-      if (id && id !== "novo") {
-        buscarMembro(currentIgrejaId);
-      } else if (id === "novo") {
+        // 4. Busca os dados do Membro a ser editado
+        if (id && id !== "novo") {
+          const { data: membroData, error } = await supabase
+            .from("membros")
+            .select("*")
+            .eq("id", id)
+            .eq("igreja_id", currentIgrejaId) 
+            .single();
+
+          if (error || !membroData) {
+            alert("Erro ao carregar dados ou acesso negado a este membro.");
+            router.push("/membros");
+            return;
+          }
+
+          const cargosParaMenu: Record<string, string> = {
+            "Obreira": "Obreiro", "Diaconisa": "Diácono", "Presbítera": "Presbítero", "Missionária": "Missionário", "Pastora": "Pastor"
+          };
+          const cargoParaExibir = cargosParaMenu[membroData.cargo] || membroData.cargo;
+
+          let perfisAtuais = membroData.perfis || [];
+          if (perfisAtuais.length === 0 && membroData.nivel_acesso) {
+              perfisAtuais = [membroData.nivel_acesso];
+          }
+
+          setDadosMembro({
+            nome_completo: membroData.nome_completo || "", genero: membroData.genero || "Masculino", cpf: membroData.cpf || "",
+            data_nascimento: membroData.data_nascimento || "", estado_civil: membroData.estado_civil || "Solteiro(a)",
+            telefone: membroData.telefone || "", endereco_rua: membroData.endereco_rua || "", endereco_numero: membroData.endereco_numero || "",
+            endereco_bairro: membroData.endereco_bairro || "", endereco_cidade_uf: membroData.endereco_cidade_uf || "",
+            endereco_cep: membroData.endereco_cep || "", data_batismo: membroData.data_batismo || "", igreja_batismo: membroData.igreja_batismo || "",
+            cargo: cargoParaExibir || "Membro", 
+            status: membroData.status || "Ativo", 
+            foto_url: membroData.foto_url || "",
+            congregacao: membroData.congregacao || "",
+            acessa_sistema: membroData.acessa_sistema || false,
+            senha: membroData.senha || "",
+            nivel_acesso: membroData.nivel_acesso || "Membro",
+            perfis: perfisAtuais
+          });
+        }
+      } catch (err) {
+        console.error("Erro na inicialização da edição:", err);
+      } finally {
         setCarregando(false);
       }
     }
+
+    carregarDadosCompletos();
   }, [id, router]);
 
   // ==================================================
@@ -179,13 +196,11 @@ export default function EditarMembro() {
             return;
           }
 
-          // Define as dimensões máximas (800x800 é excelente)
           const MAX_LARGURA = 800;
           const MAX_ALTURA = 800;
           let largura = imagemElemento.width;
           let altura = imagemElemento.height;
 
-          // Calcula a proporção
           if (largura > altura) {
             if (largura > MAX_LARGURA) {
               altura *= MAX_LARGURA / largura;
@@ -202,7 +217,6 @@ export default function EditarMembro() {
           canvas.height = altura;
           ctx.drawImage(imagemElemento, 0, 0, largura, altura);
 
-          // Gera o JPG com 80% de qualidade
           canvas.toBlob(
             (blob) => {
               if (blob) {
@@ -239,7 +253,7 @@ export default function EditarMembro() {
         setProcessandoImagem(true);
         const arquivoFinal = await comprimirImagem(arquivoOriginal);
         
-        if (arquivoFinal.size > 1024 * 1024) { // Limite estrito de 1MB após compressão
+        if (arquivoFinal.size > 1024 * 1024) { 
             alert("A imagem ainda ficou pesada após a otimização. Tente uma foto com menos detalhes.");
             setFotoArquivo(null);
         } else {
@@ -305,12 +319,11 @@ export default function EditarMembro() {
 
       // Se uma nova foto foi enviada...
       if (fotoArquivo) {
-        // 1. Apaga a foto antiga do Storage para não acumular lixo
         if (dadosMembro.foto_url) {
           try {
             const partesUrl = dadosMembro.foto_url.split('/fotos/');
             if (partesUrl.length > 1) {
-              const nomeArquivoAntigo = partesUrl[1].split('?')[0]; // Pega o nome e remove queries se houver
+              const nomeArquivoAntigo = partesUrl[1].split('?')[0]; 
               await supabase.storage.from('fotos').remove([nomeArquivoAntigo]);
             }
           } catch (err) {
@@ -318,7 +331,6 @@ export default function EditarMembro() {
           }
         }
 
-        // 2. Faz o upload da nova foto
         const nomeArquivo = `${Date.now()}-${fotoArquivo.name}`;
         const { error: erroUpload } = await supabase.storage.from("fotos").upload(nomeArquivo, fotoArquivo);
         if (erroUpload) throw erroUpload;
@@ -340,12 +352,16 @@ export default function EditarMembro() {
         acessoFinal = false;
       }
 
+      // TRAVA INVISÍVEL NO SALVAMENTO: Garante que um líder de filial não adulterou o HTML para mudar a congregação
+      const congregacaoFinalSegura = ehSede ? dadosMembro.congregacao : (dadosMembro.congregacao || congregacaoUsuario);
+
       const dadosParaSalvar = {
         ...dadosMembro, 
         cargo: cargoFinal, 
         data_nascimento: dadosMembro.data_nascimento || null,
         data_batismo: dadosMembro.data_batismo || null, 
         foto_url: novaFotoUrl,
+        congregacao: congregacaoFinalSegura,
         acessa_sistema: acessoFinal,
         perfis: acessoFinal ? dadosMembro.perfis : [],
         nivel_acesso: acessoFinal && dadosMembro.perfis.length > 0 ? dadosMembro.perfis[0] : "Membro" 
@@ -379,7 +395,6 @@ export default function EditarMembro() {
     
     if (!igrejaIdLogada) return;
 
-    // 1. Exclui a imagem do Storage para não deixar lixo!
     if (dadosMembro.foto_url) {
       try {
         const partesUrl = dadosMembro.foto_url.split('/fotos/');
@@ -392,7 +407,6 @@ export default function EditarMembro() {
       }
     }
 
-    // 2. Exclui o Membro do Banco de Dados
     const { error } = await supabase
       .from("membros")
       .delete()
@@ -415,7 +429,6 @@ export default function EditarMembro() {
   
   const finalizarERedirecionarExclusao = () => { router.push("/membros"); };
 
-  // O RETORNO CONDICIONAL FICA ABAIXO DE TODOS OS HOOKS
   if (carregando) return <div className="text-center py-20 text-gray-500 font-medium">Carregando formulário...</div>;
 
   const imagemPreview = fotoArquivo ? URL.createObjectURL(fotoArquivo) : dadosMembro.foto_url;
@@ -523,32 +536,41 @@ export default function EditarMembro() {
               </select>
             </div>
             
-            {/* SELETOR ATUALIZADO: CONGREGAÇÃO / IGREJA FILHA */}
+            {/* SELETOR ATUALIZADO: HIERARQUIA DE CONGREGAÇÃO */}
             <div className="md:col-span-2">
               <label className="block text-sm font-semibold text-gray-700 mb-1">Congregação / Igreja *</label>
-              <select 
-                required 
-                name="congregacao" 
-                value={dadosMembro.congregacao} 
-                onChange={handleChange} 
-                className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:bg-gray-100"
-                disabled={carregandoCongregacoes}
-              >
-                {carregandoCongregacoes ? (
-                  <option value="">Carregando congregações...</option>
-                ) : (
-                  <>
-                    <option value="" disabled>Selecione a Congregação</option>
-                    {/* Se por acaso o membro tiver uma congregação antiga que não está na lista, garantimos que ela apareça */}
-                    {dadosMembro.congregacao && !congregacoes.includes(dadosMembro.congregacao) && (
-                      <option value={dadosMembro.congregacao}>{dadosMembro.congregacao}</option>
-                    )}
-                    {congregacoes.map((nome, index) => (
-                      <option key={index} value={nome}>{nome}</option>
-                    ))}
-                  </>
-                )}
-              </select>
+              {ehSede ? (
+                <select 
+                  required 
+                  name="congregacao" 
+                  value={dadosMembro.congregacao} 
+                  onChange={handleChange} 
+                  className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:bg-gray-100"
+                  disabled={carregandoCongregacoes}
+                >
+                  {carregandoCongregacoes ? (
+                    <option value="">Carregando congregações...</option>
+                  ) : (
+                    <>
+                      <option value="" disabled>Selecione a Congregação</option>
+                      {/* Preserva a congregação antiga do membro se ela tiver sido excluída/mudado o nome nas configurações */}
+                      {dadosMembro.congregacao && !congregacoes.includes(dadosMembro.congregacao) && (
+                        <option value={dadosMembro.congregacao}>{dadosMembro.congregacao}</option>
+                      )}
+                      {congregacoes.map((nome, index) => (
+                        <option key={index} value={nome}>{nome}</option>
+                      ))}
+                    </>
+                  )}
+                </select>
+              ) : (
+                <select 
+                  disabled
+                  className="w-full p-3 border rounded-md outline-none bg-gray-100 text-gray-500 cursor-not-allowed"
+                >
+                  <option value={dadosMembro.congregacao || congregacaoUsuario}>{dadosMembro.congregacao || congregacaoUsuario}</option>
+                </select>
+              )}
             </div>
           </div>
 

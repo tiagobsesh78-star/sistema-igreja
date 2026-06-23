@@ -16,7 +16,6 @@ const renderComLinks = (texto: string) => {
 
   return partes.map((parte, index) => {
     if (parte.match(urlRegex)) {
-      // Se começar só com www, adiciona o https:// para o navegador entender
       const href = parte.startsWith("www.") ? `https://${parte}` : parte;
       return (
         <a
@@ -25,7 +24,7 @@ const renderComLinks = (texto: string) => {
           target="_blank"
           rel="noopener noreferrer"
           className="text-blue-500 hover:text-blue-700 underline hover:no-underline transition-colors break-all"
-          onClick={(e) => e.stopPropagation()} // Evita que o clique acione outras ações
+          onClick={(e) => e.stopPropagation()} 
         >
           {parte}
         </a>
@@ -39,15 +38,20 @@ export default function Dashboard() {
   const router = useRouter();
   const [carregando, setCarregando] = useState(true);
   const [perfisUsuario, setPerfisUsuario] = useState<string[]>([]); 
+  const [usuarioInfo, setUsuarioInfo] = useState<any>(null);
+  const [ehSede, setEhSede] = useState(false); 
+  const [nomeSedeOficial, setNomeSedeOficial] = useState("Sede");
   
+  // ==========================================
+  // ESTADOS DO MULTI-TENANCY HIERÁRQUICO
+  // ==========================================
+  const [filtroCongregacao, setFiltroCongregacao] = useState("Sede"); // DEFAULT AGORA É SEMPRE A SEDE
+  const [congregacoesDisponiveis, setCongregacoesDisponiveis] = useState<string[]>([]);
+  const [dadosMembrosRaw, setDadosMembrosRaw] = useState<any[]>([]);
+  const [programacoesRaw, setProgramacoesRaw] = useState<any[]>([]);
+
   // Estados de Membros
-  const [stats, setStats] = useState({
-    total: 0,
-    ativos: 0,
-    inativos: 0, 
-    homens: 0,
-    mulheres: 0,
-  });
+  const [stats, setStats] = useState({ total: 0, ativos: 0, inativos: 0, homens: 0, mulheres: 0 });
   const [recentes, setRecentes] = useState<any[]>([]);
   const [aniversariantes, setAniversariantes] = useState<any[]>([]); 
 
@@ -57,9 +61,10 @@ export default function Dashboard() {
   const [anoSelecionado, setAnoSelecionado] = useState(dataAtual.getFullYear());
   const [programacoes, setProgramacoes] = useState<any[]>([]);
 
-  // Estados de Dízimos e Ofertas (PIX)
+  // Estados de Dízimos e Ofertas (PIX Dinâmico)
   const [modalPixAberto, setModalPixAberto] = useState(false);
-  const [pixInfo, setPixInfo] = useState({ chave: "", qrCode: "" });
+  const [pixSede, setPixSede] = useState({ chave: "", qrCode: "" });
+  const [pixFilhas, setPixFilhas] = useState<any[]>([]);
   const [chaveCopiada, setChaveCopiada] = useState(false);
 
   const meses = [
@@ -71,9 +76,10 @@ export default function Dashboard() {
     { valor: 11, nome: "Novembro" }, { valor: 12, nome: "Dezembro" },
   ];
 
+  // 1. BUSCA INTELIGENTE DE DADOS
   useEffect(() => {
-    // TRAVA DE SEGURANÇA: Verifica se o usuário está logado
     const userLocal = localStorage.getItem("usuarioLogado");
+    
     if (!userLocal) {
       router.push("/login");
       return; 
@@ -82,65 +88,81 @@ export default function Dashboard() {
     const usuario = JSON.parse(userLocal);
     const igrejaId = usuario.igreja_id || usuario.id_igreja || usuario.idIgreja;
     
-    // Armazena os perfis para controle de visualização no Dashboard
+    setUsuarioInfo(usuario);
     setPerfisUsuario(formatarPerfis(usuario.perfis || usuario.nivel_acesso));
 
     async function carregarDadosDashboard() {
       try {
-        // Busca Membros, Programação e PIX ao mesmo tempo (Paralelo para maior velocidade)
-        const [resMembros, resProg, resPix] = await Promise.all([
-          supabase.from("membros").select("*").eq("igreja_id", igrejaId).order("id", { ascending: false }),
-          supabase.from("programacao").select("*").eq("igreja_id", igrejaId).order("horario", { ascending: true }),
-          supabase.from("configuracao_igreja").select("chave_pix, qr_code_pix").eq("igreja_id", igrejaId).maybeSingle()
-        ]);
+        // Passo 1: Busca o nome real da Igreja e o PIX da Sede
+        const { data: resConfig } = await supabase
+          .from("configuracao_igreja")
+          .select("chave_pix, qr_code_pix, nome_igreja")
+          .eq("igreja_id", igrejaId)
+          .maybeSingle();
 
-        // Processa Membros
+        const nomeOficial = resConfig?.nome_igreja?.trim() || "Sede";
+        setNomeSedeOficial(nomeOficial);
+
+        if (resConfig) {
+          setPixSede({ chave: resConfig.chave_pix || "", qrCode: resConfig.qr_code_pix || "" });
+        }
+
+        // Passo 2: Analisa quem é o usuário com base no nome oficial
+        const congUsuario = usuario.congregacao?.trim() || "";
+        const congLow = congUsuario.toLowerCase();
+        
+        const isUserSede = !congLow || congLow === "sede" || congLow === "matriz" || congLow === "geral" || congLow === nomeOficial.toLowerCase();
+        
+        setEhSede(isUserSede);
+
+        const filtroInicial = isUserSede ? "Sede" : congUsuario;
+        setFiltroCongregacao(filtroInicial);
+
+        // Passo 3: Busca os dados travados na hierarquia + O PIX de TODAS as Filhas
+        let queryMembros = supabase.from("membros").select("*").eq("igreja_id", igrejaId).order("id", { ascending: false });
+        let queryProg = supabase.from("programacao").select("*").eq("igreja_id", igrejaId).order("horario", { ascending: true });
+        let queryFilhas = supabase.from("igrejas_filhas").select("nome, chave_pix, qr_code_pix").eq("igreja_id", igrejaId);
+
+        if (!isUserSede) {
+          queryMembros = queryMembros.eq("congregacao", congUsuario);
+          queryProg = queryProg.eq("congregacao", congUsuario);
+          queryFilhas = queryFilhas.eq("nome", congUsuario); // Busca apenas a filha atual
+        }
+
+        const [resMembros, resProg, resFilhas] = await Promise.all([queryMembros, queryProg, queryFilhas]);
+
+        if (resFilhas.data) {
+          setPixFilhas(resFilhas.data);
+        }
+
+        // Passo 4: Salva e mapeia as Filiais (Apenas se for Sede)
         if (resMembros.data) {
-          const data = resMembros.data;
-          const total = data.length;
-          const ativos = data.filter((m) => m.status === "Ativo").length;
-          const inativos = data.filter((m) => m.status === "Inativo").length; 
-          const homens = data.filter((m) => m.genero === "Masculino").length;
-          const mulheres = data.filter((m) => m.genero === "Feminino").length;
+          setDadosMembrosRaw(resMembros.data);
+          
+          if (isUserSede) {
+            const filiais = new Set<string>();
+            // Puxa as filiais tanto dos membros quanto da tabela de igrejas filhas
+            resMembros.data.forEach(m => {
+              const c = m.congregacao?.trim();
+              const cLow = c?.toLowerCase() || "";
+              if (c && cLow !== "sede" && cLow !== "matriz" && cLow !== "geral" && cLow !== nomeOficial.toLowerCase()) {
+                filiais.add(c);
+              }
+            });
+            resFilhas.data?.forEach(f => {
+              const c = f.nome?.trim();
+              const cLow = c?.toLowerCase() || "";
+              if (c && cLow !== "sede" && cLow !== "matriz" && cLow !== "geral" && cLow !== nomeOficial.toLowerCase()) {
+                filiais.add(c);
+              }
+            });
 
-          setStats({ total, ativos, inativos, homens, mulheres });
-          setRecentes(data.slice(0, 5));
-
-          // LÓGICA INTELIGENTE DE ANIVERSARIANTES
-          const hoje = new Date();
-          const mesAtual = hoje.getMonth() + 1;
-          const diaAtual = hoje.getDate();
-
-          const aniversariantesFiltrados = data.filter((m) => {
-            if (!m.data_nascimento) return false;
-            
-            const partesData = m.data_nascimento.split('-');
-            if (partesData.length !== 3) return false;
-            
-            const mesNascimento = parseInt(partesData[1], 10);
-            const diaNascimento = parseInt(partesData[2], 10);
-
-            return mesNascimento === mesAtual && diaNascimento >= diaAtual;
-          }).sort((a, b) => {
-            const diaA = parseInt(a.data_nascimento.split('-')[2], 10);
-            const diaB = parseInt(b.data_nascimento.split('-')[2], 10);
-            return diaA - diaB;
-          });
-
-          setAniversariantes(aniversariantesFiltrados);
+            setCongregacoesDisponiveis(Array.from(filiais).sort());
+          }
         }
 
-        // Processa Programações
         if (resProg.data) {
-          setProgramacoes(resProg.data);
-        }
-
-        // Processa Configurações de PIX
-        if (resPix.data) {
-          setPixInfo({
-            chave: resPix.data.chave_pix || "",
-            qrCode: resPix.data.qr_code_pix || ""
-          });
+          setProgramacoesRaw(resProg.data);
         }
 
       } catch (error) {
@@ -157,15 +179,83 @@ export default function Dashboard() {
     }
   }, [router]);
 
-  // Função para copiar a chave PIX
+
+  // 2. PROCESSAMENTO LOCAL (Aplica o Filtro na Tela)
+  useEffect(() => {
+    if (!dadosMembrosRaw) return;
+
+    const isSedeItem = (c: string) => {
+      const cong = c?.trim()?.toLowerCase() || "";
+      return !cong || cong === "sede" || cong === "matriz" || cong === "geral" || cong === nomeSedeOficial.toLowerCase();
+    };
+
+    const membrosFiltrados = filtroCongregacao === "Todas"
+      ? dadosMembrosRaw
+      : dadosMembrosRaw.filter(m => {
+          if (filtroCongregacao === "Sede") return isSedeItem(m.congregacao);
+          return m.congregacao?.trim() === filtroCongregacao;
+        });
+
+    const total = membrosFiltrados.length;
+    const ativos = membrosFiltrados.filter((m) => m.status === "Ativo").length;
+    const inativos = membrosFiltrados.filter((m) => m.status === "Inativo").length; 
+    const homens = membrosFiltrados.filter((m) => m.genero === "Masculino").length;
+    const mulheres = membrosFiltrados.filter((m) => m.genero === "Feminino").length;
+
+    setStats({ total, ativos, inativos, homens, mulheres });
+    setRecentes(membrosFiltrados.slice(0, 5));
+
+    const hoje = new Date();
+    const mesAtual = hoje.getMonth() + 1;
+    const diaAtual = hoje.getDate();
+
+    const aniversariantesFiltrados = membrosFiltrados.filter((m) => {
+      if (!m.data_nascimento) return false;
+      const partesData = m.data_nascimento.split('-');
+      if (partesData.length !== 3) return false;
+      const mesNascimento = parseInt(partesData[1], 10);
+      const diaNascimento = parseInt(partesData[2], 10);
+      return mesNascimento === mesAtual && diaNascimento >= diaAtual;
+    }).sort((a, b) => {
+      const diaA = parseInt(a.data_nascimento.split('-')[2], 10);
+      const diaB = parseInt(b.data_nascimento.split('-')[2], 10);
+      return diaA - diaB;
+    });
+
+    setAniversariantes(aniversariantesFiltrados);
+
+    const progFiltradas = filtroCongregacao === "Todas"
+      ? programacoesRaw
+      : programacoesRaw.filter(p => {
+          if (filtroCongregacao === "Sede") return isSedeItem(p.congregacao);
+          return p.congregacao?.trim() === filtroCongregacao;
+        });
+
+    setProgramacoes(progFiltradas);
+
+  }, [filtroCongregacao, dadosMembrosRaw, programacoesRaw, nomeSedeOficial]);
+
+
+  // ==========================================
+  // LÓGICA DO PIX DINÂMICO BASEADO NO FILTRO
+  // ==========================================
+  let pixAtual = pixSede;
+  if (filtroCongregacao !== "Sede" && filtroCongregacao !== "Todas") {
+    const filhaConfigurada = pixFilhas.find(f => f.nome === filtroCongregacao);
+    if (filhaConfigurada) {
+      pixAtual = { chave: filhaConfigurada.chave_pix || "", qrCode: filhaConfigurada.qr_code_pix || "" };
+    } else {
+      pixAtual = { chave: "", qrCode: "" };
+    }
+  }
+
   const copiarChavePix = () => {
-    if (!pixInfo.chave) return;
-    navigator.clipboard.writeText(pixInfo.chave);
+    if (!pixAtual.chave) return;
+    navigator.clipboard.writeText(pixAtual.chave);
     setChaveCopiada(true);
-    setTimeout(() => setChaveCopiada(false), 2000); // Retorna o texto original após 2 segundos
+    setTimeout(() => setChaveCopiada(false), 2000); 
   };
 
-  // Filtros Locais da Programação
   const programacoesFixas = programacoes.filter((p) => p.tipo === "Fixa");
   const programacoesDoMes = programacoes.filter((p) => {
     if (p.tipo === "Fixa") return false;
@@ -177,19 +267,16 @@ export default function Dashboard() {
     );
   }).sort((a, b) => new Date(a.data + "T00:00:00").getTime() - new Date(b.data + "T00:00:00").getTime());
 
-  // Regras de Visualização e Edição Baseadas nos Perfis
   const podeAdicionarMembro = podeEditar(perfisUsuario, 'membros');
-  
   const podeVerUltimosMembros = perfisUsuario.includes("Secretário") || 
                                 perfisUsuario.includes("Pastor/Presbítero") || 
                                 perfisUsuario.includes("Líder") ||
                                 perfisUsuario.includes("Administrador");
-
   const podeVerTodosMembros = perfisUsuario.includes("Secretário") || 
                               perfisUsuario.includes("Pastor/Presbítero") || 
                               perfisUsuario.includes("Administrador");
 
-  if (carregando) return <div className="flex h-screen items-center justify-center"><div className="text-xl text-gray-500 font-medium animate-pulse">Carregando painel administrativo...</div></div>;
+  if (carregando) return <div className="flex h-screen items-center justify-center"><div className="text-xl text-gray-500 font-medium animate-pulse">A carregar painel administrativo...</div></div>;
 
   return (
     <div className="max-w-7xl mx-auto space-y-8 animate-fade-in pb-10 relative">
@@ -200,8 +287,25 @@ export default function Dashboard() {
           <h1 className="text-2xl font-bold text-gray-800">Visão Geral</h1>
           <p className="text-gray-500 text-sm mt-1">Bem-vindo ao painel administrativo da sua Igreja.</p>
         </div>
+        
         <div className="mt-4 md:mt-0 flex flex-wrap gap-3">
           
+          {/* SELETOR HIERÁRQUICO */}
+          {ehSede && congregacoesDisponiveis.length > 0 && (
+            <select
+              value={filtroCongregacao}
+              onChange={(e) => setFiltroCongregacao(e.target.value)}
+              className="px-4 py-2.5 bg-indigo-50 border border-indigo-100 text-indigo-800 font-bold text-sm rounded-lg hover:border-indigo-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all shadow-sm cursor-pointer max-w-[200px] sm:max-w-[250px] truncate"
+            >
+              <option value="Sede">🏢 {nomeSedeOficial}</option>
+              <option value="Todas">🌍 Congregações</option>
+              {congregacoesDisponiveis.map(c => (
+                <option key={c} value={c}>📍 {c}</option>
+              ))}
+            </select>
+          )}
+
+          {/* BOTÕES DE AÇÃO */}
           <Link href="/programacao" className="px-5 py-2.5 bg-indigo-600 text-white font-medium text-sm rounded-lg hover:bg-indigo-700 transition shadow-sm">
             Programação
           </Link>
@@ -212,7 +316,6 @@ export default function Dashboard() {
             Visitantes
           </Link>
 
-          {/* BOTÃO DE OFERTAS/PIX PADRONIZADO REPOSICIONADO AQUI */}
           <button 
             onClick={() => setModalPixAberto(true)}
             className="px-5 py-2.5 bg-emerald-600 text-white font-medium text-sm rounded-lg hover:bg-emerald-700 transition shadow-sm"
@@ -220,7 +323,6 @@ export default function Dashboard() {
             Ofertar
           </button>
           
-          {/* TRAVA DO BOTÃO NOVO MEMBRO */}
           {podeAdicionarMembro && (
             <Link href="/membros/novo" className="px-5 py-2.5 bg-blue-600 text-white font-medium text-sm rounded-lg hover:bg-blue-700 transition shadow-sm">
               + Novo Membro
@@ -284,9 +386,8 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
         
-        {/* 3. QUADRO DE PROGRAMAÇÃO MODERNO (Dinamiza a largura caso o painel de membros suma) */}
+        {/* 3. QUADRO DE PROGRAMAÇÃO MODERNO */}
         <div className={`${podeVerUltimosMembros ? "xl:col-span-2" : "xl:col-span-3"} bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col`}>
-          {/* Cabeçalho do Quadro */}
           <div className="p-5 md:p-6 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-gray-50/50">
             <div className="flex items-center gap-3">
               <div className="bg-indigo-600 p-2 rounded-lg shadow-sm text-white">
@@ -315,10 +416,8 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Corpo do Quadro Dividido */}
           <div className="grid grid-cols-1 md:grid-cols-5 flex-1 divide-y md:divide-y-0 md:divide-x divide-gray-100">
             
-            {/* Esquerda: Atividades Fixas */}
             <div className="md:col-span-2 p-5 bg-gray-50/30">
               <h3 className="text-xs font-bold uppercase text-gray-400 tracking-wider mb-4 border-b border-gray-100 pb-2">
                 Atividades Semanais
@@ -347,7 +446,6 @@ export default function Dashboard() {
               )}
             </div>
 
-            {/* Direita: Eventos e Reuniões do Mês */}
             <div className="md:col-span-3 p-5">
               <h3 className="text-xs font-bold uppercase text-gray-400 tracking-wider mb-4 border-b border-gray-100 pb-2">
                 Agenda do Mês
@@ -407,7 +505,6 @@ export default function Dashboard() {
             <div className="p-5 md:p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
               <h2 className="text-lg font-bold text-gray-800">Últimos Membros</h2>
               
-              {/* TRAVA ESPECÍFICA DO BOTÃO VER TODOS */}
               {podeVerTodosMembros && (
                 <Link href="/membros" className="text-blue-600 hover:text-blue-800 text-sm font-semibold">Ver Todos</Link>
               )}
@@ -468,7 +565,7 @@ export default function Dashboard() {
           {aniversariantes.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-8 text-center space-y-2">
               <span className="text-4xl">🎂</span>
-              <p className="text-sm text-gray-400 font-medium">Nenhum membro completando ano nos próximos dias deste mês.</p>
+              <p className="text-sm text-gray-400 font-medium">Nenhum membro a completar anos nos próximos dias deste mês.</p>
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-4">
@@ -514,14 +611,10 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* 6. MODAL DE DÍZIMOS E OFERTAS (PIX) - COM TRAVA DE RESPONSIVIDADE */}
+      {/* 6. MODAL DE DÍZIMOS E OFERTAS (PIX) */}
       {modalPixAberto && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          
-          {/* Container do Modal com max-h e flex-col para controle rígido do tamanho */}
           <div className="bg-white rounded-2xl w-full max-w-md max-h-[95vh] shadow-2xl flex flex-col relative transform scale-100 transition-all">
-            
-            {/* Cabeçalho do Modal Fixo (shrink-0 garante que ele não será esmagado) */}
             <div className="bg-emerald-600 p-5 md:p-6 text-center relative shrink-0 rounded-t-2xl">
               <button 
                 onClick={() => setModalPixAberto(false)}
@@ -535,26 +628,27 @@ export default function Dashboard() {
                 <svg className="w-6 h-6 md:w-7 md:h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"></path></svg>
               </div>
               <h3 className="text-lg md:text-xl font-bold text-white tracking-tight">Dízimos e Ofertas</h3>
-              <p className="text-emerald-100 text-xs md:text-sm mt-1">Contribua de forma rápida e segura</p>
+              <p className="text-emerald-100 text-xs md:text-sm mt-1">
+                {filtroCongregacao === "Todas" || filtroCongregacao === "Sede" ? nomeSedeOficial : filtroCongregacao}
+              </p>
             </div>
 
-            {/* Corpo do Modal com Rolagem Interna Automática (overflow-y-auto) */}
             <div className="p-5 md:p-8 overflow-y-auto">
-              {pixInfo.chave || pixInfo.qrCode ? (
+              {pixAtual.chave || pixAtual.qrCode ? (
                 <div className="flex flex-col items-center">
                   
-                  {pixInfo.qrCode && (
+                  {pixAtual.qrCode && (
                     <div className="bg-white p-3 rounded-2xl border-2 border-gray-100 shadow-sm mb-6">
-                      <img src={pixInfo.qrCode} alt="QR Code PIX" className="w-40 h-40 md:w-48 md:h-48 object-contain rounded-xl" />
+                      <img src={pixAtual.qrCode} alt="QR Code PIX" className="w-40 h-40 md:w-48 md:h-48 object-contain rounded-xl" />
                     </div>
                   )}
                   
-                  {pixInfo.chave && (
+                  {pixAtual.chave && (
                     <div className="w-full text-center">
                       <p className="text-xs text-gray-500 font-bold uppercase tracking-wider mb-2">Chave PIX da Igreja</p>
                       <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 flex flex-col items-center gap-3">
                         <span className="font-mono text-sm md:text-base font-bold text-gray-800 break-all text-center px-2">
-                          {pixInfo.chave}
+                          {pixAtual.chave}
                         </span>
                         
                         <button
@@ -588,7 +682,7 @@ export default function Dashboard() {
                   </div>
                   <h4 className="text-lg font-bold text-gray-800 mb-2">Chave não configurada</h4>
                   <p className="text-sm text-gray-500 leading-relaxed px-4">
-                    Sua igreja ainda não cadastrou as informações de recebimento via PIX. Em breve essa opção estará disponível!
+                    As informações de recebimento via PIX para esta congregação ainda não foram cadastradas.
                   </p>
                 </div>
               )}

@@ -27,9 +27,12 @@ export default function NovoMembro() {
   const [acessaSistema, setAcessaSistema] = useState(false);
   const [perfisSelecionados, setPerfisSelecionados] = useState<string[]>(['Membro']);
   
-  // Novos states para listagem de congregações
+  // Novos states para controle Hierárquico de Congregações
   const [congregacoes, setCongregacoes] = useState<string[]>([]);
   const [carregandoCongregacoes, setCarregandoCongregacoes] = useState(true);
+  const [ehSede, setEhSede] = useState(false);
+  const [nomeSedeOficial, setNomeSedeOficial] = useState("Sede");
+  const [congregacaoUsuario, setCongregacaoUsuario] = useState("");
 
   // 2. O EFFECT EXECUTA A TRAVA DE SEGURANÇA E BUSCA AS CONGREGAÇÕES
   useEffect(() => {
@@ -69,18 +72,32 @@ export default function NovoMembro() {
           .maybeSingle();
 
         const nomeSede = config?.nome_igreja || "Sede Principal";
+        setNomeSedeOficial(nomeSede);
 
-        // 2. Busca as Igrejas Filhas em ordem alfabética
-        const { data: filhas } = await supabase
-          .from("igrejas_filhas")
-          .select("nome")
-          .eq("igreja_id", igrejaId)
-          .order("nome", { ascending: true });
+        // 2. Analisa quem é o usuário logado e de qual congregação ele é
+        const congUser = usuario?.congregacao?.trim() || "";
+        setCongregacaoUsuario(congUser);
+        
+        const congLow = congUser.toLowerCase();
+        const isUserSede = !congLow || congLow === "sede" || congLow === "matriz" || congLow === "geral" || congLow === nomeSede.toLowerCase();
+        
+        setEhSede(isUserSede);
 
-        const nomesFilhas = filhas ? filhas.map(f => f.nome) : [];
+        // 3. Busca as Igrejas Filhas em ordem alfabética (Apenas se ele for da Sede)
+        if (isUserSede) {
+          const { data: filhas } = await supabase
+            .from("igrejas_filhas")
+            .select("nome")
+            .eq("igreja_id", igrejaId)
+            .order("nome", { ascending: true });
 
-        // 3. Monta a lista final (Sede primeiro, depois filhas)
-        setCongregacoes([nomeSede, ...nomesFilhas]);
+          const nomesFilhas = filhas ? filhas.map(f => f.nome) : [];
+          setCongregacoes([nomeSede, ...nomesFilhas]);
+        } else {
+          // Se for filial, a única opção possível é a dele mesmo
+          setCongregacoes([congUser]);
+        }
+
       } catch (error) {
         console.error("Erro ao buscar congregações:", error);
         setCongregacoes(["Sede Principal"]); // Fallback de segurança
@@ -277,6 +294,9 @@ export default function NovoMembro() {
         cargoFinal = cargosFemininos[cargoFinal] || cargoFinal;
       }
 
+      // TRAVA DE SEGURANÇA: Garante que a congregação correta seja salva
+      const congregacaoFinal = ehSede ? (formData.get("congregacao") as string || "") : congregacaoUsuario;
+
       const dadosMembro = {
         igreja_id: igrejaId,
         nome_completo: formData.get("nome_completo") || "", 
@@ -294,7 +314,7 @@ export default function NovoMembro() {
         igreja_batismo: formData.get("igreja_batismo") || "", 
         cargo: cargoFinal, 
         foto_url: fotoUrl, 
-        congregacao: formData.get("congregacao") || "",
+        congregacao: congregacaoFinal, // Valor Injetado com Segurança
         acessa_sistema: acessaSistema,
         senha: acessaSistema ? formData.get("senha") : null,
         perfis: acessaSistema ? perfisSelecionados : [], 
@@ -415,26 +435,36 @@ export default function NovoMembro() {
               </select>
             </div>
 
-            {/* SELETOR ATUALIZADO: CONGREGAÇÃO / IGREJA FILHA */}
+            {/* SELETOR HIERÁRQUICO INTELIGENTE DA CONGREGAÇÃO */}
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">Congregação / Igreja *</label>
-              <select 
-                required 
-                name="congregacao" 
-                className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:bg-gray-100"
-                disabled={carregandoCongregacoes}
-              >
-                {carregandoCongregacoes ? (
-                  <option value="">Carregando congregações...</option>
-                ) : (
-                  <>
-                    <option value="" disabled selected>Selecione a Congregação</option>
-                    {congregacoes.map((nome, index) => (
-                      <option key={index} value={nome}>{nome}</option>
-                    ))}
-                  </>
-                )}
-              </select>
+              {ehSede ? (
+                <select 
+                  required 
+                  name="congregacao" 
+                  className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:bg-gray-100"
+                  disabled={carregandoCongregacoes}
+                  defaultValue=""
+                >
+                  {carregandoCongregacoes ? (
+                    <option value="" disabled>Carregando congregações...</option>
+                  ) : (
+                    <>
+                      <option value="" disabled>Selecione a Congregação</option>
+                      {congregacoes.map((nome, index) => (
+                        <option key={index} value={nome}>{nome}</option>
+                      ))}
+                    </>
+                  )}
+                </select>
+              ) : (
+                <select 
+                  disabled
+                  className="w-full p-3 border rounded-md outline-none bg-gray-100 text-gray-500 cursor-not-allowed"
+                >
+                  <option value={congregacaoUsuario}>{congregacaoUsuario}</option>
+                </select>
+              )}
             </div>
           </div>
 

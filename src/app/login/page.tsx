@@ -43,14 +43,15 @@ export default function LoginPage() {
         return;
       }
 
-      // Salva os dados da sessão, agora incluindo a igreja_id e os múltiplos PERFIS
+      // Salva os dados da sessão, agora incluindo a igreja_id, PERFIS e a CONGREGAÇÃO (Hierarquia)
       localStorage.setItem("usuarioLogado", JSON.stringify({
         id: data.id,
         nome: data.nome_completo,
         cpf: data.cpf,
         nivel_acesso: data.nivel_acesso || "Membro", // Mantido como fallback
         perfis: data.perfis || [], // O NOSSO ARRAY DE PERFIS SALVO NA SESSÃO!
-        igreja_id: data.igreja_id // A MÁGICA ACONTECE AQUI
+        igreja_id: data.igreja_id, // A MÁGICA DO MULTI-TENANCY AQUI
+        congregacao: data.congregacao || "Sede" // NOVA TRAVA HIERÁRQUICA: Diferencia a Sede das Filhas
       }));
 
       // REDIRECIONA DIRETO PARA O DASHBOARD / TELA INICIAL

@@ -24,17 +24,12 @@ export default function DizimistasPage() {
 
   const [congregacaoFiltro, setCongregacaoFiltro] = useState("");
 
-  const obterNomeMembro = (m: any) => {
-    if (!m) return "Desconhecido";
-    return m.nome || m.Nome || m.nome_completo || m.nome_membro || "Sem Nome";
-  };
+  // Estados do Multi-tenancy Hierárquico
+  const [ehSede, setEhSede] = useState(false);
+  const [nomeSedeOficial, setNomeSedeOficial] = useState("Sede");
+  const [congregacaoUsuario, setCongregacaoUsuario] = useState("");
 
-  const obterCongregacaoMembro = (m: any) => {
-    if (!m) return "Geral";
-    return m.congregacao || m.Congregacao || "Geral";
-  };
-
-  // 2. EFFECT PRINCIPAL COM A TRAVA DE ROTA DE EDIÇÃO
+  // 2. EFFECT PRINCIPAL COM A TRAVA HIERÁRQUICA E ROTA DE EDIÇÃO
   useEffect(() => {
     const usuarioLocal = localStorage.getItem("usuarioLogado");
     if (!usuarioLocal) {
@@ -50,11 +45,11 @@ export default function DizimistasPage() {
     // ==================================================
     if (!podeEditar(perfisLogado, 'tesouraria')) {
       router.push("/");
-      return; // Interrompe a execução
+      return; 
     }
     // ==================================================
 
-    const igrejaId = usuario.igreja_id;
+    const igrejaId = usuario.igreja_id || usuario.id_igreja || usuario.idIgreja;
     setIgrejaIdLogada(igrejaId);
 
     async function carregarDados(idIgreja: string) {
@@ -62,63 +57,76 @@ export default function DizimistasPage() {
       setErroBanco(null);
       
       try {
-        // 1. Busca a lista oficial de congregações (Sede + Filhas)
+        // 1. Busca o nome da Igreja Mãe (Sede)
         const { data: config } = await supabase
           .from("configuracao_igreja")
           .select("nome_igreja")
           .eq("igreja_id", idIgreja)
           .maybeSingle();
 
-        const nomeSede = config?.nome_igreja || "Sede Principal";
+        const nomeSede = config?.nome_igreja?.trim() || "Sede Principal";
+        setNomeSedeOficial(nomeSede);
 
-        const { data: filhas } = await supabase
-          .from("igrejas_filhas")
-          .select("nome")
-          .eq("igreja_id", idIgreja)
-          .order("nome", { ascending: true });
+        // 2. Analisa quem é o usuário logado e sua hierarquia
+        const congUser = usuario?.congregacao?.trim() || "";
+        setCongregacaoUsuario(congUser);
+        
+        const congLow = congUser.toLowerCase();
+        const isUserSede = !congLow || congLow === "sede" || congLow === "matriz" || congLow === "geral" || congLow === nomeSede.toLowerCase();
+        
+        setEhSede(isUserSede);
 
-        const nomesFilhas = filhas ? filhas.map(f => f.nome) : [];
-        setCongregacoes([nomeSede, ...nomesFilhas]);
+        // 3. Monta a lista oficial de congregações permitidas para o usuário
+        if (isUserSede) {
+          const { data: filhas } = await supabase
+            .from("igrejas_filhas")
+            .select("nome")
+            .eq("igreja_id", idIgreja)
+            .order("nome", { ascending: true });
 
-        // 2. Busca o restante dos dados
-        const { data: dadosMembros, error: errMembros } = await supabase
-          .from("membros")
-          .select("*")
-          .eq("igreja_id", idIgreja);
+          const nomesFilhas = filhas ? filhas.map(f => f.nome) : [];
+          setCongregacoes([nomeSede, ...nomesFilhas]);
+        } else {
+          setCongregacoes([congUser]);
+          setCongregacaoFiltro(congUser); // Trava o filtro analítico na filial dele
+          setCongregacaoForm(congUser); // Trava o formulário de cadastro na filial dele
+        }
 
-        if (errMembros) throw new Error(`Erro ao buscar membros: ${errMembros.message}`);
+        // 4. Busca o restante dos dados com Travas Inteligentes
+        let queryMembros = supabase.from("membros").select("*").eq("igreja_id", idIgreja);
+        let queryLancamentos = supabase.from("tesouraria_lancamentos").select("*").eq("igreja_id", idIgreja);
+        
+        if (!isUserSede) {
+          queryMembros = queryMembros.eq("congregacao", congUser);
+          queryLancamentos = queryLancamentos.eq("congregacao", congUser);
+        }
 
-        const { data: dadosLancamentos, error: errLancamentos } = await supabase
-          .from("tesouraria_lancamentos")
-          .select("*")
-          .eq("igreja_id", idIgreja);
+        const [resMembros, resLancamentos, resDizimistas] = await Promise.all([
+          queryMembros,
+          queryLancamentos,
+          supabase.from("tesouraria_dizimistas").select("*").eq("igreja_id", idIgreja)
+        ]);
 
-        if (errLancamentos) throw new Error(`Erro ao buscar lançamentos: ${errLancamentos.message}`);
+        if (resMembros.error) throw new Error(`Erro ao buscar membros: ${resMembros.error.message}`);
+        if (resLancamentos.error) throw new Error(`Erro ao buscar lançamentos: ${resLancamentos.error.message}`);
+        if (resDizimistas.error) throw new Error(`Erro nos dizimistas: ${resDizimistas.error.message}`);
 
-        const { data: dadosDizimistas, error: errDizimistas } = await supabase
-          .from("tesouraria_dizimistas")
-          .select("*")
-          .eq("igreja_id", idIgreja);
+        if (resMembros.data) {
+          resMembros.data.sort((a, b) => obterNomeMembro(a).localeCompare(obterNomeMembro(b)));
+          setMembros(resMembros.data);
 
-        if (errDizimistas) throw new Error(`Erro nos dizimistas: ${errDizimistas.message}`);
+          if (resDizimistas.data) {
+            // Relaciona e elimina "órfãos" caso a filial não tenha permissão de ver o membro da Sede
+            const dizimistasUnidos = resDizimistas.data.map((d: any) => {
+              const dadosDoMembro = resMembros.data.find(m => String(m.id) === String(d.membro_id));
+              return { ...d, membros: dadosDoMembro || null };
+            }).filter(d => d.membros !== null);
 
-        if (dadosMembros) {
-          dadosMembros.sort((a, b) => obterNomeMembro(a).localeCompare(obterNomeMembro(b)));
-          setMembros(dadosMembros);
-
-          if (dadosDizimistas) {
-            const dizimistasUnidos = dadosDizimistas.map((d: any) => {
-              const dadosDoMembro = dadosMembros.find(m => String(m.id) === String(d.membro_id));
-              return {
-                ...d,
-                membros: dadosDoMembro || null
-              };
-            });
             setDizimistas(dizimistasUnidos);
           }
         }
 
-        if (dadosLancamentos) setLancamentos(dadosLancamentos);
+        if (resLancamentos.data) setLancamentos(resLancamentos.data);
 
       } catch (error: any) {
         setErroBanco(error.message);
@@ -127,34 +135,44 @@ export default function DizimistasPage() {
       }
     }
 
-    carregarDados(igrejaId);
+    if (igrejaId) carregarDados(igrejaId);
   }, [router]);
 
-  // Função extra de recarga manual usada no caso de erro ou após salvar
+  // Função extra de recarga manual (Mantendo a Trava Hierárquica)
   async function recarregarDadosManualmente() {
     if (!igrejaIdLogada) return;
     setCarregando(true);
     setErroBanco(null);
     
     try {
-      const { data: dadosMembros } = await supabase.from("membros").select("*").eq("igreja_id", igrejaIdLogada);
-      const { data: dadosLancamentos } = await supabase.from("tesouraria_lancamentos").select("*").eq("igreja_id", igrejaIdLogada);
-      const { data: dadosDizimistas } = await supabase.from("tesouraria_dizimistas").select("*").eq("igreja_id", igrejaIdLogada);
+      let queryMembros = supabase.from("membros").select("*").eq("igreja_id", igrejaIdLogada);
+      let queryLancamentos = supabase.from("tesouraria_lancamentos").select("*").eq("igreja_id", igrejaIdLogada);
+      
+      if (!ehSede) {
+        queryMembros = queryMembros.eq("congregacao", congregacaoUsuario);
+        queryLancamentos = queryLancamentos.eq("congregacao", congregacaoUsuario);
+      }
 
-      if (dadosMembros) {
-        dadosMembros.sort((a, b) => obterNomeMembro(a).localeCompare(obterNomeMembro(b)));
-        setMembros(dadosMembros);
+      const [resMembros, resLancamentos, resDizimistas] = await Promise.all([
+        queryMembros,
+        queryLancamentos,
+        supabase.from("tesouraria_dizimistas").select("*").eq("igreja_id", igrejaIdLogada)
+      ]);
 
-        if (dadosDizimistas) {
-          const dizimistasUnidos = dadosDizimistas.map((d: any) => ({
+      if (resMembros.data) {
+        resMembros.data.sort((a, b) => obterNomeMembro(a).localeCompare(obterNomeMembro(b)));
+        setMembros(resMembros.data);
+
+        if (resDizimistas.data) {
+          const dizimistasUnidos = resDizimistas.data.map((d: any) => ({
             ...d,
-            membros: dadosMembros.find(m => String(m.id) === String(d.membro_id)) || null
-          }));
+            membros: resMembros.data.find(m => String(m.id) === String(d.membro_id)) || null
+          })).filter(d => d.membros !== null);
           setDizimistas(dizimistasUnidos);
         }
       }
 
-      if (dadosLancamentos) setLancamentos(dadosLancamentos);
+      if (resLancamentos.data) setLancamentos(resLancamentos.data);
     } catch (error: any) {
       setErroBanco(error.message);
     } finally {
@@ -162,7 +180,25 @@ export default function DizimistasPage() {
     }
   }
 
-  // 3. FUNÇÕES COMUNS
+  // 3. FUNÇÕES COMUNS DE FORMATAÇÃO E FILTRO
+  const obterNomeMembro = (m: any) => {
+    if (!m) return "Desconhecido";
+    return m.nome || m.Nome || m.nome_completo || m.nome_membro || "Sem Nome";
+  };
+
+  const normalizarSede = (c: string) => {
+    const cong = c?.trim();
+    if (!cong || cong.toLowerCase() === "sede" || cong.toLowerCase() === "matriz" || cong.toLowerCase() === "geral" || cong.toLowerCase() === nomeSedeOficial.toLowerCase()) {
+      return nomeSedeOficial;
+    }
+    return cong;
+  };
+
+  const obterCongregacaoMembro = (m: any) => {
+    if (!m) return nomeSedeOficial;
+    return normalizarSede(m.congregacao || m.Congregacao);
+  };
+
   const membrosDisponiveis = membros.filter(m => 
     !dizimistas.some(d => String(d.membro_id) === String(m.id))
   );
@@ -210,8 +246,11 @@ export default function DizimistasPage() {
     return congregacaoFiltro === "" || cong === congregacaoFiltro;
   });
 
+  // Filtra ignorando os excluídos logicamente para a média bater exato!
   const lancamentosFiltrados = lancamentos.filter((lanc) => {
-    return congregacaoFiltro === "" || lanc.congregacao === congregacaoFiltro;
+    const isAtivo = !lanc.excluido;
+    const isCongregacaoCerta = congregacaoFiltro === "" || normalizarSede(lanc.congregacao) === congregacaoFiltro;
+    return isAtivo && isCongregacaoCerta;
   });
 
   const valorTotalDizimosMes = lancamentosFiltrados.reduce((acc, l) => acc + (Number(l.dizimos) || 0), 0);
@@ -231,7 +270,7 @@ export default function DizimistasPage() {
     );
   }
 
-  if (carregando) return <div className="p-8 text-center text-gray-500 font-medium text-sm">Carregando painel de dizimistas...</div>;
+  if (carregando) return <div className="p-8 text-center text-gray-500 font-medium text-sm animate-pulse">Carregando painel de dizimistas...</div>;
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
@@ -253,11 +292,23 @@ export default function DizimistasPage() {
           <form onSubmit={salvarDizimista} className="space-y-4">
             <div>
               <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Filtrar por Congregação</label>
-              <select value={congregacaoForm} onChange={(e) => { setCongregacaoForm(e.target.value); setMembroSelecionado(""); }} className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-teal-500">
-                <option value="">Todas as Congregações</option>
-                {congregacoes.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
+              {ehSede ? (
+                <select 
+                  value={congregacaoForm} 
+                  onChange={(e) => { setCongregacaoForm(e.target.value); setMembroSelecionado(""); }} 
+                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer"
+                >
+                  <option value="">🌍 Todas as Congregações</option>
+                  <option value={nomeSedeOficial}>🏢 {nomeSedeOficial}</option>
+                  {congregacoes.filter(c => c !== nomeSedeOficial).map((c) => <option key={c} value={c}>📍 {c}</option>)}
+                </select>
+              ) : (
+                <div className="w-full px-3 py-2 bg-gray-100 border border-gray-200 rounded-lg text-sm text-gray-500 font-bold cursor-not-allowed">
+                  📍 {congregacaoUsuario}
+                </div>
+              )}
             </div>
+
             <div>
               <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Selecionar Membro</label>
               <select required value={membroSelecionado} onChange={(e) => setMembroSelecionado(e.target.value)} className="w-full px-3 py-2 bg-blue-50/50 border border-blue-100 rounded-lg text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-blue-500">
@@ -265,6 +316,7 @@ export default function DizimistasPage() {
                 {membrosFiltradosForm.map((m) => <option key={m.id} value={m.id}>{obterNomeMembro(m)}</option>)}
               </select>
             </div>
+            
             <button type="submit" disabled={salvando || membrosFiltradosForm.length === 0} className="w-full py-2.5 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-lg transition text-sm disabled:bg-gray-200 disabled:text-gray-400">
               {salvando ? "Salvando..." : "Confirmar Ativo"}
             </button>
@@ -274,10 +326,17 @@ export default function DizimistasPage() {
         {/* DASHBOARD */}
         <div className="lg:col-span-2 space-y-6">
           <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-wrap gap-3">
-            <select value={congregacaoFiltro} onChange={(e) => setCongregacaoFiltro(e.target.value)} className="px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none flex-1 font-semibold text-gray-800">
-              <option value="">Geral (Todas as Congregações)</option>
-              {congregacoes.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
+            {ehSede ? (
+              <select value={congregacaoFiltro} onChange={(e) => setCongregacaoFiltro(e.target.value)} className="px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none flex-1 font-semibold text-gray-800 cursor-pointer">
+                <option value="">🌍 Geral (Todas as Congregações)</option>
+                <option value={nomeSedeOficial}>🏢 {nomeSedeOficial} (Sede)</option>
+                {congregacoes.filter(c => c !== nomeSedeOficial).map((c) => <option key={c} value={c}>📍 {c}</option>)}
+              </select>
+            ) : (
+              <div className="px-3 py-2.5 bg-gray-100 border border-gray-200 rounded-lg text-sm flex-1 font-bold text-gray-500 cursor-not-allowed">
+                📍 {congregacaoUsuario}
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -299,7 +358,7 @@ export default function DizimistasPage() {
             <div className="overflow-x-auto max-h-80">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="bg-gray-50 border-b border-gray-100 sticky top-0">
+                  <tr className="bg-gray-50 border-b border-gray-100 sticky top-0 shadow-sm z-10">
                     <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">Nome</th>
                     <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">Congregação</th>
                     <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-center">Ação</th>
@@ -312,13 +371,13 @@ export default function DizimistasPage() {
                         <td className="px-4 py-3 text-sm font-bold text-gray-900">{obterNomeMembro(d.membros)}</td>
                         <td className="px-4 py-3 text-sm text-gray-600">{obterCongregacaoMembro(d.membros)}</td>
                         <td className="px-4 py-3 text-center">
-                          <button onClick={() => removerDizimista(d.id)} className="text-red-500 hover:text-red-700 p-1 bg-red-50 rounded text-xs font-bold">Remover</button>
+                          <button onClick={() => removerDizimista(d.id)} className="text-red-500 hover:text-red-700 p-1 bg-red-50 rounded text-xs font-bold transition">Remover</button>
                         </td>
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={3} className="px-4 py-8 text-center text-gray-400 text-sm">Nenhum dizimista ativo listado.</td>
+                      <td colSpan={3} className="px-4 py-8 text-center text-gray-400 text-sm">Nenhum dizimista ativo listado nesta congregação.</td>
                     </tr>
                   )}
                 </tbody>

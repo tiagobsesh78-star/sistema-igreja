@@ -191,8 +191,19 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const nomeParaExibir = usuario?.nome ? usuario.nome.split(" ")[0] : "Utilizador";
   const inicial = usuario?.nome ? usuario.nome.charAt(0).toUpperCase() : "U";
   
-  const perfisUsuario = formatarPerfis(usuario?.perfis);
+  const perfisUsuario = formatarPerfis(usuario?.perfis || usuario?.nivel_acesso);
   const textoPerfis = perfisUsuario.length > 0 ? perfisUsuario.join(", ") : "Membro";
+
+  // ==========================================
+  // VALIDAÇÃO INTELIGENTE DA IGREJA SEDE
+  // ==========================================
+  const congregacaoUsuario = usuario?.congregacao?.trim()?.toLowerCase() || "";
+  const isSede = 
+    !congregacaoUsuario || 
+    congregacaoUsuario === "sede" || 
+    congregacaoUsuario === "matriz" || 
+    congregacaoUsuario === "geral" || 
+    congregacaoUsuario === nomeIgreja?.trim()?.toLowerCase();
 
   // Retorno simplificado para rotas isoladas (Landing Page e Login)
   if (ehPaginaLogin || ehPaginaComercial) {
@@ -215,7 +226,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             menuAberto ? "translate-x-0" : "-translate-x-full"
           }`}
         >
-          {/* TOPO DO MENU: LOGO PERSONALIZADA (SEM DISTORÇÃO) */}
+          {/* TOPO DO MENU: LOGO PERSONALIZADA */}
           <div className="flex items-center justify-between p-4 border-b border-gray-800 h-16">
             <div className="flex-1 flex justify-center items-center pl-2">
               <Link href="/" onClick={fecharMenu} className="hover:opacity-80 transition-opacity block">
@@ -260,7 +271,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
             <Link href="/visitantes" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/visitantes') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Visitantes</Link>
             
-            {(perfisUsuario.includes('Secretário') || perfisUsuario.includes('Pastor/Presbítero')) && (
+            {/* TRAVA HIERÁRQUICA INTELIGENTE APLICADA AQUI */}
+            {(perfisUsuario.includes('Secretário') || perfisUsuario.includes('Pastor/Presbítero') || perfisUsuario.includes('Administrador')) && isSede && (
               <Link href="/configuracoes" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname === '/configuracoes' ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Configurações</Link>
             )}
           </nav>
@@ -271,7 +283,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* ÁREA DO CONTEÚDO PRINCIPAL */}
         <div className={`flex flex-col min-h-screen transition-all duration-300 ease-in-out ${menuAberto ? "md:ml-64" : "ml-0"} print:ml-0`}>
           
-          {/* BARRA SUPERIOR: APENAS O NOME DA IGREJA SEM ÍCONE */}
+          {/* BARRA SUPERIOR */}
           <header className="bg-black text-white h-16 flex items-center px-4 md:px-8 justify-between shadow-md z-30 sticky top-0 print:hidden">
             <div className="flex items-center gap-4 overflow-hidden mr-2">
               <button onClick={() => setMenuAberto(!menuAberto)} className="text-white hover:text-blue-400 focus:outline-none transition-colors shrink-0">

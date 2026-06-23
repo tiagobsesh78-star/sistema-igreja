@@ -24,7 +24,12 @@ export default function NovoLancamento() {
   const [mostrarModalSucesso, setMostrarModalSucesso] = useState(false);
   const [igrejaIdLogada, setIgrejaIdLogada] = useState<string | null>(null);
 
-  // 2. EFFECT PRINCIPAL COM A TRAVA DE ROTA (SEGURANÇA TOTAL)
+  // Estados do Multi-tenancy Hierárquico
+  const [ehSede, setEhSede] = useState(false);
+  const [nomeSedeOficial, setNomeSedeOficial] = useState("Sede");
+  const [congregacaoUsuario, setCongregacaoUsuario] = useState("");
+
+  // 2. EFFECT PRINCIPAL COM A TRAVA DE ROTA E HIERARQUIA
   useEffect(() => {
     const hoje = new Date().toISOString().split("T")[0];
     setDataLancamento(hoje);
@@ -43,14 +48,14 @@ export default function NovoLancamento() {
     // ==================================================
     if (!podeEditar(perfisLogado, 'tesouraria')) {
       router.push("/");
-      return; // Interrompe a execução
+      return; 
     }
     // ==================================================
 
-    const igrejaId = usuario.igreja_id;
+    const igrejaId = usuario.igreja_id || usuario.id_igreja || usuario.idIgreja;
     setIgrejaIdLogada(igrejaId);
 
-    // Nova função inteligente de busca de Congregações
+    // Função inteligente de busca e trava de Congregações
     async function buscarListaCongregacoes(idIgreja: string) {
       try {
         // 1. Busca o nome da Igreja Mãe (Sede)
@@ -60,22 +65,37 @@ export default function NovoLancamento() {
           .eq("igreja_id", idIgreja)
           .maybeSingle();
 
-        const nomeSede = config?.nome_igreja || "Sede Principal";
+        const nomeSede = config?.nome_igreja?.trim() || "Sede Principal";
+        setNomeSedeOficial(nomeSede);
 
-        // 2. Busca as Igrejas Filhas em ordem alfabética
-        const { data: filhas } = await supabase
-          .from("igrejas_filhas")
-          .select("nome")
-          .eq("igreja_id", idIgreja)
-          .order("nome", { ascending: true });
+        // 2. Analisa a hierarquia do usuário logado
+        const congUser = usuario?.congregacao?.trim() || "";
+        setCongregacaoUsuario(congUser);
+        
+        const congLow = congUser.toLowerCase();
+        const isUserSede = !congLow || congLow === "sede" || congLow === "matriz" || congLow === "geral" || congLow === nomeSede.toLowerCase();
+        
+        setEhSede(isUserSede);
 
-        const nomesFilhas = filhas ? filhas.map(f => f.nome) : [];
+        // 3. Monta a lista permitida com base no perfil
+        if (isUserSede) {
+          const { data: filhas } = await supabase
+            .from("igrejas_filhas")
+            .select("nome")
+            .eq("igreja_id", idIgreja)
+            .order("nome", { ascending: true });
 
-        // 3. Monta a lista final e salva no state
-        setListaCongregacoes([nomeSede, ...nomesFilhas]);
+          const nomesFilhas = filhas ? filhas.map(f => f.nome) : [];
+          setListaCongregacoes([nomeSede, ...nomesFilhas]);
+        } else {
+          // Filial só vê a própria filial e o select já vem preenchido
+          setListaCongregacoes([congUser]);
+          setCongregacao(congUser);
+        }
+
       } catch (error) {
         console.error("Erro ao buscar congregações:", error);
-        setListaCongregacoes(["Sede Principal"]); // Fallback em caso de erro
+        setListaCongregacoes(["Sede Principal"]); 
       } finally {
         setCarregandoCongregacoes(false);
       }
@@ -96,7 +116,11 @@ export default function NovoLancamento() {
 
   const salvarLancamento = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!congregacao) {
+
+    // Validação extra de segurança: Se for sede, exige seleção. Se for filial, pega a própria.
+    const congregacaoFinal = ehSede ? congregacao : congregacaoUsuario;
+
+    if (!congregacaoFinal) {
       alert("Por favor, selecione a congregação deste trabalho.");
       return;
     }
@@ -112,7 +136,7 @@ export default function NovoLancamento() {
       igreja_id: igrejaIdLogada,
       data: dataLancamento,
       tipo_trabalho: tipoTrabalho,
-      congregacao: congregacao,
+      congregacao: congregacaoFinal, // Valor Injetado com Segurança Absoluta
       ofertas: valorOfertas,
       dizimos: valorDizimos,
       oferta_especial: valorEspecial,
@@ -186,27 +210,36 @@ export default function NovoLancamento() {
                 />
               </div>
 
-              {/* SELETOR ATUALIZADO: IGREJA SEDE E FILHAS */}
+              {/* SELETOR HIERÁRQUICO INTELIGENTE DA CONGREGAÇÃO */}
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-1">Congregação Responsável *</label>
-                <select 
-                  required
-                  value={congregacao}
-                  onChange={(e) => setCongregacao(e.target.value)}
-                  disabled={carregandoCongregacoes}
-                  className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm text-gray-900 font-bold cursor-pointer disabled:opacity-60"
-                >
-                  {carregandoCongregacoes ? (
-                    <option value="">Buscando congregações...</option>
-                  ) : (
-                    <>
-                      <option value="" disabled>Selecione a Congregação</option>
-                      {listaCongregacoes.map((c) => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </>
-                  )}
-                </select>
+                {ehSede ? (
+                  <select 
+                    required
+                    value={congregacao}
+                    onChange={(e) => setCongregacao(e.target.value)}
+                    disabled={carregandoCongregacoes}
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm text-gray-900 font-bold cursor-pointer disabled:opacity-60"
+                  >
+                    {carregandoCongregacoes ? (
+                      <option value="">Buscando congregações...</option>
+                    ) : (
+                      <>
+                        <option value="" disabled>Selecione a Congregação</option>
+                        {listaCongregacoes.map((c) => (
+                          <option key={c} value={c}>{c === nomeSedeOficial ? `🏢 ${c} (Sede)` : `📍 ${c}`}</option>
+                        ))}
+                      </>
+                    )}
+                  </select>
+                ) : (
+                  <select 
+                    disabled
+                    className="w-full px-4 py-2.5 bg-gray-100 border border-gray-200 rounded-lg outline-none text-sm text-gray-500 font-bold cursor-not-allowed"
+                  >
+                    <option value={congregacaoUsuario}>📍 {congregacaoUsuario}</option>
+                  </select>
+                )}
               </div>
               
               <div>

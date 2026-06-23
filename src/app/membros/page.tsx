@@ -27,12 +27,14 @@ export default function MembrosPage() {
   const [carregando, setCarregando] = useState(true);
   const [perfisUsuario, setPerfisUsuario] = useState<string[]>([]);
   
-  // Estado para controlar se o usuário logado tem permissão total na lista
+  // Estados de Controle de Acesso e Multi-tenancy
   const [temAcessoTotal, setTemAcessoTotal] = useState(false);
+  const [ehSede, setEhSede] = useState(false);
+  const [nomeSedeOficial, setNomeSedeOficial] = useState("Sede");
   
   const [busca, setBusca] = useState("");
   const [cargoFiltro, setCargoFiltro] = useState("");
-  const [congregacaoFiltro, setCongregacaoFiltro] = useState("");
+  const [congregacaoFiltro, setCongregacaoFiltro] = useState(""); // Deixamos vazio por padrão para carregar "Todas" na listagem
   
   const [ordemColuna, setOrdemColuna] = useState("nome_completo");
   const [ordemDirecao, setOrdemDirecao] = useState<"asc" | "desc">("asc");
@@ -57,28 +59,65 @@ export default function MembrosPage() {
     const perfisTratados = formatarPerfis(usuario.perfis || usuario.nivel_acesso);
     setPerfisUsuario(perfisTratados);
 
-    // REGRA FORTE: Apenas Secretário, Pastor/Presbítero ou Admin veem a lista completa
+    // REGRA FORTE: Apenas Secretário, Pastor/Presbítero ou Admin veem a lista
     const isAdmin = perfisTratados.includes("Secretário") || 
                     perfisTratados.includes("Pastor/Presbítero") || 
                     perfisTratados.includes("Administrador");
     
     setTemAcessoTotal(isAdmin);
 
-    let query = supabase
-      .from("membros")
-      .select("*")
-      .eq("igreja_id", usuario.igreja_id); // TRAVA MULTI-TENANT
+    try {
+      // 1. Busca o nome oficial da Igreja nas configurações para inteligência de Sede
+      const { data: resConfig } = await supabase
+        .from("configuracao_igreja")
+        .select("nome_igreja")
+        .eq("igreja_id", usuario.igreja_id)
+        .maybeSingle();
 
-    // SE NÃO FOR PASTOR OU SECRETÁRIO, BUSCA APENAS O SEU PRÓPRIO CADASTRO
-    if (!isAdmin) {
-      query = query.eq("id", usuario.id);
+      const nomeOficial = resConfig?.nome_igreja?.trim() || "Sede";
+      setNomeSedeOficial(nomeOficial);
+
+      // 2. Descobre se o usuário logado é da Sede
+      const congUsuario = usuario.congregacao?.trim() || "";
+      const congLow = congUsuario.toLowerCase();
+      const isUserSede = !congLow || congLow === "sede" || congLow === "matriz" || congLow === "geral" || congLow === nomeOficial.toLowerCase();
+      
+      setEhSede(isUserSede);
+
+      // 3. Constrói a Query no Supabase aplicando as travas
+      let query = supabase
+        .from("membros")
+        .select("*")
+        .eq("igreja_id", usuario.igreja_id); // TRAVA DE SEGURANÇA GERAL
+
+      if (!isAdmin) {
+        // Se for membro comum, SÓ VÊ ELE MESMO
+        query = query.eq("id", usuario.id);
+      } else if (!isUserSede) {
+        // Se for Pastor/Líder de FILIAL, trava a consulta na filial dele
+        query = query.eq("congregacao", congUsuario);
+      }
+
+      const { data, error } = await query;
+
+      if (!error && data) {
+        setMembros(data);
+      }
+    } catch (error) {
+      console.error("Erro ao buscar membros:", error);
+    } finally {
+      setCarregando(false);
     }
-
-    const { data, error } = await query;
-
-    if (!error && data) setMembros(data);
-    setCarregando(false);
   }
+
+  // Função interna para normalizar de quem é o dado no Filtro da Tela
+  const normalizarCongregacao = (c: string) => {
+    const cong = c?.trim();
+    if (!cong || cong.toLowerCase() === "sede" || cong.toLowerCase() === "matriz" || cong.toLowerCase() === "geral" || cong.toLowerCase() === nomeSedeOficial.toLowerCase()) {
+      return "Sede";
+    }
+    return cong;
+  };
 
   const membrosFiltrados = membros.filter((m) => {
     const nome = m.nome_completo || "";
@@ -90,7 +129,8 @@ export default function MembrosPage() {
         ? cargosEquivalentes[cargoFiltro].includes(m.cargo) 
         : m.cargo === cargoFiltro);
         
-    const matchCongregacao = congregacaoFiltro === "" || m.congregacao === congregacaoFiltro;
+    // Nova Lógica de Filtro: "Todas" vs "Sede" vs "Filiais"
+    const matchCongregacao = congregacaoFiltro === "" || normalizarCongregacao(m.congregacao) === congregacaoFiltro;
     
     return matchBusca && matchCargo && matchCongregacao;
   });
@@ -111,7 +151,10 @@ export default function MembrosPage() {
     new Set(membros.map(m => paraMasculino[m.cargo] || m.cargo).filter(Boolean))
   ).sort();
   
-  const congregacoesUnicas = Array.from(new Set(membros.map(m => m.congregacao).filter(Boolean))).sort();
+  // Extrai apenas as Filiais verdadeiras (ignora as que são sede)
+  const filiaisUnicas = Array.from(
+    new Set(membros.map(m => normalizarCongregacao(m.congregacao)).filter(c => c !== "Sede"))
+  ).sort();
 
   const handleSort = (coluna: string) => {
     if (ordemColuna === coluna) {
@@ -206,16 +249,20 @@ export default function MembrosPage() {
               ))}
             </select>
 
-            <select 
-              value={congregacaoFiltro}
-              onChange={(e) => setCongregacaoFiltro(e.target.value)}
-              className="w-full md:w-auto md:min-w-[180px] flex-shrink-0 px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-md outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 focus:bg-white transition text-sm text-gray-700 cursor-pointer"
-            >
-              <option value="">Todas Congregações</option>
-              {congregacoesUnicas.map((c, i) => (
-                <option key={i} value={c}>{c}</option>
-              ))}
-            </select>
+            {/* FILTRO HIERÁRQUICO DE CONGREGAÇÃO: Aparece APENAS para a Sede */}
+            {ehSede && filiaisUnicas.length > 0 && (
+              <select 
+                value={congregacaoFiltro}
+                onChange={(e) => setCongregacaoFiltro(e.target.value)}
+                className="w-full md:w-auto md:min-w-[180px] flex-shrink-0 px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-md outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 focus:bg-white transition text-sm text-gray-700 cursor-pointer truncate"
+              >
+                <option value="">🌍 Todas Congregações</option>
+                <option value="Sede">🏢 {nomeSedeOficial}</option>
+                {filiaisUnicas.map((c, i) => (
+                  <option key={i} value={c}>📍 {c}</option>
+                ))}
+              </select>
+            )}
           </div>
         )}
 
@@ -294,13 +341,13 @@ export default function MembrosPage() {
                       </div>
                       <div className="flex flex-col">
                         <span className="font-semibold text-gray-900">{membro.nome_completo}</span>
-                        <span className="text-xs text-gray-500 md:hidden">{membro.congregacao || "Sem Congregação"}</span>
+                        <span className="text-xs text-gray-500 md:hidden">{membro.congregacao || "Sede"}</span>
                       </div>
                     </div>
                   </td>
                   <td className="py-4 px-4 text-gray-700 font-medium">
                     {membro.cargo || "-"}
-                    <div className="text-xs text-gray-500 hidden md:block font-normal">{membro.congregacao || ""}</div>
+                    <div className="text-xs text-gray-500 hidden md:block font-normal">{membro.congregacao || "Sede"}</div>
                   </td>
                   <td className="py-4 px-4 hidden md:table-cell text-gray-500">{membro.telefone || "-"}</td>
                   <td className="py-4 px-4 text-center">

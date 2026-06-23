@@ -14,9 +14,14 @@ export default function TesourariaPage() {
   const [carregando, setCarregando] = useState(true);
   const [perfisUsuario, setPerfisUsuario] = useState<string[]>([]); 
 
+  // Estados do Multi-tenancy Hierárquico
+  const [ehSede, setEhSede] = useState(false);
+  const [nomeSedeOficial, setNomeSedeOficial] = useState("Sede");
+  const [congregacaoUsuario, setCongregacaoUsuario] = useState("");
+
   const [configIgreja, setConfigIgreja] = useState<any>(null);
   const [congregacoes, setCongregacoes] = useState<string[]>([]);
-  const [congregacaoSelecionada, setCongregacaoSelecionada] = useState("");
+  const [congregacaoSelecionada, setCongregacaoSelecionada] = useState(""); // "" = Todas
   const [configuracoesGlobais, setConfiguracoesGlobais] = useState<any[]>([]);
   const [totalDizimistasGeral, setTotalDizimistasGeral] = useState<any[]>([]);
 
@@ -42,12 +47,7 @@ export default function TesourariaPage() {
   ];
   const opcoesTipos = ["Culto", "EBD", "Consagração", "Círculo de oração", "Outros"];
 
-  const obterCongregacaoMembro = (m: any) => {
-    if (!m) return "Geral";
-    return m.congregacao || m.Congregacao || "Geral";
-  };
-
-  // 2. EFFECT PRINCIPAL COM A TRAVA DE ROTA (SEGURANÇA TOTAL)
+  // 2. EFFECT PRINCIPAL COM A TRAVA DE ROTA E MULTI-TENANCY HIERÁRQUICO
   useEffect(() => {
     async function carregarDados() {
       const usuarioLocal = localStorage.getItem("usuarioLogado");
@@ -68,48 +68,80 @@ export default function TesourariaPage() {
       // ==================================================
 
       setPerfisUsuario(perfisLogado);
-      const igrejaId = usuario.igreja_id;
+      const igrejaId = usuario.igreja_id || usuario.id_igreja || usuario.idIgreja;
 
-      // 1. Busca os dados da Igreja Sede
-      const { data: dadosIgreja } = await supabase.from("configuracao_igreja").select("*").eq("igreja_id", igrejaId).limit(1).maybeSingle();
-      if (dadosIgreja) setConfigIgreja(dadosIgreja);
-
-      const nomeSede = dadosIgreja?.nome_igreja || "Sede Principal";
-
-      // 2. Busca as Igrejas Filhas para montar o filtro oficial
-      const { data: filhas } = await supabase
-        .from("igrejas_filhas")
-        .select("nome")
-        .eq("igreja_id", igrejaId)
-        .order("nome", { ascending: true });
-
-      const nomesFilhas = filhas ? filhas.map(f => f.nome) : [];
-      setCongregacoes([nomeSede, ...nomesFilhas]);
-
-      // 3. Busca membros apenas para cálculo e vínculo de dizimistas (não mais para gerar a lista de congregações)
-      const { data: dadosMembros } = await supabase.from("membros").select("*").eq("igreja_id", igrejaId);
-
-      const { data: configs } = await supabase.from("tesouraria_configuracoes").select("*").eq("igreja_id", igrejaId);
-      if (configs) setConfiguracoesGlobais(configs);
-
-      const { data: dadosDizimistas } = await supabase.from("tesouraria_dizimistas").select("*").eq("igreja_id", igrejaId);
-      if (dadosDizimistas && dadosMembros) {
-        const unidos = dadosDizimistas.map(d => ({
-          ...d,
-          membros: dadosMembros.find(m => String(m.id) === String(d.membro_id)) || null
-        }));
-        setTotalDizimistasGeral(unidos);
+      if (!igrejaId) {
+        setCarregando(false);
+        return;
       }
 
-      const { data: dadosLancamentos, error } = await supabase.from("tesouraria_lancamentos").select("*").eq("igreja_id", igrejaId).order("data", { ascending: false });
-      if (!error && dadosLancamentos) {
-        setLancamentos(dadosLancamentos);
-        const anosNoBanco = dadosLancamentos.map(l => l.data.split("-")[0]);
-        const anosUnicos = Array.from(new Set([...anosNoBanco, String(new Date().getFullYear())])).sort();
-        setOpcoesAnos(anosUnicos);
+      try {
+        // 1. Busca os dados da Igreja Sede para referências globais
+        const { data: dadosIgreja } = await supabase.from("configuracao_igreja").select("*").eq("igreja_id", igrejaId).limit(1).maybeSingle();
+        if (dadosIgreja) setConfigIgreja(dadosIgreja);
+
+        const nomeSede = dadosIgreja?.nome_igreja?.trim() || "Sede Principal";
+        setNomeSedeOficial(nomeSede);
+
+        // 2. Validação Inteligente: Identifica se o usuário é da Sede ou Filial
+        const congUser = usuario?.congregacao?.trim() || "";
+        setCongregacaoUsuario(congUser);
+        
+        const congLow = congUser.toLowerCase();
+        const isUserSede = !congLow || congLow === "sede" || congLow === "matriz" || congLow === "geral" || congLow === nomeSede.toLowerCase();
+        
+        setEhSede(isUserSede);
+
+        if (!isUserSede) {
+          setCongregacaoSelecionada(congUser);
+        }
+
+        // 3. Monta as Consultas Base com Travas de Segurança (Se for Filial, trava a Query inteira nela)
+        let queryMembros = supabase.from("membros").select("*").eq("igreja_id", igrejaId);
+        let queryLancamentos = supabase.from("tesouraria_lancamentos").select("*").eq("igreja_id", igrejaId).order("data", { ascending: false });
+
+        if (!isUserSede) {
+          queryMembros = queryMembros.eq("congregacao", congUser);
+          queryLancamentos = queryLancamentos.eq("congregacao", congUser);
+        }
+
+        // 4. Executa as buscas em paralelo
+        const [resMembros, resLancamentos, resConfigs, resDizimistas, resFilhas] = await Promise.all([
+          queryMembros,
+          queryLancamentos,
+          supabase.from("tesouraria_configuracoes").select("*").eq("igreja_id", igrejaId),
+          supabase.from("tesouraria_dizimistas").select("*").eq("igreja_id", igrejaId),
+          supabase.from("igrejas_filhas").select("nome").eq("igreja_id", igrejaId).order("nome", { ascending: true })
+        ]);
+
+        // Carrega Lista de Congregações para Filtro
+        if (isUserSede) {
+          const nomesFilhas = resFilhas.data ? resFilhas.data.map(f => f.nome) : [];
+          setCongregacoes([nomeSede, ...nomesFilhas]);
+        }
+
+        if (resConfigs.data) setConfiguracoesGlobais(resConfigs.data);
+
+        // Relaciona os dizimistas com a tabela membros já filtrada pela segurança
+        if (resDizimistas.data && resMembros.data) {
+          const unidos = resDizimistas.data.map(d => ({
+            ...d,
+            membros: resMembros.data.find(m => String(m.id) === String(d.membro_id)) || null
+          })).filter(d => d.membros !== null); // Remove "órfãos" que não passaram na trava de segurança de filial
+          setTotalDizimistasGeral(unidos);
+        }
+
+        if (resLancamentos.data) {
+          setLancamentos(resLancamentos.data);
+          const anosNoBanco = resLancamentos.data.map(l => l.data.split("-")[0]);
+          const anosUnicos = Array.from(new Set([...anosNoBanco, String(new Date().getFullYear())])).sort();
+          setOpcoesAnos(anosUnicos);
+        }
+      } catch (err) {
+        console.error("Erro ao carregar tesouraria:", err);
+      } finally {
+        setCarregando(false);
       }
-      
-      setCarregando(false);
     }
     
     carregarDados();
@@ -119,6 +151,20 @@ export default function TesourariaPage() {
   const toggleFiltro = (lista: string[], setLista: any, valor: string) => {
     if (lista.includes(valor)) setLista(lista.filter((v) => v !== valor));
     else setLista([...lista, valor]);
+  };
+
+  // Normalizador Universal de Congregação (Equipara nomenclaturas perdidas à Sede Oficial)
+  const normalizarSede = (c: string) => {
+    const cong = c?.trim();
+    if (!cong || cong.toLowerCase() === "sede" || cong.toLowerCase() === "matriz" || cong.toLowerCase() === "geral" || cong.toLowerCase() === nomeSedeOficial.toLowerCase()) {
+      return nomeSedeOficial;
+    }
+    return cong;
+  };
+
+  const obterCongregacaoMembro = (m: any) => {
+    if (!m) return nomeSedeOficial;
+    return normalizarSede(m.congregacao || m.Congregacao);
   };
 
   // Função para efetivar a exclusão lógica no Supabase
@@ -137,7 +183,6 @@ export default function TesourariaPage() {
     if (error) {
       alert("Erro ao excluir lançamento: " + error.message);
     } else {
-      // Atualiza o estado local imediatamente sem precisar recarregar a página inteira
       setLancamentos(prev =>
         prev.map(l => l.id === lancamentoParaExcluir.id ? { ...l, excluido: true, justificativa_exclusao: justificativa.trim() } : l)
       );
@@ -151,7 +196,7 @@ export default function TesourariaPage() {
   const lancamentosFiltrados = lancamentos.filter((lanc) => {
     if (!lanc.data) return false;
     const [ano, mes] = lanc.data.split("-");
-    const matchCongregacao = congregacaoSelecionada === "" || lanc.congregacao === congregacaoSelecionada;
+    const matchCongregacao = congregacaoSelecionada === "" || normalizarSede(lanc.congregacao) === congregacaoSelecionada;
     const matchMes = mesesSelecionados.length === 0 || mesesSelecionados.includes(mes);
     const matchAno = anosSelecionados.length === 0 || anosSelecionados.includes(ano);
     const matchTipo = tiposSelecionados.length === 0 || tiposSelecionados.includes(lanc.tipo_trabalho);
@@ -189,7 +234,7 @@ export default function TesourariaPage() {
   };
 
   const nomeIgrejaPrincipal = configIgreja?.nome_igreja || "Igreja Principal";
-  const nomeCongregacao = congregacaoSelecionada || "Geral (Todas)";
+  const nomeCongregacao = congregacaoSelecionada || "Todas as Congregações (Geral)";
 
   const exportarPDF = () => window.print();
 
@@ -197,9 +242,8 @@ export default function TesourariaPage() {
     let csv = `Relatório Financeiro - ${nomeIgrejaPrincipal}\nCongregação: ${nomeCongregacao}\nDizimistas Ativos no Filtro: ${contagemDizimistasFiltrados}\nData de Geração: ${new Date().toLocaleDateString('pt-BR')}\n\n`;
     csv += "Data;Congregação;Trabalho;Ofertas;Dízimos;Oferta Especial;Saídas;Total\n";
     
-    // Puxa apenas os ativos no relatório Excel, conforme solicitado
     lancamentosAtivos.forEach((lanc) => {
-      csv += `${formatarData(lanc.data)};${lanc.congregacao || 'Não informada'};${lanc.tipo_trabalho};${formatarMoedaExcel(lanc.ofertas)};${formatarMoedaExcel(lanc.dizimos)};${formatarMoedaExcel(lanc.oferta_especial)};${formatarMoedaExcel(lanc.saidas)};${formatarMoedaExcel(lanc.total)}\n`;
+      csv += `${formatarData(lanc.data)};${normalizarSede(lanc.congregacao)};${lanc.tipo_trabalho};${formatarMoedaExcel(lanc.ofertas)};${formatarMoedaExcel(lanc.dizimos)};${formatarMoedaExcel(lanc.oferta_especial)};${formatarMoedaExcel(lanc.saidas)};${formatarMoedaExcel(lanc.total)}\n`;
     });
     
     csv += `\nRESUMO FINANCEIRO\n`;
@@ -262,7 +306,9 @@ export default function TesourariaPage() {
         
         {ehEditor && (
           <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-            <Link href="/tesouraria/configuracoes" className="flex-1 md:flex-none px-4 py-2 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition text-sm text-center">Configurações Globais</Link>
+           
+              <Link href="/tesouraria/configuracoes" className="flex-1 md:flex-none px-4 py-2 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition text-sm text-center">Configurações Globais</Link>
+           
             <Link href="/tesouraria/dizimistas" className="flex-1 md:flex-none px-4 py-2 bg-blue-50 text-blue-700 font-medium rounded-lg hover:bg-blue-100 transition text-sm text-center">Dizimistas</Link>
             <Link href="/tesouraria/novo" className="flex-1 md:flex-none px-4 py-2 bg-teal-600 text-white font-medium rounded-lg hover:bg-teal-700 transition shadow-sm text-sm text-center">+ Novo Lançamento</Link>
           </div>
@@ -273,13 +319,20 @@ export default function TesourariaPage() {
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between border-b border-gray-100 pb-4 gap-4">
           <div className="flex-1 w-full">
             <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Filtrar por Congregação</label>
-            <select
-              value={congregacaoSelecionada} onChange={(e) => setCongregacaoSelecionada(e.target.value)}
-              className="w-full md:w-80 px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 font-bold outline-none focus:ring-2 focus:ring-teal-500"
-            >
-              <option value="">Todas as Congregações (Geral)</option>
-              {congregacoes.map((nomeCong) => <option key={nomeCong} value={nomeCong}>{nomeCong}</option>)}
-            </select>
+            {ehSede ? (
+              <select
+                value={congregacaoSelecionada} onChange={(e) => setCongregacaoSelecionada(e.target.value)}
+                className="w-full md:w-80 px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 font-bold outline-none focus:ring-2 focus:ring-teal-500"
+              >
+                <option value="">🌍 Todas as Congregações (Geral)</option>
+                <option value={nomeSedeOficial}>🏢 {nomeSedeOficial}</option>
+                {congregacoes.filter(c => c !== nomeSedeOficial).map((nomeCong) => <option key={nomeCong} value={nomeCong}>📍 {nomeCong}</option>)}
+              </select>
+            ) : (
+              <div className="w-full md:w-80 px-4 py-2.5 bg-gray-100 border border-gray-200 rounded-lg text-sm text-gray-500 font-bold cursor-not-allowed">
+                📍 {congregacaoUsuario}
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-3 w-full md:w-auto justify-end">
@@ -361,10 +414,9 @@ export default function TesourariaPage() {
             <tbody className="divide-y divide-gray-100">
               {lancamentosFiltrados.length > 0 ? (
                 lancamentosFiltrados.map((lanc) => (
-                  /* print:hidden faz com que a linha excluída seja completamente ignorada e ocultada no relatório em PDF */
                   <tr key={lanc.id} className={`hover:bg-gray-50/50 transition ${lanc.excluido ? 'bg-red-50/30 text-gray-400 print:hidden' : ''}`}>
                     <td className={`px-6 py-4 text-sm font-medium whitespace-nowrap ${lanc.excluido ? 'line-through decoration-red-500 decoration-2 text-gray-400' : 'text-gray-700'}`}>{formatarData(lanc.data)}</td>
-                    <td className={`px-6 py-4 text-sm font-bold ${lanc.excluido ? 'line-through decoration-red-500 decoration-2 text-gray-400' : 'text-gray-900'}`}>{lanc.congregacao || "Geral"}</td>
+                    <td className={`px-6 py-4 text-sm font-bold ${lanc.excluido ? 'line-through decoration-red-500 decoration-2 text-gray-400' : 'text-gray-900'}`}>{normalizarSede(lanc.congregacao)}</td>
                     <td className="px-6 py-4 text-sm font-medium text-gray-600">
                       <span className={lanc.excluido ? 'line-through decoration-red-500 decoration-2 text-gray-400' : ''}>{lanc.tipo_trabalho}</span>
                       {lanc.excluido && lanc.justificativa_exclusao && (
