@@ -9,10 +9,19 @@ export default function ReunioesPage() {
   const router = useRouter();
 
   // 1. TODOS OS STATES NO TOPO (REGRA DO REACT)
+  const [reunioesRaw, setReunioesRaw] = useState<any[]>([]);
   const [reunioes, setReunioes] = useState<any[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [igrejaId, setIgrejaId] = useState<string | null>(null);
   const [perfisUsuario, setPerfisUsuario] = useState<string[]>([]);
+
+  // Estados de Multi-tenancy Hierárquico
+  const [ehSede, setEhSede] = useState(false);
+  const [nomeSedeOficial, setNomeSedeOficial] = useState("Sede");
+  const [congregacaoUsuario, setCongregacaoUsuario] = useState("");
+  const [filtroCongregacao, setFiltroCongregacao] = useState("Sede"); 
+  const [congregacoesDisponiveis, setCongregacoesDisponiveis] = useState<string[]>([]);
+  const [congregacaoForm, setCongregacaoForm] = useState("");
 
   const [modalAberto, setModalAberto] = useState(false);
   const [salvando, setSalvando] = useState(false);
@@ -33,7 +42,7 @@ export default function ReunioesPage() {
 
   const editorRef = useRef<HTMLDivElement>(null);
 
-  // 2. EFFECT PRINCIPAL COM A TRAVA DE ROTA (SEGURANÇA TOTAL)
+  // 2. EFFECT PRINCIPAL COM A TRAVA DE ROTA E HIERARQUIA
   useEffect(() => {
     const carregarContexto = async () => {
       try {
@@ -51,21 +60,59 @@ export default function ReunioesPage() {
         // ==================================================
         if (!podeVisualizar(perfisLogado, 'reunioes')) {
           router.push("/");
-          return; // Interrompe a execução
+          return; 
         }
         // ==================================================
 
         setPerfisUsuario(perfisLogado);
         const idIgrejaDetectado = parsedUser.igreja_id || parsedUser.id_igreja || parsedUser.idIgreja;
         
-        if (idIgrejaDetectado && idIgrejaDetectado !== "undefined" && idIgrejaDetectado !== "null") {
-          const idLimpo = String(idIgrejaDetectado).trim();
-          setIgrejaId(idLimpo);
-          buscarReunioes(idLimpo);
-        } else {
-          alert("Aviso de Sessão: Não identificamos o vínculo da Igreja. Por favor, saia do sistema e faça login novamente.");
+        if (!idIgrejaDetectado || idIgrejaDetectado === "undefined" || idIgrejaDetectado === "null") {
+          alert("Aviso de Sessão: Não identificamos o vínculo da Igreja. Faça login novamente.");
           setCarregando(false);
+          return;
         }
+
+        const idLimpo = String(idIgrejaDetectado).trim();
+        setIgrejaId(idLimpo);
+
+        // Busca Inteligente da Hierarquia
+        const { data: config } = await supabase
+          .from("configuracao_igreja")
+          .select("nome_igreja")
+          .eq("igreja_id", idLimpo)
+          .maybeSingle();
+
+        const nomeSede = config?.nome_igreja?.trim() || "Sede Principal";
+        setNomeSedeOficial(nomeSede);
+
+        const congUser = parsedUser?.congregacao?.trim() || "";
+        setCongregacaoUsuario(congUser);
+        
+        const congLow = congUser.toLowerCase();
+        const isUserSede = !congLow || congLow === "sede" || congLow === "matriz" || congLow === "geral" || congLow === nomeSede.toLowerCase();
+        
+        setEhSede(isUserSede);
+
+        if (isUserSede) {
+          const { data: filhas } = await supabase
+            .from("igrejas_filhas")
+            .select("nome")
+            .eq("igreja_id", idLimpo)
+            .order("nome", { ascending: true });
+
+          const nomesFilhas = filhas ? filhas.map(f => f.nome) : [];
+          setCongregacoesDisponiveis([nomeSede, ...nomesFilhas]);
+          
+          setFiltroCongregacao(nomeSede);
+          setCongregacaoForm(nomeSede);
+        } else {
+          setCongregacoesDisponiveis([congUser]);
+          setFiltroCongregacao(congUser);
+          setCongregacaoForm(congUser);
+        }
+
+        buscarReunioes(idLimpo, isUserSede ? null : congUser);
       } catch (error) {
         console.error("Erro ao ler dados de sessão:", error);
         setCarregando(false);
@@ -75,23 +122,39 @@ export default function ReunioesPage() {
     carregarContexto();
   }, [router]);
 
+  // Aplica o HTML do editor sempre que o modal abre
   useEffect(() => {
     if (modalAberto && editorRef.current) {
       editorRef.current.innerHTML = formData.ata_texto || "";
     }
   }, [modalAberto, formData.id, bloqueioAta]);
 
-  // 3. FUNÇÕES COMUNS
-  const buscarReunioes = async (idIgreja: string) => {
+
+  // 3. FUNÇÕES DE DADOS E FILTROS
+  const normalizarSede = (c: string) => {
+    const cong = c?.trim();
+    if (!cong || cong.toLowerCase() === "sede" || cong.toLowerCase() === "matriz" || cong.toLowerCase() === "geral" || cong.toLowerCase() === nomeSedeOficial.toLowerCase()) {
+      return nomeSedeOficial;
+    }
+    return cong;
+  };
+
+  const buscarReunioes = async (idIgreja: string, filialTravada: string | null = null) => {
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from("reunioes")
         .select("*")
         .eq("igreja_id", idIgreja) 
         .order("data_reuniao", { ascending: false });
 
+      if (filialTravada) {
+        query = query.eq("congregacao", filialTravada);
+      }
+
+      const { data, error } = await query;
       if (error) throw error;
-      setReunioes(data || []);
+      
+      setReunioesRaw(data || []);
     } catch (error) {
       console.error("Erro ao buscar listagem de reuniões:", error);
     } finally {
@@ -99,11 +162,28 @@ export default function ReunioesPage() {
     }
   };
 
+  // Filtro de Tela
+  useEffect(() => {
+    if (!reunioesRaw) return;
+    const filtradas = filtroCongregacao === "Todas"
+      ? reunioesRaw
+      : reunioesRaw.filter(r => normalizarSede(r.congregacao) === filtroCongregacao);
+    setReunioes(filtradas);
+  }, [filtroCongregacao, reunioesRaw, nomeSedeOficial]);
+
+
+  // --- SALVAMENTO E INTEGRAÇÕES ---
   const handleSalvar = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     
     if (!igrejaId || igrejaId === "undefined" || igrejaId === "null" || igrejaId.trim() === "") {
       alert("Erro de Gravação: O código identificador da igreja está inválido.");
+      return;
+    }
+
+    const congregacaoFinal = ehSede ? congregacaoForm : congregacaoUsuario;
+    if (!congregacaoFinal) {
+      alert("Por favor, selecione a congregação responsável pela reunião.");
       return;
     }
 
@@ -113,6 +193,7 @@ export default function ReunioesPage() {
 
       const dadosParaSalvar = {
         igreja_id: String(igrejaId).trim(), 
+        congregacao: congregacaoFinal, // INJEÇÃO HIERÁRQUICA SEGURA
         data_reuniao: formData.data_reuniao,
         horario_reuniao: formData.horario_reuniao, 
         tema: formData.tema,
@@ -137,11 +218,13 @@ export default function ReunioesPage() {
               await supabase.from("programacao").update({
                 titulo: `Reunião: ${formData.tema}`,
                 data: formData.data_reuniao,
-                horario: formData.horario_reuniao 
+                horario: formData.horario_reuniao,
+                congregacao: congregacaoFinal // Espelha a congregação na programação
               }).eq("reuniao_id", String(formData.id));
             } else {
               await supabase.from("programacao").insert([{
                 igreja_id: String(igrejaId).trim(),
+                congregacao: congregacaoFinal,
                 titulo: `Reunião: ${formData.tema}`,
                 descricao: "Gerado automaticamente pelo Módulo de Reuniões",
                 tipo: "Reunião",
@@ -166,6 +249,7 @@ export default function ReunioesPage() {
             const novaReuniaoId = insertedData[0].id;
             await supabase.from("programacao").insert([{
               igreja_id: String(igrejaId).trim(),
+              congregacao: congregacaoFinal,
               titulo: `Reunião: ${formData.tema}`,
               descricao: "Gerado automaticamente pelo Módulo de Reuniões",
               tipo: "Reunião",
@@ -180,7 +264,7 @@ export default function ReunioesPage() {
       }
 
       setModalAberto(false);
-      buscarReunioes(igrejaId);
+      buscarReunioes(igrejaId, ehSede ? null : congregacaoUsuario);
     } catch (error: any) {
       console.error("Erro ao salvar:", error);
       alert(`Falha ao salvar no banco de dados: ${error?.message || 'Verifique a conexão.'}`);
@@ -201,7 +285,7 @@ export default function ReunioesPage() {
         await supabase.from("programacao").delete().eq("reuniao_id", String(id)).eq("igreja_id", igrejaId);
       } catch (err) { console.error("Erro ao limpar programação:", err); }
 
-      buscarReunioes(igrejaId);
+      buscarReunioes(igrejaId, ehSede ? null : congregacaoUsuario);
     } catch (error) {
       console.error("Erro ao cancelar:", error);
       alert("Não foi possível cancelar a reunião.");
@@ -248,6 +332,7 @@ export default function ReunioesPage() {
       status: "Marcada",
       updated_at: "",
     });
+    setCongregacaoForm(ehSede ? nomeSedeOficial : congregacaoUsuario);
     setBloqueioAta(false); 
     setModalAberto(true);
   };
@@ -266,6 +351,8 @@ export default function ReunioesPage() {
       updated_at: reuniao.updated_at || reuniao.created_at || "",
     });
     
+    setCongregacaoForm(normalizarSede(reuniao.congregacao));
+
     // Se a reunião já aconteceu OU se o usuário NÃO é editor, tranca a ata inteira
     if (reuniao.status !== "Marcada" || !ehEditor) {
       setBloqueioAta(true);
@@ -274,12 +361,6 @@ export default function ReunioesPage() {
     }
     
     setModalAberto(true);
-  };
-
-  const formatarDataHora = (isoString: string) => {
-    if (!isoString) return "";
-    const data = new Date(isoString);
-    return data.toLocaleDateString('pt-BR') + ' às ' + data.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
   };
 
   const getCorStatus = (status: string) => {
@@ -292,22 +373,39 @@ export default function ReunioesPage() {
   };
 
   // 4. RETORNOS
-  if (carregando) return <div className="p-8 text-center text-gray-600 font-medium">Sincronizando Módulo de Reuniões...</div>;
+  if (carregando) return <div className="p-8 text-center text-gray-600 font-medium animate-pulse">Sincronizando Módulo de Reuniões...</div>;
 
   return (
     <div className="p-6 max-w-7xl mx-auto w-full">
-      <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
         <div>
           <h1 className="text-3xl font-bold text-gray-800">Reuniões e Atas</h1>
           <p className="text-gray-500 text-sm">Controle de pautas, atas digitadas e arquivamento de digitalizações.</p>
         </div>
         
-        {/* ESCONDE BOTÃO CADASTRAR SE NÃO FOR EDITOR */}
-        {ehEditor && (
-          <button onClick={abrirModalNovo} className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg shadow-sm font-semibold transition-all w-full md:w-auto text-sm">
-            + Agendar Reunião
-          </button>
-        )}
+        <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
+          {/* SELETOR HIERÁRQUICO DA TELA INICIAL */}
+          {ehSede && congregacoesDisponiveis.length > 0 && (
+            <select
+              value={filtroCongregacao}
+              onChange={(e) => setFiltroCongregacao(e.target.value)}
+              className="w-full sm:w-auto max-w-full truncate px-4 py-2.5 bg-indigo-50 border border-indigo-100 text-indigo-800 font-bold text-sm rounded-lg hover:border-indigo-300 focus:border-indigo-500 outline-none transition-all shadow-sm cursor-pointer"
+            >
+              <option value="Todas">🌍 Todas as Congregações</option>
+              <option value={nomeSedeOficial}>🏢 {nomeSedeOficial} (Sede)</option>
+              {congregacoesDisponiveis.filter(c => c !== nomeSedeOficial).map(c => (
+                <option key={c} value={c}>📍 {c}</option>
+              ))}
+            </select>
+          )}
+
+          {/* ESCONDE BOTÃO CADASTRAR SE NÃO FOR EDITOR */}
+          {ehEditor && (
+            <button onClick={abrirModalNovo} className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg shadow-sm font-semibold transition-all w-full md:w-auto text-sm">
+              + Agendar Reunião
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-gray-200">
@@ -316,6 +414,7 @@ export default function ReunioesPage() {
             <thead>
               <tr className="bg-gray-50 text-gray-700 uppercase text-xs font-bold tracking-wider border-b border-gray-200">
                 <th className="px-6 py-4">Data / Horário</th>
+                {filtroCongregacao === "Todas" && <th className="px-6 py-4 text-gray-500">Congregação</th>}
                 <th className="px-6 py-4">Tema / Grupo</th>
                 <th className="px-6 py-4">Status</th>
                 <th className="px-6 py-4">Documentação</th>
@@ -325,8 +424,8 @@ export default function ReunioesPage() {
             <tbody className="divide-y divide-gray-100">
               {reunioes.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-gray-400 font-medium">
-                    Nenhuma reunião registrada para esta igreja.
+                  <td colSpan={filtroCongregacao === "Todas" ? 6 : 5} className="px-6 py-12 text-center text-gray-400 font-medium">
+                    Nenhuma reunião registrada para esta congregação.
                   </td>
                 </tr>
               ) : (
@@ -336,6 +435,13 @@ export default function ReunioesPage() {
                       <div>{new Date(r.data_reuniao).toLocaleDateString("pt-BR", { timeZone: "UTC" })}</div>
                       <div className="text-xs text-gray-400 font-bold mt-0.5">{r.horario_reuniao ? r.horario_reuniao.substring(0, 5) : '--:--'}</div>
                     </td>
+                    
+                    {filtroCongregacao === "Todas" && (
+                      <td className="px-6 py-4 text-gray-500 text-sm font-medium">
+                        {normalizarSede(r.congregacao)}
+                      </td>
+                    )}
+
                     <td className="px-6 py-4 text-gray-600 font-medium">{r.tema}</td>
                     <td className="px-6 py-4">
                       <span className={`px-3 py-1 rounded-full text-xs font-bold ${getCorStatus(r.status)}`}>{r.status}</span>
@@ -389,6 +495,33 @@ export default function ReunioesPage() {
               </div>
 
               <div className="p-5 md:p-6 space-y-6">
+                
+                {/* SELETOR DE CONGREGAÇÃO NO MODAL */}
+                <div className="mb-2">
+                  <label className="block text-xs font-bold uppercase text-gray-600 mb-2">Congregação Responsável *</label>
+                  {ehSede ? (
+                    <select 
+                      required
+                      value={congregacaoForm}
+                      onChange={(e) => setCongregacaoForm(e.target.value)}
+                      disabled={bloqueioAta}
+                      className="w-full px-4 py-2.5 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm text-gray-900 font-bold cursor-pointer disabled:bg-gray-100 disabled:text-gray-500"
+                    >
+                      <option value="" disabled>Selecione a Congregação</option>
+                      {congregacoesDisponiveis.map((c) => (
+                        <option key={c} value={c}>{c === nomeSedeOficial ? `🏢 ${c} (Sede)` : `📍 ${c}`}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <select 
+                      disabled
+                      className="w-full px-4 py-2.5 bg-gray-100 border border-gray-300 rounded-lg outline-none text-sm text-gray-500 font-bold cursor-not-allowed"
+                    >
+                      <option value={congregacaoUsuario}>📍 {congregacaoUsuario}</option>
+                    </select>
+                  )}
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   <div>
                     <label className="block text-xs font-bold uppercase text-gray-600 mb-2">Data Marcada</label>
@@ -454,12 +587,12 @@ export default function ReunioesPage() {
                   
                   {!bloqueioAta && (
                     <div className="flex flex-wrap gap-2 p-2 bg-gray-100/80 border-b border-gray-300 items-center">
-                      <button onClick={() => formatarTexto("bold")} className="w-8 h-8 flex items-center justify-center bg-white border border-gray-300 rounded hover:bg-gray-200 font-bold text-sm shadow-sm transition-colors">N</button>
-                      <button onClick={() => formatarTexto("italic")} className="w-8 h-8 flex items-center justify-center bg-white border border-gray-300 rounded hover:bg-gray-200 italic text-sm shadow-sm transition-colors">I</button>
-                      <button onClick={() => formatarTexto("underline")} className="w-8 h-8 flex items-center justify-center bg-white border border-gray-300 rounded hover:bg-gray-200 underline text-sm shadow-sm transition-colors">S</button>
+                      <button type="button" onClick={() => formatarTexto("bold")} className="w-8 h-8 flex items-center justify-center bg-white border border-gray-300 rounded hover:bg-gray-200 font-bold text-sm shadow-sm transition-colors">N</button>
+                      <button type="button" onClick={() => formatarTexto("italic")} className="w-8 h-8 flex items-center justify-center bg-white border border-gray-300 rounded hover:bg-gray-200 italic text-sm shadow-sm transition-colors">I</button>
+                      <button type="button" onClick={() => formatarTexto("underline")} className="w-8 h-8 flex items-center justify-center bg-white border border-gray-300 rounded hover:bg-gray-200 underline text-sm shadow-sm transition-colors">S</button>
                       <div className="w-px h-6 bg-gray-300 mx-1"></div>
-                      <button onClick={() => formatarTexto("insertUnorderedList")} className="px-3 h-8 flex items-center justify-center bg-white border border-gray-300 rounded hover:bg-gray-200 text-xs font-medium shadow-sm transition-colors">Lista ⚪</button>
-                      <button onClick={() => formatarTexto("insertOrderedList")} className="px-3 h-8 flex items-center justify-center bg-white border border-gray-300 rounded hover:bg-gray-200 text-xs font-medium shadow-sm transition-colors">Lista 1.</button>
+                      <button type="button" onClick={() => formatarTexto("insertUnorderedList")} className="px-3 h-8 flex items-center justify-center bg-white border border-gray-300 rounded hover:bg-gray-200 text-xs font-medium shadow-sm transition-colors">Lista ⚪</button>
+                      <button type="button" onClick={() => formatarTexto("insertOrderedList")} className="px-3 h-8 flex items-center justify-center bg-white border border-gray-300 rounded hover:bg-gray-200 text-xs font-medium shadow-sm transition-colors">Lista 1.</button>
                     </div>
                   )}
 
@@ -496,9 +629,10 @@ export default function ReunioesPage() {
                   </div>
                 )}
 
+                {/* Mostrar Data da Última Edição */}
                 {formData.updated_at && (
                   <div className="text-right text-xs font-medium text-gray-400 italic">
-                    Última alteração salva em: {formatarDataHora(formData.updated_at)}
+                    Última alteração salva em: {new Date(formData.updated_at).toLocaleDateString('pt-BR')} às {new Date(formData.updated_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                   </div>
                 )}
               </div>

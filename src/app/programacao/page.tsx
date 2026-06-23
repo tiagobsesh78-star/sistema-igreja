@@ -7,6 +7,7 @@ import { podeEditar, formatarPerfis } from "../../lib/permissoes";
 interface Programacao {
   id?: number;
   igreja_id: string;
+  congregacao?: string; // Novo Campo
   titulo: string;
   descricao: string;
   tipo: "Fixa" | "Evento" | "Reunião";
@@ -16,17 +17,13 @@ interface Programacao {
   reuniao_id?: string | null;
 }
 
-// Função auxiliar que identifica links no texto e os torna clicáveis
 const renderComLinks = (texto: string) => {
   if (!texto) return null;
-  
-  // Regex para encontrar URLs (http, https ou www)
   const urlRegex = /((?:https?:\/\/|www\.)[^\s]+)/g;
   const partes = texto.split(urlRegex);
 
   return partes.map((parte, index) => {
     if (parte.match(urlRegex)) {
-      // Se começar só com www, adiciona o https:// para o navegador entender
       const href = parte.startsWith("www.") ? `https://${parte}` : parte;
       return (
         <a
@@ -35,7 +32,7 @@ const renderComLinks = (texto: string) => {
           target="_blank"
           rel="noopener noreferrer"
           className="text-blue-500 hover:text-blue-700 underline hover:no-underline transition-colors break-all"
-          onClick={(e) => e.stopPropagation()} // Evita que o clique acione outras ações da linha
+          onClick={(e) => e.stopPropagation()} 
         >
           {parte}
         </a>
@@ -46,10 +43,19 @@ const renderComLinks = (texto: string) => {
 };
 
 export default function ProgramacaoPage() {
+  const [programacoesRaw, setProgramacoesRaw] = useState<Programacao[]>([]);
   const [programacoes, setProgramacoes] = useState<Programacao[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [igrejaId, setIgrejaId] = useState<string | null>(null);
-  const [perfisUsuario, setPerfisUsuario] = useState<string[]>([]);
+  const [perfisUsuario, setPerfisUsuario] = useState<string[]>([]); 
+
+  // Estados de Multi-tenancy Hierárquico
+  const [ehSede, setEhSede] = useState(false);
+  const [nomeSedeOficial, setNomeSedeOficial] = useState("Sede");
+  const [congregacaoUsuario, setCongregacaoUsuario] = useState("");
+  const [filtroCongregacao, setFiltroCongregacao] = useState("Sede"); 
+  const [congregacoesDisponiveis, setCongregacoesDisponiveis] = useState<string[]>([]);
+  const [congregacaoForm, setCongregacaoForm] = useState("");
 
   const dataAtual = new Date();
   const [mesSelecionado, setMesSelecionado] = useState(dataAtual.getMonth() + 1);
@@ -76,42 +82,122 @@ export default function ProgramacaoPage() {
 
   const diasDaSemana = ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"];
 
+  // 1. CARREGAMENTO INICIAL COM TRAVAS
   useEffect(() => {
     const userLocal = localStorage.getItem("usuarioLogado");
-    if (userLocal) {
-      try {
-        const parsedUser = JSON.parse(userLocal);
-        setPerfisUsuario(formatarPerfis(parsedUser.perfis || parsedUser.nivel_acesso));
-        setIgrejaId(parsedUser.igreja_id || parsedUser.id_igreja || parsedUser.idIgreja);
-      } catch (e) {
-        console.error("Erro ao ler usuário");
+    if (!userLocal) {
+      setCarregando(false);
+      return;
+    }
+
+    try {
+      const parsedUser = JSON.parse(userLocal);
+      setPerfisUsuario(formatarPerfis(parsedUser.perfis || parsedUser.nivel_acesso));
+      const currentIgrejaId = parsedUser.igreja_id || parsedUser.id_igreja || parsedUser.idIgreja;
+      setIgrejaId(currentIgrejaId);
+
+      async function inicializarDados() {
+        if (!currentIgrejaId) return;
+
+        // 1. Busca Configuração da Sede
+        const { data: config } = await supabase
+          .from("configuracao_igreja")
+          .select("nome_igreja")
+          .eq("igreja_id", currentIgrejaId)
+          .maybeSingle();
+
+        const nomeSede = config?.nome_igreja?.trim() || "Sede Principal";
+        setNomeSedeOficial(nomeSede);
+
+        // 2. Analisa a hierarquia do usuário
+        const congUser = parsedUser?.congregacao?.trim() || "";
+        setCongregacaoUsuario(congUser);
+        
+        const congLow = congUser.toLowerCase();
+        const isUserSede = !congLow || congLow === "sede" || congLow === "matriz" || congLow === "geral" || congLow === nomeSede.toLowerCase();
+        
+        setEhSede(isUserSede);
+
+        if (isUserSede) {
+          const { data: filhas } = await supabase
+            .from("igrejas_filhas")
+            .select("nome")
+            .eq("igreja_id", currentIgrejaId)
+            .order("nome", { ascending: true });
+
+          const nomesFilhas = filhas ? filhas.map(f => f.nome) : [];
+          setCongregacoesDisponiveis([nomeSede, ...nomesFilhas]);
+          
+          setFiltroCongregacao(nomeSede);
+          setCongregacaoForm(nomeSede);
+        } else {
+          setCongregacoesDisponiveis([congUser]);
+          setFiltroCongregacao(congUser);
+          setCongregacaoForm(congUser);
+        }
+
+        // 3. Busca Programações Base
+        let query = supabase
+          .from("programacao")
+          .select("*")
+          .eq("igreja_id", currentIgrejaId)
+          .order("horario", { ascending: true });
+
+        if (!isUserSede) {
+          query = query.eq("congregacao", congUser);
+        }
+
+        const { data: progData } = await query;
+        if (progData) setProgramacoesRaw(progData);
+        setCarregando(false);
       }
-    } else {
+
+      inicializarDados();
+    } catch (e) {
+      console.error("Erro ao inicializar:", e);
       setCarregando(false);
     }
   }, []);
 
+  // 2. APLICAÇÃO DO FILTRO LOCAL (Tempo Real)
   useEffect(() => {
-    if (igrejaId) carregarProgramacoes();
-  }, [igrejaId]);
+    if (!programacoesRaw) return;
 
+    const normalizarSede = (c: string | undefined) => {
+      const cong = c?.trim();
+      if (!cong || cong.toLowerCase() === "sede" || cong.toLowerCase() === "matriz" || cong.toLowerCase() === "geral" || cong.toLowerCase() === nomeSedeOficial.toLowerCase()) {
+        return nomeSedeOficial;
+      }
+      return cong;
+    };
+
+    const filtradas = filtroCongregacao === "Todas"
+      ? programacoesRaw
+      : programacoesRaw.filter(p => normalizarSede(p.congregacao) === filtroCongregacao);
+
+    setProgramacoes(filtradas);
+  }, [filtroCongregacao, programacoesRaw, nomeSedeOficial]);
+
+
+  // FUNÇÃO REUTILIZÁVEL PARA RECARREGAR (Usada após salvar/excluir)
   async function carregarProgramacoes() {
     if (!igrejaId) return;
-    setCarregando(true);
     try {
-      const { data: result, error } = await supabase
+      let query = supabase
         .from("programacao")
         .select("*")
         .eq("igreja_id", igrejaId)
         .order("horario", { ascending: true });
 
+      if (!ehSede) {
+        query = query.eq("congregacao", congregacaoUsuario);
+      }
+
+      const { data: result, error } = await query;
       if (error) throw error;
-      setProgramacoes(result || []);
+      setProgramacoesRaw(result || []);
     } catch (err) {
       console.error("Erro ao carregar programações:", err);
-      alert("Não foi possível carregar a lista de programações.");
-    } finally {
-      setCarregando(false);
     }
   }
 
@@ -124,6 +210,9 @@ export default function ProgramacaoPage() {
       setData(item.data || "");
       setDiaSemana(item.dia_semana || "Domingo");
       setHorario(item.horario ? item.horario.substring(0, 5) : "");
+      
+      const congItem = item.congregacao?.trim();
+      setCongregacaoForm(!congItem || congItem.toLowerCase() === "sede" || congItem.toLowerCase() === "matriz" ? nomeSedeOficial : congItem);
     } else {
       setEditandoItem(null);
       setTitulo("");
@@ -132,6 +221,7 @@ export default function ProgramacaoPage() {
       setData("");
       setDiaSemana("Domingo");
       setHorario("");
+      setCongregacaoForm(ehSede ? nomeSedeOficial : congregacaoUsuario);
     }
     setModalAberto(true);
   }
@@ -140,8 +230,11 @@ export default function ProgramacaoPage() {
     e.preventDefault();
     if (!igrejaId) return;
 
+    const congregacaoFinal = ehSede ? congregacaoForm : congregacaoUsuario;
+
     const payload = {
       igreja_id: igrejaId,
+      congregacao: congregacaoFinal, // INJEÇÃO SEGURA DA HIERARQUIA
       titulo,
       descricao,
       tipo,
@@ -195,7 +288,7 @@ export default function ProgramacaoPage() {
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-8 animate-fade-in pb-12">
       
-      {/* CABEÇALHO */}
+      {/* CABEÇALHO COM FILTRO HIERÁRQUICO */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
         <div className="flex items-center gap-4">
           <div className="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-lg flex items-center justify-center shadow-sm">
@@ -207,14 +300,30 @@ export default function ProgramacaoPage() {
           </div>
         </div>
         
-        {ehEditor && (
-          <button
-            onClick={() => abrirModal()}
-            className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-6 py-3 rounded-lg transition-all shadow-md hover:shadow-lg focus:ring-4 focus:ring-indigo-100 outline-none"
-          >
-            + Adicionar Programação
-          </button>
-        )}
+        <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
+          {ehSede && congregacoesDisponiveis.length > 0 && (
+            <select
+              value={filtroCongregacao}
+              onChange={(e) => setFiltroCongregacao(e.target.value)}
+              className="w-full sm:w-auto max-w-full truncate px-4 py-3 bg-indigo-50 border border-indigo-100 text-indigo-800 font-bold text-sm rounded-lg hover:border-indigo-300 focus:border-indigo-500 outline-none transition-all shadow-sm cursor-pointer"
+            >
+              <option value={nomeSedeOficial}>🏢 {nomeSedeOficial} (Sede)</option>
+              <option value="Todas">🌍 Todas as Congregações</option>
+              {congregacoesDisponiveis.filter(c => c !== nomeSedeOficial).map(c => (
+                <option key={c} value={c}>📍 {c}</option>
+              ))}
+            </select>
+          )}
+
+          {ehEditor && (
+            <button
+              onClick={() => abrirModal()}
+              className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-6 py-3 rounded-lg transition-all shadow-md hover:shadow-lg focus:ring-4 focus:ring-indigo-100 outline-none whitespace-nowrap"
+            >
+              + Adicionar Programação
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
@@ -242,7 +351,10 @@ export default function ProgramacaoPage() {
                         {p.dia_semana || '---'} • {p.horario ? p.horario.substring(0, 5) : '--:--'}
                       </span>
                       <h3 className="font-bold text-gray-800 text-base">{p.titulo}</h3>
-                      {p.descricao && <p className="text-xs text-gray-500 line-clamp-2">{renderComLinks(p.descricao)}</p>}
+                      {filtroCongregacao === "Todas" && p.congregacao && (
+                        <p className="text-xs font-semibold text-gray-400 mt-1">📍 {p.congregacao}</p>
+                      )}
+                      {p.descricao && <p className="text-xs text-gray-500 line-clamp-2 mt-1">{renderComLinks(p.descricao)}</p>}
                     </div>
                     
                     {ehEditor && (
@@ -321,7 +433,10 @@ export default function ProgramacaoPage() {
                           </td>
                           <td className="p-4">
                             <div className="font-bold text-gray-800 text-base">{p.titulo}</div>
-                            {p.descricao && <div className="text-sm text-gray-500 line-clamp-2 mt-0.5">{renderComLinks(p.descricao)}</div>}
+                            {filtroCongregacao === "Todas" && p.congregacao && (
+                              <div className="text-xs font-semibold text-gray-400 mt-0.5">📍 {p.congregacao}</div>
+                            )}
+                            {p.descricao && <div className="text-sm text-gray-500 line-clamp-2 mt-1">{renderComLinks(p.descricao)}</div>}
                           </td>
                           <td className="p-4 whitespace-nowrap">
                             <span className={`inline-block text-xs font-black px-3 py-1.5 rounded-md uppercase tracking-wide shadow-sm border ${
@@ -372,6 +487,32 @@ export default function ProgramacaoPage() {
             </div>
 
             <form onSubmit={salvarProgramacao} className="p-6 space-y-5">
+
+              {/* CAMPO DA CONGREGAÇÃO PARA A PROGRAMAÇÃO */}
+              <div>
+                <label className="block text-xs font-black text-gray-400 uppercase tracking-wider mb-2">Congregação Padrão *</label>
+                {ehSede ? (
+                  <select 
+                    required 
+                    value={congregacaoForm} 
+                    onChange={(e) => setCongregacaoForm(e.target.value)} 
+                    className="w-full border-2 border-gray-200 rounded-xl p-3 text-sm text-gray-800 focus:border-indigo-500 outline-none bg-gray-50 focus:bg-white font-semibold cursor-pointer"
+                  >
+                    <option value="" disabled>Selecione a Congregação</option>
+                    {/* Caso a congregação deste item tenha sido apagada nas configurações globais, a gente preserva ela na lista */}
+                    {congregacaoForm && !congregacoesDisponiveis.includes(congregacaoForm) && (
+                      <option value={congregacaoForm}>{congregacaoForm}</option>
+                    )}
+                    {congregacoesDisponiveis.map((nome, idx) => (
+                      <option key={idx} value={nome}>{nome === nomeSedeOficial ? `🏢 ${nome}` : `📍 ${nome}`}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <select disabled className="w-full border-2 border-gray-200 rounded-xl p-3 text-sm text-gray-500 bg-gray-100 cursor-not-allowed font-semibold">
+                    <option value={congregacaoForm || congregacaoUsuario}>📍 {congregacaoForm || congregacaoUsuario}</option>
+                  </select>
+                )}
+              </div>
               
               <div>
                 <label className="block text-xs font-black text-gray-400 uppercase tracking-wider mb-2">Selecione o Tipo</label>
@@ -404,7 +545,7 @@ export default function ProgramacaoPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-1">Título da Atividade</label>
+                <label className="block text-xs font-black text-gray-400 uppercase tracking-wider mb-1">Título da Atividade</label>
                 <input
                   type="text"
                   required
@@ -418,7 +559,7 @@ export default function ProgramacaoPage() {
               <div className="grid grid-cols-2 gap-4">
                 {tipo === "Fixa" ? (
                   <div>
-                    <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-1">Dia da Semana</label>
+                    <label className="block text-xs font-black text-gray-400 uppercase tracking-wider mb-1">Dia da Semana</label>
                     <select
                       value={diaSemana}
                       onChange={(e) => setDiaSemana(e.target.value)}
@@ -429,7 +570,7 @@ export default function ProgramacaoPage() {
                   </div>
                 ) : (
                   <div>
-                    <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-1">Data Exata</label>
+                    <label className="block text-xs font-black text-gray-400 uppercase tracking-wider mb-1">Data Exata</label>
                     <input
                       type="date"
                       required={tipo === "Evento"}
@@ -441,7 +582,7 @@ export default function ProgramacaoPage() {
                 )}
 
                 <div>
-                  <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-1">Horário</label>
+                  <label className="block text-xs font-black text-gray-400 uppercase tracking-wider mb-1">Horário</label>
                   <input
                     type="time"
                     required
@@ -453,7 +594,7 @@ export default function ProgramacaoPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-1">Detalhes (Opcional)</label>
+                <label className="block text-xs font-black text-gray-400 uppercase tracking-wider mb-1">Detalhes (Opcional)</label>
                 <textarea
                   value={descricao}
                   onChange={(e) => setDescricao(e.target.value)}

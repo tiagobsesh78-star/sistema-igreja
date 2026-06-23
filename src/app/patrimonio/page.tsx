@@ -8,11 +8,20 @@ import { podeVisualizar, podeEditar, formatarPerfis } from "../../lib/permissoes
 export default function PatrimonioPage() {
   const router = useRouter();
 
-  // 1. TODOS OS STATES NO TOPO (REGRA DO REACT)
+  // 1. TODOS OS STATES NO TOPO
+  const [patrimoniosRaw, setPatrimoniosRaw] = useState<any[]>([]);
   const [patrimonios, setPatrimonios] = useState<any[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [igrejaId, setIgrejaId] = useState<string | null>(null);
   const [perfisUsuario, setPerfisUsuario] = useState<string[]>([]);
+
+  // Estados do Multi-tenancy Hierárquico
+  const [ehSede, setEhSede] = useState(false);
+  const [nomeSedeOficial, setNomeSedeOficial] = useState("Sede");
+  const [congregacaoUsuario, setCongregacaoUsuario] = useState("");
+  const [filtroCongregacao, setFiltroCongregacao] = useState("Sede"); // Padrão Sede
+  const [congregacoesDisponiveis, setCongregacoesDisponiveis] = useState<string[]>([]);
+  const [congregacaoForm, setCongregacaoForm] = useState("");
 
   // Estados de Ordenação
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: "asc" | "desc" } | null>(null);
@@ -34,9 +43,9 @@ export default function PatrimonioPage() {
   const [historicoItem, setHistoricoItem] = useState<any[]>([]);
   const [carregandoHistorico, setCarregandoHistorico] = useState(false);
 
-  // 2. EFFECT PRINCIPAL COM A TRAVA DE ROTA (SEGURANÇA TOTAL)
+  // 2. EFFECT PRINCIPAL COM A TRAVA DE ROTA E HIERARQUIA
   useEffect(() => {
-    const carregarIgreja = () => {
+    const carregarIgrejaEDados = async () => {
       try {
         const userLocal = localStorage.getItem("usuarioLogado");
         if (!userLocal) {
@@ -47,42 +56,119 @@ export default function PatrimonioPage() {
         const parsedUser = JSON.parse(userLocal);
         const perfisLogado = formatarPerfis(parsedUser.perfis || parsedUser.nivel_acesso);
 
-        // ==================================================
-        // TRAVA DE ROTA: CHUTA INVASORES PARA A HOME
-        // ==================================================
+        // TRAVA DE ROTA
         if (!podeVisualizar(perfisLogado, 'patrimonio')) {
           router.push("/");
-          return; // Interrompe a execução
+          return; 
         }
-        // ==================================================
 
         setPerfisUsuario(perfisLogado);
-
         const currentIgrejaId = parsedUser.igreja_id || parsedUser.id_igreja || parsedUser.idIgreja || parsedUser.igreja;
         setIgrejaId(currentIgrejaId ? String(currentIgrejaId) : null);
         
-        if (currentIgrejaId) {
-          buscarPatrimonios(String(currentIgrejaId));
-        } else {
+        if (!currentIgrejaId) {
           setCarregando(false);
+          return;
         }
+
+        // 1. Busca Configuração da Sede
+        const { data: config } = await supabase
+          .from("configuracao_igreja")
+          .select("nome_igreja")
+          .eq("igreja_id", currentIgrejaId)
+          .maybeSingle();
+
+        const nomeSede = config?.nome_igreja?.trim() || "Sede Principal";
+        setNomeSedeOficial(nomeSede);
+
+        // 2. Analisa a hierarquia do usuário logado
+        const congUser = parsedUser?.congregacao?.trim() || "";
+        setCongregacaoUsuario(congUser);
+        
+        const congLow = congUser.toLowerCase();
+        const isUserSede = !congLow || congLow === "sede" || congLow === "matriz" || congLow === "geral" || congLow === nomeSede.toLowerCase();
+        
+        setEhSede(isUserSede);
+
+        // 3. Monta a lista permitida com base no perfil
+        if (isUserSede) {
+          const { data: filhas } = await supabase
+            .from("igrejas_filhas")
+            .select("nome")
+            .eq("igreja_id", currentIgrejaId)
+            .order("nome", { ascending: true });
+
+          const nomesFilhas = filhas ? filhas.map(f => f.nome) : [];
+          setCongregacoesDisponiveis([nomeSede, ...nomesFilhas]);
+          
+          setFiltroCongregacao(nomeSede);
+          setCongregacaoForm(nomeSede);
+        } else {
+          setCongregacoesDisponiveis([congUser]);
+          setFiltroCongregacao(congUser);
+          setCongregacaoForm(congUser);
+        }
+
+        // 4. Busca os Patrimônios aplicando a Trava Hierárquica
+        let query = supabase
+          .from("patrimonio")
+          .select("*")
+          .eq("igreja_id", currentIgrejaId)
+          .order("id", { ascending: false });
+
+        if (!isUserSede) {
+          query = query.eq("congregacao", congUser);
+        }
+
+        const { data: patData } = await query;
+        setPatrimoniosRaw(patData || []);
+
       } catch (e) {
+        console.error(e);
+      } finally {
         setCarregando(false);
       }
     };
-    carregarIgreja();
+
+    carregarIgrejaEDados();
   }, [router]);
 
-  const buscarPatrimonios = async (idIgreja: string) => {
-    setCarregando(true);
-    const { data, error } = await supabase
+  // Normalizador Universal de Congregação
+  const normalizarSede = (c: string) => {
+    const cong = c?.trim();
+    if (!cong || cong.toLowerCase() === "sede" || cong.toLowerCase() === "matriz" || cong.toLowerCase() === "geral" || cong.toLowerCase() === nomeSedeOficial.toLowerCase()) {
+      return nomeSedeOficial;
+    }
+    return cong;
+  };
+
+  // 3. FILTRO LOCAL EM TEMPO REAL
+  useEffect(() => {
+    if (!patrimoniosRaw) return;
+
+    const filtrados = filtroCongregacao === "Todas"
+      ? patrimoniosRaw
+      : patrimoniosRaw.filter(p => normalizarSede(p.congregacao) === filtroCongregacao);
+
+    setPatrimonios(filtrados);
+  }, [filtroCongregacao, patrimoniosRaw, nomeSedeOficial]);
+
+
+  // Função unificada para recarregar dados após CRUD
+  const recarregarDados = async () => {
+    if (!igrejaId) return;
+    let query = supabase
       .from("patrimonio")
       .select("*")
-      .eq("igreja_id", idIgreja)
+      .eq("igreja_id", igrejaId)
       .order("id", { ascending: false });
 
-    if (!error) setPatrimonios(data || []);
-    setCarregando(false);
+    if (!ehSede) {
+      query = query.eq("congregacao", congregacaoUsuario);
+    }
+
+    const { data } = await query;
+    if (data) setPatrimoniosRaw(data);
   };
 
   // --- CÁLCULO DO VALOR TOTAL ATIVO (Excluindo Vendidos e Doações) ---
@@ -135,7 +221,7 @@ export default function PatrimonioPage() {
     }
 
     let conteudoCSV = "\uFEFF";
-    conteudoCSV += "ID;Item;Data de Entrada;Valor (R$);Status\n";
+    conteudoCSV += "ID;Item;Data de Entrada;Valor (R$);Status;Congregação\n";
 
     patrimoniosOrdenados.forEach((item) => {
       const idFmt = `#${item.id}`;
@@ -143,9 +229,15 @@ export default function PatrimonioPage() {
       const dataFmt = formatarData(item.data_entrada);
       const valorFmt = (item.valor || 0).toFixed(2).replace(".", ",");
       const statusFmt = item.status || "Disponível";
+      const congFmt = normalizarSede(item.congregacao);
 
-      conteudoCSV += `${idFmt};"${itemFmt}";${dataFmt};${valorFmt};${statusFmt}\n`;
+      conteudoCSV += `${idFmt};"${itemFmt}";${dataFmt};${valorFmt};${statusFmt};${congFmt}\n`;
     });
+
+    // Adiciona o Resumo no final
+    const valorResumoFmt = (valorTotalAtivo || 0).toFixed(2).replace(".", ",");
+    conteudoCSV += `\nRESUMO\n`;
+    conteudoCSV += `Patrimônio Ativo Total;;;${valorResumoFmt}\n`;
 
     const blob = new Blob([conteudoCSV], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -173,10 +265,13 @@ export default function PatrimonioPage() {
     e.preventDefault();
     if (!igrejaId) return;
 
+    const congregacaoFinal = ehSede ? congregacaoForm : congregacaoUsuario;
     const valorTratado = parseFloat(valorEstimado.toString().replace(",", "."));
+    
     const { error } = await supabase.from("patrimonio").insert([
       {
         igreja_id: igrejaId,
+        congregacao: congregacaoFinal, // Injeta Hierarquia de forma Segura
         item: itemNome,
         data_entrada: dataEntrada,
         valor: isNaN(valorTratado) ? 0 : valorTratado,
@@ -187,7 +282,7 @@ export default function PatrimonioPage() {
     if (!error) {
       setModalCadastroAberto(false);
       limparCampos();
-      buscarPatrimonios(igrejaId);
+      recarregarDados();
     } else {
       alert("Erro ao cadastrar: " + error.message);
     }
@@ -198,6 +293,7 @@ export default function PatrimonioPage() {
     setItemNome(item.item);
     setDataEntrada(item.data_entrada);
     setValorEstimado(item.valor.toString());
+    setCongregacaoForm(normalizarSede(item.congregacao));
     setModalEditarAberto(true);
   };
 
@@ -205,11 +301,14 @@ export default function PatrimonioPage() {
     e.preventDefault();
     if (!itemSelecionado || !igrejaId) return;
 
+    const congregacaoFinal = ehSede ? congregacaoForm : congregacaoUsuario;
     const valorTratado = parseFloat(valorEstimado.toString().replace(",", "."));
+    
     const { error } = await supabase
       .from("patrimonio")
       .update({
         item: itemNome,
+        congregacao: congregacaoFinal, // Atualiza Hierarquia
         data_entrada: dataEntrada,
         valor: isNaN(valorTratado) ? 0 : valorTratado,
       })
@@ -219,7 +318,7 @@ export default function PatrimonioPage() {
     if (!error) {
       setModalEditarAberto(false);
       limparCampos();
-      buscarPatrimonios(igrejaId);
+      recarregarDados();
     } else {
       alert("Erro ao editar: " + error.message);
     }
@@ -235,7 +334,7 @@ export default function PatrimonioPage() {
       .eq("id", id)
       .eq("igreja_id", igrejaId); // Trava de exclusão
       
-    if (!error) buscarPatrimonios(igrejaId);
+    if (!error) recarregarDados();
   };
 
   const abrirModalMovimentacao = async (item: any) => {
@@ -279,7 +378,7 @@ export default function PatrimonioPage() {
 
       setModalMovimentoAberto(false);
       limparCampos();
-      buscarPatrimonios(igrejaId);
+      recarregarDados();
     } else {
       alert("Erro ao movimentar: " + erroPrincipal.message);
     }
@@ -293,6 +392,7 @@ export default function PatrimonioPage() {
     setTipoMovimentacao("");
     setDescricaoMovimentacao("");
     setHistoricoItem([]);
+    setCongregacaoForm(ehSede ? nomeSedeOficial : congregacaoUsuario);
   };
 
   const formatarData = (dataStr: string, incluirHora = false) => {
@@ -313,7 +413,7 @@ export default function PatrimonioPage() {
 
   const ehEditor = podeEditar(perfisUsuario, 'patrimonio');
 
-  if (carregando) return <div className="p-8 text-center text-gray-500 font-medium">Carregando patrimônio...</div>;
+  if (carregando) return <div className="p-8 text-center text-gray-500 font-medium animate-pulse">Carregando patrimônio...</div>;
 
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto w-full">
@@ -323,10 +423,26 @@ export default function PatrimonioPage() {
           <h1 className="text-2xl md:text-3xl font-bold text-gray-800 dark:text-white">Patrimônio</h1>
           <p className="text-gray-600 dark:text-gray-400">Gerencie, movimente e exporte os ativos da igreja</p>
         </div>
-        <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+        <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
+          
+          {/* SELETOR HIERÁRQUICO */}
+          {ehSede && congregacoesDisponiveis.length > 0 && (
+            <select
+              value={filtroCongregacao}
+              onChange={(e) => setFiltroCongregacao(e.target.value)}
+              className="w-full sm:w-auto max-w-full truncate px-4 py-3 bg-indigo-50 border border-indigo-100 text-indigo-800 font-bold text-sm rounded-lg hover:border-indigo-300 focus:border-indigo-500 outline-none transition-all shadow-sm cursor-pointer"
+            >
+              <option value="Sede">🏢 {nomeSedeOficial} (Sede)</option>
+              <option value="Todas">🌍 Todas as Congregações</option>
+              {congregacoesDisponiveis.filter(c => c !== nomeSedeOficial).map(c => (
+                <option key={c} value={c}>📍 {c}</option>
+              ))}
+            </select>
+          )}
+
           <button
             onClick={handleExportarExcel}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-3 rounded-lg font-semibold transition-colors flex items-center justify-center gap-2 shadow-sm"
+            className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-3 rounded-lg font-semibold transition-colors flex items-center justify-center gap-2 shadow-sm"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -387,6 +503,12 @@ export default function PatrimonioPage() {
               >
                 Item {renderIconeOrdenacao("item")}
               </th>
+              {/* Coluna da Congregação visível apenas se houverem várias na lista */}
+              {filtroCongregacao === "Todas" && (
+                <th className="p-4 font-bold select-none text-gray-500">
+                  Congregação
+                </th>
+              )}
               <th 
                 className="p-4 font-bold cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors select-none"
                 onClick={() => handleSort("data_entrada")}
@@ -412,12 +534,19 @@ export default function PatrimonioPage() {
           </thead>
           <tbody>
             {patrimoniosOrdenados.length === 0 ? (
-              <tr><td colSpan={ehEditor ? 6 : 5} className="p-8 text-center text-gray-500 font-medium">Nenhum patrimônio registrado.</td></tr>
+              <tr><td colSpan={ehEditor ? (filtroCongregacao === "Todas" ? 7 : 6) : (filtroCongregacao === "Todas" ? 6 : 5)} className="p-8 text-center text-gray-500 font-medium">Nenhum patrimônio registrado nesta congregação.</td></tr>
             ) : (
               patrimoniosOrdenados.map((item) => (
                 <tr key={item.id} className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors">
                   <td className="p-4 text-gray-600 dark:text-gray-300 font-medium">#{item.id}</td>
                   <td className="p-4 text-gray-800 dark:text-gray-100 font-semibold">{item.item}</td>
+                  
+                  {filtroCongregacao === "Todas" && (
+                    <td className="p-4 text-gray-500 text-sm font-medium">
+                      {normalizarSede(item.congregacao)}
+                    </td>
+                  )}
+
                   <td className="p-4 text-gray-600 dark:text-gray-300">{formatarData(item.data_entrada)}</td>
                   <td className="p-4 text-gray-600 dark:text-gray-300 font-medium">
                     {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(item.valor || 0)}
@@ -466,10 +595,34 @@ export default function PatrimonioPage() {
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md p-6">
             <h2 className="text-xl font-bold mb-4 text-gray-800 dark:text-white">Cadastrar Novo Item</h2>
             <form onSubmit={handleCadastrar} className="space-y-4">
+              
+              {/* SELETOR DA CONGREGAÇÃO PARA NOVO ITEM */}
               <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Congregação Padrão *</label>
+                {ehSede ? (
+                  <select 
+                    required 
+                    value={congregacaoForm} 
+                    onChange={(e) => setCongregacaoForm(e.target.value)} 
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 bg-white dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all cursor-pointer font-semibold"
+                  >
+                    <option value="" disabled>Selecione a Congregação</option>
+                    {congregacoesDisponiveis.map((nome, idx) => (
+                      <option key={idx} value={nome}>{nome === nomeSedeOficial ? `🏢 ${nome}` : `📍 ${nome}`}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <select disabled className="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 bg-gray-100 dark:bg-gray-700 text-gray-500 cursor-not-allowed font-semibold">
+                    <option value={congregacaoUsuario}>📍 {congregacaoUsuario}</option>
+                  </select>
+                )}
+              </div>
+
+              <div className="hidden">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">ID</label>
                 <input type="text" disabled value="Gerado automaticamente" className="w-full border dark:border-gray-600 rounded-lg p-3 bg-gray-100 dark:bg-gray-700 text-gray-500 cursor-not-allowed" />
               </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Item</label>
                 <input type="text" required value={itemNome} onChange={(e) => setItemNome(e.target.value)} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 bg-white dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all" placeholder="Ex: Mesa de Som, Projetor..." />
@@ -497,6 +650,33 @@ export default function PatrimonioPage() {
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md p-6">
             <h2 className="text-xl font-bold mb-4 text-gray-800 dark:text-white">Editar Item</h2>
             <form onSubmit={handleEditar} className="space-y-4">
+
+              {/* SELETOR DA CONGREGAÇÃO PARA EDIÇÃO */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Congregação Padrão *</label>
+                {ehSede ? (
+                  <select 
+                    required 
+                    value={congregacaoForm} 
+                    onChange={(e) => setCongregacaoForm(e.target.value)} 
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 bg-white dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all cursor-pointer font-semibold"
+                  >
+                    <option value="" disabled>Selecione a Congregação</option>
+                    {/* Preserva a congregação antiga do item se ela tiver sido excluída das configurações gerais */}
+                    {congregacaoForm && !congregacoesDisponiveis.includes(congregacaoForm) && (
+                      <option value={congregacaoForm}>{congregacaoForm}</option>
+                    )}
+                    {congregacoesDisponiveis.map((nome, idx) => (
+                      <option key={idx} value={nome}>{nome === nomeSedeOficial ? `🏢 ${nome}` : `📍 ${nome}`}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <select disabled className="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 bg-gray-100 dark:bg-gray-700 text-gray-500 cursor-not-allowed font-semibold">
+                    <option value={congregacaoForm || congregacaoUsuario}>📍 {congregacaoForm || congregacaoUsuario}</option>
+                  </select>
+                )}
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Item</label>
                 <input type="text" required value={itemNome} onChange={(e) => setItemNome(e.target.value)} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 bg-white dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all" />
