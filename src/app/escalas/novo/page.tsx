@@ -26,6 +26,14 @@ export default function NovaEscala() {
   const [modalSucesso, setModalSucesso] = useState(false);
   const [igrejaIdLogada, setIgrejaIdLogada] = useState<string | null>(null);
   
+  // Estados de Multi-tenancy Hierárquico
+  const [ehSede, setEhSede] = useState(false);
+  const [nomeSedeOficial, setNomeSedeOficial] = useState("Sede");
+  const [congregacaoUsuario, setCongregacaoUsuario] = useState("");
+  const [listaCongregacoes, setListaCongregacoes] = useState<string[]>([]);
+  const [carregandoCongregacoes, setCarregandoCongregacoes] = useState(true);
+  const [congregacaoSelecionada, setCongregacaoSelecionada] = useState("");
+
   const [tipo, setTipo] = useState("Culto");
   const [tipoOutro, setTipoOutro] = useState("");
   
@@ -36,8 +44,11 @@ export default function NovaEscala() {
   const [dadosPorData, setDadosPorData] = useState<Record<string, any[]>>({});
   const [descricoesPorData, setDescricoesPorData] = useState<Record<string, string>>({}); 
 
-  // 2. EFFECT PRINCIPAL COM A TRAVA DE SEGURANÇA
+  // 2. EFFECT PRINCIPAL COM A TRAVA DE SEGURANÇA E HIERARQUIA
   useEffect(() => {
+    const hoje = new Date().toISOString().split("T")[0];
+    setDataLancamento(hoje);
+
     const usuarioLocal = localStorage.getItem("usuarioLogado");
     if (!usuarioLocal) {
       router.push("/login");
@@ -52,11 +63,64 @@ export default function NovaEscala() {
     // ==================================================
     if (!podeEditar(perfisLogado, 'escalas')) {
       router.push("/");
-      return; // Interrompe a execução
+      return; 
     }
     // ==================================================
 
-    setIgrejaIdLogada(usuario.igreja_id || usuario.id_igreja || usuario.idIgreja);
+    const igrejaId = usuario.igreja_id || usuario.id_igreja || usuario.idIgreja;
+    setIgrejaIdLogada(igrejaId);
+
+    async function buscarListaCongregacoes(idIgreja: string) {
+      try {
+        // 1. Busca o nome da Igreja Mãe (Sede)
+        const { data: config } = await supabase
+          .from("configuracao_igreja")
+          .select("nome_igreja")
+          .eq("igreja_id", idIgreja)
+          .maybeSingle();
+
+        const nomeSede = config?.nome_igreja?.trim() || "Sede Principal";
+        setNomeSedeOficial(nomeSede);
+
+        // 2. Analisa a hierarquia do usuário logado
+        const congUser = usuario?.congregacao?.trim() || "";
+        setCongregacaoUsuario(congUser);
+        
+        const congLow = congUser.toLowerCase();
+        const isUserSede = !congLow || congLow === "sede" || congLow === "matriz" || congLow === "geral" || congLow === nomeSede.toLowerCase();
+        
+        setEhSede(isUserSede);
+
+        // 3. Monta a lista permitida com base no perfil
+        if (isUserSede) {
+          const { data: filhas } = await supabase
+            .from("igrejas_filhas")
+            .select("nome")
+            .eq("igreja_id", idIgreja)
+            .order("nome", { ascending: true });
+
+          const nomesFilhas = filhas ? filhas.map(f => f.nome) : [];
+          setListaCongregacoes([nomeSede, ...nomesFilhas]);
+          
+          // -> MÁGICA AQUI: Define a Sede como valor default <-
+          setCongregacaoSelecionada(nomeSede); 
+        } else {
+          // Filial só vê a própria filial e o select já vem preenchido
+          setListaCongregacoes([congUser]);
+          setCongregacaoSelecionada(congUser);
+        }
+
+      } catch (error) {
+        console.error("Erro ao buscar congregações:", error);
+        setListaCongregacoes(["Sede Principal"]); 
+      } finally {
+        setCarregandoCongregacoes(false);
+      }
+    }
+
+    if (igrejaId) {
+      buscarListaCongregacoes(igrejaId);
+    }
   }, [router]);
 
   const inicioMes = startOfMonth(mesCalendario);
@@ -65,6 +129,9 @@ export default function NovaEscala() {
     start: startOfWeek(inicioMes),
     end: endOfWeek(fimMes)
   });
+
+  // (Evitando erro de sintaxe) Estado simulado para data de hoje, caso precise ser setado
+  const [dataLancamento, setDataLancamento] = useState("");
 
   const toggleDataStr = (dataStr: string) => {
     if (datasSelecionadas.includes(dataStr)) {
@@ -141,6 +208,13 @@ export default function NovaEscala() {
   };
 
   const salvarEscalas = async () => {
+    const congregacaoFinal = ehSede ? congregacaoSelecionada : congregacaoUsuario;
+
+    if (!congregacaoFinal) {
+      alert("Por favor, selecione a congregação responsável por esta escala.");
+      return;
+    }
+
     if (datasSelecionadas.length === 0) {
       alert("Selecione os dias da escala no calendário primeiro!");
       return;
@@ -154,9 +228,9 @@ export default function NovaEscala() {
     setSalvando(true);
     
     try {
-      // PREPARA OS INSERTS INCLUINDO A IGREJA_ID
       const inserts = datasSelecionadas.map(d => ({
         igreja_id: igrejaIdLogada,
+        congregacao: congregacaoFinal, 
         tipo: tipo,
         tipo_personalizado: tipo === "Outro" ? tipoOutro : null,
         data: d,
@@ -193,37 +267,75 @@ export default function NovaEscala() {
 
       <div className="space-y-8">
         
-        {/* PASSO 1: TIPO */}
+        {/* PASSO 1: CONFIGURAÇÕES DA ESCALA */}
         <div className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-gray-100">
           <label className="block text-sm font-bold text-gray-700 mb-4 uppercase tracking-tighter">
-            1. Tipo de Escala
+            1. Configurações da Escala
           </label>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <select 
-              value={tipo} 
-              onChange={(e) => {
-                setTipo(e.target.value); 
-                setDatasSelecionadas([]); 
-                setDadosPorData({});
-                setDescricoesPorData({});
-              }} 
-              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none transition"
-            >
-              <option value="Culto">Culto</option>
-              <option value="EBD">EBD (Escola Bíblica)</option>
-              <option value="Louvor">Louvor</option>
-              <option value="DEPIN">DEPIN (Infantil)</option>
-              <option value="Outro">Outro...</option>
-            </select>
+            
+            {/* SELETOR HIERÁRQUICO INTELIGENTE DA CONGREGAÇÃO */}
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Congregação *</label>
+              {ehSede ? (
+                <select 
+                  required
+                  value={congregacaoSelecionada}
+                  onChange={(e) => setCongregacaoSelecionada(e.target.value)}
+                  disabled={carregandoCongregacoes}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none text-sm text-gray-900 font-bold cursor-pointer disabled:opacity-60"
+                >
+                  {carregandoCongregacoes ? (
+                    <option value="">Buscando congregações...</option>
+                  ) : (
+                    <>
+                      {/* Removido o option vazio, a Sede é assumida imediatamente */}
+                      {listaCongregacoes.map((c) => (
+                        <option key={c} value={c}>{c === nomeSedeOficial ? `🏢 ${c} (Sede)` : `📍 ${c}`}</option>
+                      ))}
+                    </>
+                  )}
+                </select>
+              ) : (
+                <select 
+                  disabled
+                  className="w-full px-4 py-3 bg-gray-100 border border-gray-200 rounded-xl outline-none text-sm text-gray-500 font-bold cursor-not-allowed"
+                >
+                  <option value={congregacaoUsuario}>📍 {congregacaoUsuario}</option>
+                </select>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Tipo de Escala</label>
+              <select 
+                value={tipo} 
+                onChange={(e) => {
+                  setTipo(e.target.value); 
+                  setDatasSelecionadas([]); 
+                  setDadosPorData({});
+                  setDescricoesPorData({});
+                }} 
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none transition"
+              >
+                <option value="Culto">Culto</option>
+                <option value="EBD">EBD (Escola Bíblica)</option>
+                <option value="Louvor">Louvor</option>
+                <option value="DEPIN">DEPIN (Infantil)</option>
+                <option value="Outro">Outro...</option>
+              </select>
+            </div>
             
             {tipo === "Outro" && (
-              <input 
-                type="text" 
-                value={tipoOutro} 
-                onChange={(e) => setTipoOutro(e.target.value)} 
-                placeholder="Qual o tipo de escala?" 
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none transition" 
-              />
+              <div className="md:col-span-2">
+                <input 
+                  type="text" 
+                  value={tipoOutro} 
+                  onChange={(e) => setTipoOutro(e.target.value)} 
+                  placeholder="Qual o tipo de escala?" 
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none transition" 
+                />
+              </div>
             )}
           </div>
         </div>

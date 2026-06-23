@@ -21,12 +21,24 @@ const paletasDeCores = [
 export default function EscalasPage() {
   const router = useRouter();
   const [isClient, setIsClient] = useState(false);
-  const [escalas, setEscalas] = useState<any[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [dataAtual, setDataAtual] = useState(new Date());
   const [igrejaIdLogada, setIgrejaIdLogada] = useState<string | null>(null);
-  const [perfisUsuario, setPerfisUsuario] = useState<string[]>([]); // Estado de Controle de Perfis
+  const [perfisUsuario, setPerfisUsuario] = useState<string[]>([]);
+  
+  // ==========================================
+  // ESTADOS DO MULTI-TENANCY HIERÁRQUICO
+  // ==========================================
+  const [inicializado, setInicializado] = useState(false);
+  const [ehSede, setEhSede] = useState(false);
+  const [nomeSedeOficial, setNomeSedeOficial] = useState("Sede");
+  const [congregacaoUsuario, setCongregacaoUsuario] = useState("");
+  const [filtroCongregacao, setFiltroCongregacao] = useState("Todas");
+  const [congregacoesDisponiveis, setCongregacoesDisponiveis] = useState<string[]>([]);
 
+  // Estados dos Dados
+  const [escalasRaw, setEscalasRaw] = useState<any[]>([]);
+  const [escalas, setEscalas] = useState<any[]>([]);
   const [tiposExistentes, setTiposExistentes] = useState<string[]>([]);
   const [escalasAgrupadas, setEscalasAgrupadas] = useState<Record<string, any[]>>({});
 
@@ -35,66 +47,140 @@ export default function EscalasPage() {
   const [escalaEditando, setEscalaEditando] = useState<any | null>(null);
   const [salvandoEdicao, setSalvandoEdicao] = useState(false);
 
+  // 1. IDENTIFICAÇÃO E CONFIGURAÇÃO DA HIERARQUIA
   useEffect(() => {
     setIsClient(true);
-    
-    // 1. IDENTIFICA A IGREJA LOGADA E OS PERFIS
     const usuarioLocal = localStorage.getItem("usuarioLogado");
+    
     if (!usuarioLocal) {
       router.push("/login");
       return;
     }
+    
     const usuario = JSON.parse(usuarioLocal);
-    setIgrejaIdLogada(usuario.igreja_id);
-    
-    // Armazena os perfis para controle visual
+    const igrejaId = usuario.igreja_id || usuario.id_igreja || usuario.idIgreja;
+    setIgrejaIdLogada(igrejaId);
     setPerfisUsuario(formatarPerfis(usuario.perfis || usuario.nivel_acesso));
-    
+
+    async function carregarConfiguracoesDaIgreja() {
+      try {
+        const { data: config } = await supabase
+          .from("configuracao_igreja")
+          .select("nome_igreja")
+          .eq("igreja_id", igrejaId)
+          .maybeSingle();
+
+        const nomeSede = config?.nome_igreja?.trim() || "Sede Principal";
+        setNomeSedeOficial(nomeSede);
+
+        const congUser = usuario?.congregacao?.trim() || "";
+        setCongregacaoUsuario(congUser);
+        
+        const congLow = congUser.toLowerCase();
+        const isUserSede = !congLow || congLow === "sede" || congLow === "matriz" || congLow === "geral" || congLow === nomeSede.toLowerCase();
+        
+        setEhSede(isUserSede);
+
+        if (isUserSede) {
+          const { data: filhas } = await supabase
+            .from("igrejas_filhas")
+            .select("nome")
+            .eq("igreja_id", igrejaId)
+            .order("nome", { ascending: true });
+
+          const nomesFilhas = filhas ? filhas.map(f => f.nome) : [];
+          setCongregacoesDisponiveis([nomeSede, ...nomesFilhas]);
+          
+          // -> MÁGICA AQUI: Define a Sede como valor default na tela de painel <-
+          setFiltroCongregacao(nomeSede);
+        } else {
+          setFiltroCongregacao(congUser);
+        }
+
+        setInicializado(true);
+      } catch (error) {
+        console.error("Erro ao inicializar:", error);
+      }
+    }
+
+    if (igrejaId) carregarConfiguracoesDaIgreja();
   }, [router]);
 
+
+  // 2. BUSCA DAS ESCALAS (Dispara quando muda o Mês ou quando Inicializa)
   useEffect(() => {
     document.documentElement.style.scrollBehavior = 'smooth';
-    if (igrejaIdLogada) {
-      buscarEscalas(igrejaIdLogada);
+    
+    async function buscarEscalas() {
+      if (!igrejaIdLogada || !inicializado) return;
+      
+      setCarregando(true);
+      const inicio = format(startOfMonth(dataAtual), "yyyy-MM-dd");
+      const fim = format(endOfMonth(dataAtual), "yyyy-MM-dd");
+
+      let query = supabase
+        .from("escalas")
+        .select("*")
+        .eq("igreja_id", igrejaIdLogada)
+        .gte("data", inicio)
+        .lte("data", fim)
+        .order("data", { ascending: true });
+
+      if (!ehSede) {
+        query = query.eq("congregacao", congregacaoUsuario);
+      }
+
+      const { data, error } = await query;
+      if (!error && data) {
+        setEscalasRaw(data);
+      } else {
+        setEscalasRaw([]);
+      }
+      setCarregando(false);
     }
+
+    buscarEscalas();
     return () => { document.documentElement.style.scrollBehavior = 'auto'; };
-  }, [dataAtual, igrejaIdLogada]);
+  }, [dataAtual, inicializado, igrejaIdLogada, ehSede, congregacaoUsuario]);
 
-  async function buscarEscalas(igrejaId: string) {
-    setCarregando(true);
-    const inicio = format(startOfMonth(dataAtual), "yyyy-MM-dd");
-    const fim = format(endOfMonth(dataAtual), "yyyy-MM-dd");
 
-    // 2. BUSCA AS ESCALAS APENAS DA IGREJA
-    const { data, error } = await supabase
-      .from("escalas")
-      .select("*")
-      .eq("igreja_id", igrejaId) // A TRAVA DE SEGURANÇA AQUI
-      .gte("data", inicio)
-      .lte("data", fim)
-      .order("data", { ascending: true });
+  // 3. FILTRO LOCAL EM TEMPO REAL
+  useEffect(() => {
+    if (!escalasRaw) return;
 
-    if (!error && data) {
-      setEscalas(data);
-      const agrupado: Record<string, any[]> = {};
-      
-      data.forEach(escala => {
-        const nomeTipo = escala.tipo === "Outro" ? (escala.tipo_personalizado || "Outros") : escala.tipo;
-        if (!agrupado[nomeTipo]) agrupado[nomeTipo] = [];
-        agrupado[nomeTipo].push(escala);
-      });
-      
-      setEscalasAgrupadas(agrupado);
-      setTiposExistentes(Object.keys(agrupado).sort());
-    }
-    setCarregando(false);
-  }
+    const normalizarSede = (c: string) => {
+      const cong = c?.trim();
+      if (!cong || cong.toLowerCase() === "sede" || cong.toLowerCase() === "matriz" || cong.toLowerCase() === "geral" || cong.toLowerCase() === nomeSedeOficial.toLowerCase()) {
+        return nomeSedeOficial;
+      }
+      return cong;
+    };
+
+    // Aplica o filtro de congregação na tela
+    const filtradas = filtroCongregacao === "Todas"
+      ? escalasRaw
+      : escalasRaw.filter(e => normalizarSede(e.congregacao) === filtroCongregacao);
+
+    setEscalas(filtradas);
+
+    // Agrupa e prepara o layout para a lista filtrada
+    const agrupado: Record<string, any[]> = {};
+    filtradas.forEach(escala => {
+      const nomeTipo = escala.tipo === "Outro" ? (escala.tipo_personalizado || "Outros") : escala.tipo;
+      if (!agrupado[nomeTipo]) agrupado[nomeTipo] = [];
+      agrupado[nomeTipo].push(escala);
+    });
+    
+    setEscalasAgrupadas(agrupado);
+    setTiposExistentes(Object.keys(agrupado).sort());
+
+  }, [filtroCongregacao, escalasRaw, nomeSedeOficial]);
+
 
   // --- FUNÇÕES DE EXCLUSÃO ---
   async function confirmarExclusao() {
     if (!escalaExcluindo || !igrejaIdLogada) return;
     try {
-      // 3. EXCLUI SOMENTE SE PERTENCER À IGREJA
       const { error } = await supabase
         .from("escalas")
         .delete()
@@ -104,7 +190,8 @@ export default function EscalasPage() {
       if (error) throw error;
       
       setEscalaExcluindo(null);
-      buscarEscalas(igrejaIdLogada); 
+      // Remove localmente para não precisar dar fetch inteiro de novo
+      setEscalasRaw(prev => prev.filter(e => e.id !== escalaExcluindo));
     } catch (error: any) {
       alert("Erro ao excluir: " + error.message);
     }
@@ -142,7 +229,6 @@ export default function EscalasPage() {
     
     setSalvandoEdicao(true);
     try {
-      // 4. ATUALIZA SOMENTE SE PERTENCER À IGREJA
       const { error } = await supabase
         .from("escalas")
         .update({
@@ -154,8 +240,9 @@ export default function EscalasPage() {
 
       if (error) throw error;
       
+      // Atualiza os dados brutos localmente e fecha o modal
+      setEscalasRaw(prev => prev.map(e => e.id === escalaEditando.id ? { ...e, descricao: escalaEditando.descricao, detalhes: escalaEditando.detalhes } : e));
       setEscalaEditando(null);
-      buscarEscalas(igrejaIdLogada);
     } catch (error: any) {
       alert("Erro ao salvar: " + error.message);
     } finally {
@@ -172,21 +259,48 @@ export default function EscalasPage() {
   return (
     <>
       <div className="p-4 md:p-8 max-w-6xl mx-auto animate-fade-in pb-20 relative">
+        
+        {/* CABEÇALHO */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
           <div>
             <h1 className="text-2xl md:text-[28px] font-bold text-gray-900 tracking-tight">Escalas Mensais</h1>
             <p className="text-sm text-gray-500 mt-1">Visualize e organize os ministérios da igreja.</p>
           </div>
           
-          {/* ESCONDE O BOTÃO DE NOVA ESCALA SE NÃO FOR EDITOR */}
-          {ehEditor && (
-            <Link href="/escalas/novo" className="px-6 py-2.5 bg-teal-600 text-white font-bold rounded-lg shadow-md hover:bg-teal-700 transition flex items-center gap-2">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-              Criar Nova Escala
-            </Link>
-          )}
+          <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+            
+            {/* SELETOR HIERÁRQUICO */}
+            {ehSede && congregacoesDisponiveis.length > 0 && (
+              <select
+                value={filtroCongregacao}
+                onChange={(e) => setFiltroCongregacao(e.target.value)}
+                className="w-full sm:w-auto max-w-full truncate px-4 py-2.5 bg-indigo-50 border border-indigo-100 text-indigo-800 font-bold text-sm rounded-lg hover:border-indigo-300 focus:border-indigo-500 outline-none transition-all shadow-sm cursor-pointer"
+              >
+                <option value={nomeSedeOficial}>🏢 {nomeSedeOficial} (Sede)</option>
+                <option value="Todas">🌍 Todas as Congregações</option>
+                {congregacoesDisponiveis.filter(c => c !== nomeSedeOficial).map(c => (
+                  <option key={c} value={c}>📍 {c}</option>
+                ))}
+              </select>
+            )}
+
+            {!ehSede && congregacaoUsuario && (
+              <div className="w-full sm:w-auto px-4 py-2.5 bg-gray-100 border border-gray-200 text-gray-600 font-bold text-sm rounded-lg shadow-sm truncate cursor-not-allowed">
+                📍 {congregacaoUsuario}
+              </div>
+            )}
+
+            {/* ESCONDE O BOTÃO DE NOVA ESCALA SE NÃO FOR EDITOR */}
+            {ehEditor && (
+              <Link href="/escalas/novo" className="w-full sm:w-auto text-center px-6 py-2.5 bg-teal-600 text-white font-bold rounded-lg shadow-md hover:bg-teal-700 transition flex items-center justify-center gap-2">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                Nova Escala
+              </Link>
+            )}
+          </div>
         </div>
 
+        {/* NAVEGAÇÃO DE MÊS */}
         <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between mb-8">
           <button onClick={() => setDataAtual(subMonths(dataAtual, 1))} className="p-2 hover:bg-gray-100 rounded-full transition">
             <svg className="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
@@ -199,6 +313,7 @@ export default function EscalasPage() {
           </button>
         </div>
 
+        {/* MENU DE ANCORAS (Tipos de Escalas) */}
         {!carregando && tiposExistentes.length > 0 && (
           <div className="sticky top-[80px] z-30 bg-white/95 backdrop-blur-md p-4 rounded-2xl shadow-md border border-gray-200 mb-10 flex flex-col md:flex-row md:items-center gap-4 transition-all">
             <span className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
@@ -218,11 +333,12 @@ export default function EscalasPage() {
           </div>
         )}
 
+        {/* CONTEÚDO PRINCIPAL */}
         {carregando ? (
           <div className="flex justify-center py-20"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-600"></div></div>
         ) : escalas.length === 0 ? (
           <div className="bg-white p-20 rounded-2xl border-2 border-dashed border-gray-200 text-center">
-            <p className="text-gray-400 text-lg">Nenhuma escala encontrada para este mês.</p>
+            <p className="text-gray-400 text-lg">Nenhuma escala encontrada para esta congregação neste mês.</p>
           </div>
         ) : (
           <div className="space-y-16">
