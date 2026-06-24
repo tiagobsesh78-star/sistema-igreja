@@ -10,6 +10,13 @@ export default function Visitantes() {
   const [igrejaIdLogada, setIgrejaIdLogada] = useState<string | null>(null);
   const [perfisUsuario, setPerfisUsuario] = useState<string[]>([]);
 
+  // Estados de Multi-tenancy Hierárquico Inteligente
+  const [ehSede, setEhSede] = useState(true);
+  const [nomeSedeOficial, setNomeSedeOficial] = useState("Sede");
+  const [userCongregacao, setUserCongregacao] = useState("Sede");
+  const [filtroCongregacao, setFiltroCongregacao] = useState("Sede");
+  const [listaCongregacoes, setListaCongregacoes] = useState<string[]>([]);
+
   // Estados do Modal Principal (Cadastro/Edição)
   const [modalAberto, setModalAberto] = useState(false);
   const [salvando, setSalvando] = useState(false);
@@ -50,10 +57,10 @@ export default function Visitantes() {
       
       const perfis = formatarPerfis(usuarioObj.perfis || usuarioObj.nivel_acesso);
       setPerfisUsuario(perfis);
-      
+
       if (igrejaId) {
         setIgrejaIdLogada(igrejaId);
-        carregarVisitantes(igrejaId);
+        carregarTudo(igrejaId, usuarioObj);
       } else {
         setCarregando(false);
       }
@@ -62,18 +69,73 @@ export default function Visitantes() {
     }
   }, []);
 
-  const carregarVisitantes = async (igrejaId: string) => {
+  // Busca Inteligente Simultânea (Otimização Máxima)
+  const carregarTudo = async (igrejaId: string, usuarioObj: any) => {
     setCarregando(true);
-    const { data, error } = await supabase
-      .from("visitantes")
-      .select("*")
-      .eq("igreja_id", igrejaId)
-      .order("created_at", { ascending: false });
+    try {
+      // 1. Busca o Nome da Igreja Mãe, As Filiais Oficiais e os Visitantes tudo de uma vez
+      const [resConfig, resFiliais, resVisitantes] = await Promise.all([
+        supabase.from("configuracao_igreja").select("nome_igreja").eq("igreja_id", igrejaId).maybeSingle(),
+        supabase.from("igrejas_filhas").select("nome").eq("igreja_id", igrejaId).order("nome"),
+        supabase.from("visitantes").select("*").eq("igreja_id", igrejaId).order("created_at", { ascending: false })
+      ]);
 
+      // 2. Resolve o Nome Oficial da Sede
+      const nomeOficial = resConfig.data?.nome_igreja?.trim() || "Sede";
+      setNomeSedeOficial(nomeOficial);
+
+      // 3. Processa a lista das filiais oficiais cadastradas no banco
+      const filiaisOficiais = resFiliais.data ? resFiliais.data.map((f: any) => f.nome) : [];
+
+      // 4. Lógica de Hierarquia Blindada (Mesma lógica da MembrosPage)
+      const congUsuario = usuarioObj.congregacao?.trim() || "";
+      const congLow = congUsuario.toLowerCase();
+      const isUserSede = !congLow || congLow === "sede" || congLow === "matriz" || congLow === "geral" || congLow === nomeOficial.toLowerCase();
+      
+      setEhSede(isUserSede);
+      const congregaFormatada = isUserSede ? "Sede" : congUsuario;
+      setUserCongregacao(congregaFormatada);
+      setFiltroCongregacao(isUserSede ? "Sede" : congregaFormatada);
+
+      // 5. Filtra visitantes e monta a lista final de congregações
+      let visitantesPermitidos = resVisitantes.data || [];
+      
+      if (!isUserSede) {
+        // Se for filial, cravamos os visitantes apenas para a congregação do usuário
+        visitantesPermitidos = visitantesPermitidos.filter(v => v.congregacao === congregaFormatada);
+      } else {
+        // Se for Sede, preparamos o dropdown mesclando as filiais oficiais com as históricas
+        const congsComVisitantes = visitantesPermitidos.map(v => v.congregacao).filter(Boolean);
+        const todasAsCongs = Array.from(new Set([...filiaisOficiais, ...congsComVisitantes]))
+          .filter(c => c !== "Sede" && c !== nomeOficial);
+          
+        setListaCongregacoes(todasAsCongs.sort());
+      }
+
+      setVisitantes(visitantesPermitidos);
+
+    } catch (error) {
+      console.error("Erro ao carregar dados:", error);
+    } finally {
+      setCarregando(false);
+    }
+  };
+
+  // Recarrega apenas a lista de visitantes após uma ação (Salvar, Deletar, Contatar)
+  const recarregarVisitantes = async () => {
+    if (!igrejaIdLogada) return;
+    
+    let query = supabase.from("visitantes").select("*").eq("igreja_id", igrejaIdLogada);
+    
+    // Trava forte para Filial
+    if (!ehSede) {
+      query = query.eq("congregacao", userCongregacao);
+    }
+    
+    const { data, error } = await query.order("created_at", { ascending: false });
     if (!error && data) {
       setVisitantes(data);
     }
-    setCarregando(false);
   };
 
   const abrirModal = (visitante?: any) => {
@@ -104,6 +166,21 @@ export default function Visitantes() {
     if (!igrejaIdLogada) return;
 
     setSalvando(true);
+    
+    // Determinação automática e invisível da congregação alvo
+    let congregacaoAlvo = "Sede";
+    if (editandoId) {
+      const atual = visitantes.find(v => v.id === editandoId);
+      congregacaoAlvo = atual?.congregacao || "Sede";
+    } else {
+      if (ehSede) {
+        // Se a mãe estiver visualizando "Todas", o novo visitante cai na Sede por padrão.
+        congregacaoAlvo = filtroCongregacao === "Todas" ? "Sede" : filtroCongregacao;
+      } else {
+        congregacaoAlvo = userCongregacao;
+      }
+    }
+
     const dados = {
       igreja_id: igrejaIdLogada,
       data_visita: dataVisita,
@@ -111,21 +188,21 @@ export default function Visitantes() {
       contato,
       is_whatsapp: isWhatsapp,
       descricao,
+      congregacao: congregacaoAlvo,
     };
 
     if (editandoId) {
       const { error } = await supabase.from("visitantes").update(dados).eq("id", editandoId);
-      if (!error) carregarVisitantes(igrejaIdLogada);
+      if (!error) recarregarVisitantes();
     } else {
       const { error } = await supabase.from("visitantes").insert([dados]);
-      if (!error) carregarVisitantes(igrejaIdLogada);
+      if (!error) recarregarVisitantes();
     }
 
     setSalvando(false);
     fecharModal();
   };
 
-  // LÓGICA DE EXCLUSÃO ÚNICA COM MODAL PERSONALIZADO
   const confirmarExclusaoVisitante = (id: number) => {
     setModalConfirmacao({
       aberto: true,
@@ -135,35 +212,40 @@ export default function Visitantes() {
       acao: async () => {
         setModalConfirmacao(prev => ({ ...prev, aberto: false }));
         const { error } = await supabase.from("visitantes").delete().eq("id", id);
-        if (!error && igrejaIdLogada) {
-          carregarVisitantes(igrejaIdLogada);
-        }
+        if (!error) recarregarVisitantes();
       }
     });
   };
 
-  // LÓGICA DE EXCLUSÃO EM MASSA COM MODAL PERSONALIZADO
   const confirmarExclusaoMassa = () => {
     if (!igrejaIdLogada) return;
 
     setModalConfirmacao({
       aberto: true,
       titulo: "Excluir Toda a Lista?",
-      mensagem: "CUIDADO: Você está prestes a excluir permanentemente TODOS os visitantes cadastrados. Esta ação é irreversível.",
+      mensagem: ehSede && filtroCongregacao === "Todas"
+        ? "CUIDADO: Você está prestes a excluir permanentemente TODOS os visitantes de TODAS as congregações. Esta ação é irreversível."
+        : `CUIDADO: Você está prestes a excluir todos os visitantes vinculados à congregação "${ehSede ? filtroCongregacao : userCongregacao}". Esta ação é irreversível.`,
       textoBotao: "Sim, Excluir Tudo",
       acao: async () => {
         setModalConfirmacao(prev => ({ ...prev, aberto: false }));
         setCarregando(true);
-        const { error } = await supabase.from("visitantes").delete().eq("igreja_id", igrejaIdLogada);
-        if (!error) {
-          carregarVisitantes(igrejaIdLogada);
+        
+        let queryDelete = supabase.from("visitantes").delete().eq("igreja_id", igrejaIdLogada);
+        
+        if (!ehSede) {
+          queryDelete = queryDelete.eq("congregacao", userCongregacao);
+        } else if (filtroCongregacao !== "Todas") {
+          queryDelete = queryDelete.eq("congregacao", filtroCongregacao);
         }
+
+        const { error } = await queryDelete;
+        if (!error) recarregarVisitantes();
         setCarregando(false);
       }
     });
   };
 
-  // Lógica do botão de contato
   const handleToggleClick = (v: any) => {
     if (v.contatado) {
       atualizarStatusContato(v.id, false, null);
@@ -185,10 +267,22 @@ export default function Visitantes() {
   const atualizarStatusContato = async (id: number, status: boolean, quem: string | null) => {
     setVisitantes(visitantes.map(v => v.id === id ? { ...v, contatado: status, quem_contatou: quem } : v));
     const { error } = await supabase.from("visitantes").update({ contatado: status, quem_contatou: quem }).eq("id", id);
-    if (error && igrejaIdLogada) {
-      carregarVisitantes(igrejaIdLogada);
-    }
+    if (error) recarregarVisitantes();
   };
+
+  // Filtragem local inteligente baseada no que o usuário selecionou no Dropdown
+  const visitantesFiltrados = visitantes.filter((v) => {
+    if (!ehSede) return true; // Já vem rigidamente blindado do banco
+    if (filtroCongregacao === "Todas") return true;
+    
+    // Tratativa para os nomes de Sede normalizados
+    const vCong = v.congregacao || "Sede";
+    if (filtroCongregacao === "Sede") {
+      return vCong === "Sede" || vCong === nomeSedeOficial;
+    }
+    
+    return vCong === filtroCongregacao;
+  });
 
   const podeExcluirListaCompleta = perfisUsuario.includes("Secretário") || perfisUsuario.includes("Pastor/Presbítero");
 
@@ -207,14 +301,33 @@ export default function Visitantes() {
           <h1 className="text-2xl md:text-3xl font-bold text-gray-800 dark:text-white">Visitantes</h1>
           <p className="text-sm text-gray-500 mt-1">Gerencie e acompanhe os visitantes da igreja</p>
         </div>
-        <div className="flex flex-wrap gap-3 w-full md:w-auto">
-          {podeExcluirListaCompleta && visitantes.length > 0 && (
+        <div className="flex flex-wrap gap-3 w-full md:w-auto items-center">
+          
+          {/* FILTRO DE SELEÇÃO EXCLUSIVO PARA A IGREJA MÃE */}
+          {ehSede && (
+            <select
+              value={filtroCongregacao}
+              onChange={(e) => setFiltroCongregacao(e.target.value)}
+              className="bg-white dark:bg-gray-700 text-gray-800 dark:text-white border border-gray-200 dark:border-gray-600 px-3 py-2 rounded-lg font-medium text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all cursor-pointer shadow-sm truncate max-w-[200px] md:max-w-none"
+            >
+              <option value="Sede">🏢 Sede ({nomeSedeOficial})</option>
+              <option value="Todas">🌍 Todas as Congregações</option>
+              {listaCongregacoes.map((c) => (
+                <option key={c} value={c}>
+                  📍 {c}
+                </option>
+              ))}
+            </select>
+          )}
+
+          {podeExcluirListaCompleta && visitantesFiltrados.length > 0 && (
             <button
               onClick={confirmarExclusaoMassa}
               className="flex items-center gap-2 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-4 py-2 rounded-lg font-medium transition-all active:scale-95 text-sm"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-              <span>Excluir Toda a Lista</span>
+              <span className="hidden sm:inline">Excluir Toda a Lista</span>
+              <span className="sm:hidden">Excluir Tudo</span>
             </button>
           )}
 
@@ -242,14 +355,14 @@ export default function Visitantes() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-              {visitantes.length === 0 ? (
+              {visitantesFiltrados.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-8 text-center text-gray-500">
+                  <td colSpan={5} className="px-6 py-10 text-center text-gray-500">
                     Nenhum visitante cadastrado ainda.
                   </td>
                 </tr>
               ) : (
-                visitantes.map((v) => (
+                visitantesFiltrados.map((v) => (
                   <tr 
                     key={v.id} 
                     className={`transition-colors ${
@@ -262,9 +375,16 @@ export default function Visitantes() {
                       {new Date(v.data_visita + "T00:00:00").toLocaleDateString("pt-BR")}
                     </td>
                     <td className="px-6 py-4">
-                      <div className="font-medium text-gray-900 dark:text-white">{v.nome}</div>
+                      <div className="font-medium text-gray-900 dark:text-white flex items-center gap-2">
+                        <span>{v.nome}</span>
+                        {ehSede && filtroCongregacao === "Todas" && v.congregacao && v.congregacao !== "Sede" && v.congregacao !== nomeSedeOficial && (
+                          <span className="text-[10px] bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded-md font-semibold border border-gray-200/50 dark:border-gray-600">
+                            📍 {v.congregacao}
+                          </span>
+                        )}
+                      </div>
                       {v.descricao && (
-                        <div className="text-xs text-gray-500 mt-1 max-w-[200px] truncate" title={v.descricao}>
+                        <div className="text-xs text-gray-500 mt-1 max-w-[200px] sm:max-w-xs md:max-w-md truncate" title={v.descricao}>
                           {v.descricao}
                         </div>
                       )}
@@ -302,7 +422,7 @@ export default function Visitantes() {
                         </button>
 
                         {v.contatado && v.quem_contatou && (
-                          <span className="text-[10px] font-bold tracking-wide text-teal-600 dark:text-teal-400 bg-white/60 dark:bg-gray-800 px-2 py-0.5 rounded border border-teal-100 dark:border-teal-900/50 shadow-sm flex items-center gap-1">
+                          <span className="text-[10px] font-bold tracking-wide text-teal-600 dark:text-teal-400 bg-white/60 dark:bg-gray-800 px-2 py-0.5 rounded border border-teal-100 dark:border-teal-900/50 shadow-sm flex items-center gap-1 mt-1">
                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
                             Por: {v.quem_contatou}
                           </span>
@@ -335,7 +455,7 @@ export default function Visitantes() {
         </div>
       </div>
 
-      {/* NOVO MODAL DE CONFIRMAÇÃO PERSONALIZADO (Substitui o window.confirm nativo) */}
+      {/* NOVO MODAL DE CONFIRMAÇÃO PERSONALIZADO */}
       {modalConfirmacao.aberto && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
           <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
