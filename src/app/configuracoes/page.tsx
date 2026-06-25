@@ -46,6 +46,10 @@ export default function ConfiguracoesIgreja() {
     const usuario = JSON.parse(usuarioLocal);
     const perfisLogado = formatarPerfis(usuario.perfis || usuario.nivel_acesso);
 
+    // ==================================================
+    // TRAVA 1: PERFIL DE ACESSO
+    // Se o usuário não puder editar membros, também não pode editar as configs.
+    // ==================================================
     if (!podeEditar(perfisLogado, 'membros')) {
       router.push("/");
       return; 
@@ -61,6 +65,20 @@ export default function ConfiguracoesIgreja() {
         .select("*")
         .eq("igreja_id", idIgreja) 
         .maybeSingle();
+
+      // ==================================================
+      // TRAVA 2: ANTI-URL BYPASS (BLOQUEIA FILIAIS)
+      // Verifica se o usuário pertence à Sede. Se for de filial, é expulso para a Home.
+      // ==================================================
+      const nomeOficial = data?.nome_igreja?.trim() || "Sede";
+      const congUsuario = usuario.congregacao?.trim() || "";
+      const congLow = congUsuario.toLowerCase();
+      const isUserSede = !congLow || congLow === "sede" || congLow === "matriz" || congLow === "geral" || congLow === nomeOficial.toLowerCase();
+
+      if (!isUserSede) {
+        router.push("/"); // Expulsa o invasor
+        return;
+      }
 
       if (data) {
         setConfigId(data.id);
