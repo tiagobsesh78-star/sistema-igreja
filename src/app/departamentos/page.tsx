@@ -197,7 +197,7 @@ export default function DepartamentosPage() {
   };
 
   const obterMembrosComPerfil = (dept: Departamento) => {
-    return membros.filter(m => pertenceAoFiltroAtual(m.congregacao, filtroCongregacao) && verificarCompatibilidade(m, dept)).map(m => m.id);
+    return membros.filter(m => pertenceAoFiltroAtual(m.congregacao, filtroCongregacao) && verificarCompatibilidade(m, dept)).map(m => String(m.id));
   };
 
   const getPaleta = (id: number) => paletasDeCores[id % paletasDeCores.length];
@@ -236,7 +236,7 @@ export default function DepartamentosPage() {
   const abrirModalMembros = (dept: Departamento) => {
     setDeptSelecionado(dept);
     
-    const jaEstao = vinculos.filter(v => v.departamento_id === dept.id).map(v => v.membro_id);
+    const jaEstao = vinculos.filter(v => v.departamento_id === dept.id).map(v => String(v.membro_id));
     let selecaoInicial = [...jaEstao];
 
     const temFiltro = dept.faixa_etaria_min || dept.faixa_etaria_max || dept.genero || dept.estado_civil;
@@ -249,10 +249,25 @@ export default function DepartamentosPage() {
     setModalMembrosAberto(true);
   };
 
+  // --- MÁGICA: FUNÇÃO BLINDADA DE MARCAR/DESMARCAR ---
+  const toggleMembro = (membroId: string) => {
+    const id = String(membroId);
+    setMembrosSelecionados(prev => {
+      // Se ele já estava marcado, cria uma nova lista SEM ele (desmarca)
+      if (prev.includes(id)) {
+        return prev.filter(selecionado => selecionado !== id);
+      } 
+      // Se não estava marcado, adiciona na lista (marca)
+      else {
+        return [...prev, id];
+      }
+    });
+  };
+
   const salvarMembrosNoDepartamento = async () => {
     if (!deptSelecionado || !igrejaIdLogada) return;
     
-    const atuais = vinculos.filter(v => v.departamento_id === deptSelecionado.id).map(v => v.membro_id);
+    const atuais = vinculos.filter(v => v.departamento_id === deptSelecionado.id).map(v => String(v.membro_id));
     const paraAdicionar = membrosSelecionados.filter(id => !atuais.includes(id));
     const paraRemover = atuais.filter(id => !membrosSelecionados.includes(id));
 
@@ -288,7 +303,7 @@ export default function DepartamentosPage() {
     } else {
       await supabase.from("departamento_membros").insert([{
         departamento_id: parseInt(deptDestinoId),
-        membro_id: vinculoAcao.membro_id,
+        membro_id: String(vinculoAcao.membro_id),
         igreja_id: igrejaIdLogada,
         funcao: vinculoAcao.funcao
       }]);
@@ -640,7 +655,7 @@ export default function DepartamentosPage() {
                   .filter(m => pertenceAoFiltroAtual(m.congregacao, filtroCongregacao)) 
                   .filter(m => {
                     const atende = verificarCompatibilidade(m, deptSelecionado);
-                    const jaSelecionado = membrosSelecionados.includes(m.id);
+                    const jaSelecionado = membrosSelecionados.includes(String(m.id));
                     const estaNaBusca = buscaMembro.trim().length > 0 && m.nome_completo.toLowerCase().includes(buscaMembro.toLowerCase());
 
                     if (buscaMembro.trim().length > 0) return estaNaBusca;
@@ -648,13 +663,17 @@ export default function DepartamentosPage() {
                   })
                   .sort((a, b) => a.nome_completo.localeCompare(b.nome_completo))
                   .map(m => {
-                    const taNoDepto = membrosSelecionados.includes(m.id);
+                    const taNoDepto = membrosSelecionados.includes(String(m.id));
                     const idade = calcularIdade(m.data_nascimento);
                     const atendeRegras = verificarCompatibilidade(m, deptSelecionado);
                     const paleta = getPaleta(deptSelecionado.id);
                     
                     return (
-                      <label key={m.id} className={`flex items-center gap-4 p-4 rounded-xl border cursor-pointer transition-all ${taNoDepto ? `${paleta.bg} ${paleta.border} shadow-sm ring-1 ${paleta.anel}` : 'bg-white border-gray-200 hover:bg-gray-50 hover:border-gray-300'}`}>
+                      <div 
+                        key={m.id} 
+                        onClick={() => toggleMembro(m.id)}
+                        className={`flex items-center gap-4 p-4 rounded-xl border cursor-pointer select-none transition-all ${taNoDepto ? `${paleta.bg} ${paleta.border} shadow-sm ring-1 ${paleta.anel}` : 'bg-white border-gray-200 hover:bg-gray-50 hover:border-gray-300'}`}
+                      >
                         <div className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-colors ${taNoDepto ? `bg-current ${paleta.titulo} border-transparent` : 'border-gray-300 bg-white'}`}>
                           {taNoDepto && <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>}
                         </div>
@@ -668,7 +687,7 @@ export default function DepartamentosPage() {
                           </p>
                           <p className="text-xs text-gray-500 font-medium mt-0.5">{idade} anos • {m.genero || "N/I"} • {m.estado_civil || "N/I"}</p>
                         </div>
-                      </label>
+                      </div>
                     )
                   })}
                 </div>
