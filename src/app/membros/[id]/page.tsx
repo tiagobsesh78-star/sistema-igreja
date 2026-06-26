@@ -157,6 +157,23 @@ export default function VerMembro() {
               <div><span className="block text-xs font-semibold text-gray-500 uppercase">CPF</span><span className="text-gray-900 font-medium">{membro.cpf || "-"}</span></div>
               <div><span className="block text-xs font-semibold text-gray-500 uppercase">Data de Nascimento</span><span className="text-gray-900 font-medium">{formatarData(membro.data_nascimento)}</span></div>
               <div><span className="block text-xs font-semibold text-gray-500 uppercase">Estado Civil</span><span className="text-gray-900 font-medium">{membro.estado_civil || "-"}</span></div>
+              
+              {/* CAMPO CONDICIONAL: CÔNJUGE (Com leve destaque visual) */}
+              {membro.nome_conjuge && (
+                <div>
+                  <span className="block text-xs font-bold text-pink-600 uppercase">Cônjuge</span>
+                  <span className="text-gray-900 font-medium">{membro.nome_conjuge}</span>
+                </div>
+              )}
+              
+              {/* CAMPO CONDICIONAL: RESPONSÁVEL (Com leve destaque visual) */}
+              {membro.responsavel && (
+                <div>
+                  <span className="block text-xs font-bold text-blue-600 uppercase">Responsável</span>
+                  <span className="text-gray-900 font-medium">{membro.responsavel}</span>
+                </div>
+              )}
+
               <div><span className="block text-xs font-semibold text-gray-500 uppercase">Telefone</span><span className="text-gray-900 font-medium">{membro.telefone || "-"}</span></div>
             </div>
           </section>

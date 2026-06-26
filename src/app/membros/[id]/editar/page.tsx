@@ -45,6 +45,8 @@ export default function EditarMembro() {
     status: "Ativo", 
     foto_url: "",
     congregacao: "",
+    responsavel: "", // NOVO: Campo para Responsável
+    nome_conjuge: "", // NOVO: Campo para Cônjuge
     acessa_sistema: false,
     senha: "",
     nivel_acesso: "Membro",
@@ -160,6 +162,8 @@ export default function EditarMembro() {
             status: membroData.status || "Ativo", 
             foto_url: membroData.foto_url || "",
             congregacao: membroData.congregacao || "",
+            responsavel: membroData.responsavel || "", // Carrega do Banco
+            nome_conjuge: membroData.nome_conjuge || "", // Carrega do Banco
             acessa_sistema: membroData.acessa_sistema || false,
             senha: membroData.senha || "",
             nivel_acesso: membroData.nivel_acesso || "Membro",
@@ -175,6 +179,25 @@ export default function EditarMembro() {
 
     carregarDadosCompletos();
   }, [id, router]);
+
+  // ==================================================
+  // LÓGICA DOS CAMPOS CONDICIONAIS
+  // ==================================================
+  const calcularIdade = (data: string) => {
+    if (!data) return null;
+    const hoje = new Date();
+    const nasc = new Date(data);
+    let idade = hoje.getFullYear() - nasc.getFullYear();
+    const m = hoje.getMonth() - nasc.getMonth();
+    if (m < 0 || (m === 0 && hoje.getDate() < nasc.getDate())) {
+      idade--;
+    }
+    return idade;
+  };
+
+  const idade = calcularIdade(dadosMembro.data_nascimento);
+  const isMenorDeIdade = idade !== null && idade < 18;
+  const isCasado = dadosMembro.estado_civil === "Casado(a)";
 
   // ==================================================
   // COMPRESSOR DE IMAGEM NO LADO DO CLIENTE
@@ -362,6 +385,11 @@ export default function EditarMembro() {
         data_batismo: dadosMembro.data_batismo || null, 
         foto_url: novaFotoUrl,
         congregacao: congregacaoFinalSegura,
+        
+        // CAMPOS CONDICIONAIS SALVOS COM INTELIGÊNCIA
+        responsavel: isMenorDeIdade ? (dadosMembro.responsavel || null) : null,
+        nome_conjuge: isCasado ? (dadosMembro.nome_conjuge || null) : null,
+
         acessa_sistema: acessoFinal,
         perfis: acessoFinal ? dadosMembro.perfis : [],
         nivel_acesso: acessoFinal && dadosMembro.perfis.length > 0 ? dadosMembro.perfis[0] : "Membro" 
@@ -460,6 +488,22 @@ export default function EditarMembro() {
               <label className="block text-sm font-semibold text-gray-700 mb-1">Data de Nascimento</label>
               <input name="data_nascimento" value={dadosMembro.data_nascimento} onChange={handleChange} type="date" className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
+
+            {/* CAMPO CONDICIONAL: RESPONSÁVEL */}
+            {isMenorDeIdade && (
+              <div className="md:col-span-2 bg-blue-50 p-4 rounded-md border border-blue-100 transition-all duration-300">
+                <label className="block text-sm font-semibold text-blue-900 mb-1">Nome do Responsável *</label>
+                <input 
+                  required={isMenorDeIdade}
+                  name="responsavel" 
+                  value={dadosMembro.responsavel}
+                  onChange={handleChange}
+                  type="text" 
+                  className="w-full p-3 border border-blue-200 rounded-md outline-none focus:ring-2 focus:ring-blue-500" 
+                  placeholder="Nome de quem responde por este menor" 
+                />
+              </div>
+            )}
             
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">CPF <span className="text-xs font-normal text-gray-500 ml-1">(Apenas números)</span></label>
@@ -475,7 +519,24 @@ export default function EditarMembro() {
                 <option value="Viúvo(a)">Viúvo(a)</option>
               </select>
             </div>
-            <div>
+
+            {/* CAMPO CONDICIONAL: CÔNJUGE */}
+            {isCasado && (
+              <div className="md:col-span-2 bg-pink-50 p-4 rounded-md border border-pink-100 transition-all duration-300">
+                <label className="block text-sm font-semibold text-pink-900 mb-1">Nome do Cônjuge *</label>
+                <input 
+                  required={isCasado}
+                  name="nome_conjuge" 
+                  value={dadosMembro.nome_conjuge}
+                  onChange={handleChange}
+                  type="text" 
+                  className="w-full p-3 border border-pink-200 rounded-md outline-none focus:ring-2 focus:ring-pink-500" 
+                  placeholder="Ex: João da Silva" 
+                />
+              </div>
+            )}
+
+            <div className="md:col-span-2">
               <label className="block text-sm font-semibold text-gray-700 mb-1">WhatsApp / Telefone</label>
               <input name="telefone" value={dadosMembro.telefone} onChange={handleChange} type="text" className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500" />
             </div>

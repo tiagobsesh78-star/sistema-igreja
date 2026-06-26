@@ -27,7 +27,11 @@ export default function NovoMembro() {
   const [acessaSistema, setAcessaSistema] = useState(false);
   const [perfisSelecionados, setPerfisSelecionados] = useState<string[]>(['Membro']);
   
-  // Novos states para controle Hierárquico de Congregações
+  // Novos states para os campos condicionais
+  const [dataNascimento, setDataNascimento] = useState("");
+  const [estadoCivil, setEstadoCivil] = useState("Solteiro(a)");
+
+  // States para controle Hierárquico de Congregações
   const [congregacoes, setCongregacoes] = useState<string[]>([]);
   const [carregandoCongregacoes, setCarregandoCongregacoes] = useState(true);
   const [ehSede, setEhSede] = useState(false);
@@ -108,6 +112,25 @@ export default function NovoMembro() {
 
     buscarListaCongregacoes();
   }, [router]);
+
+  // ==================================================
+  // LÓGICA DOS CAMPOS CONDICIONAIS
+  // ==================================================
+  const calcularIdade = (data: string) => {
+    if (!data) return null;
+    const hoje = new Date();
+    const nasc = new Date(data);
+    let idade = hoje.getFullYear() - nasc.getFullYear();
+    const m = hoje.getMonth() - nasc.getMonth();
+    if (m < 0 || (m === 0 && hoje.getDate() < nasc.getDate())) {
+      idade--;
+    }
+    return idade;
+  };
+
+  const idade = calcularIdade(dataNascimento);
+  const isMenorDeIdade = idade !== null && idade < 18;
+  const isCasado = estadoCivil === "Casado(a)";
 
   // ==================================================
   // FUNÇÃO DE COMPRESSÃO DE IMAGEM NO LADO DO CLIENTE
@@ -201,7 +224,6 @@ export default function NovoMembro() {
         setCarregando(false);
     }
   };
-
 
   // 3. FUNÇÕES COMUNS
   const togglePerfil = (perfil: string) => {
@@ -302,8 +324,8 @@ export default function NovoMembro() {
         nome_completo: formData.get("nome_completo") || "", 
         genero: generoSelecionado, 
         cpf: cpfFormatado || "",
-        data_nascimento: formData.get("data_nascimento") || null, 
-        estado_civil: formData.get("estado_civil") || "",
+        data_nascimento: dataNascimento || null, 
+        estado_civil: estadoCivil || "",
         telefone: formData.get("telefone") || "", 
         endereco_rua: formData.get("endereco_rua") || "", 
         endereco_numero: formData.get("endereco_numero") || "",
@@ -314,7 +336,12 @@ export default function NovoMembro() {
         igreja_batismo: formData.get("igreja_batismo") || "", 
         cargo: cargoFinal, 
         foto_url: fotoUrl, 
-        congregacao: congregacaoFinal, // Valor Injetado com Segurança
+        congregacao: congregacaoFinal,
+        
+        // CAMPOS CONDICIONAIS SALVOS DE FORMA INTELIGENTE
+        responsavel: isMenorDeIdade ? (formData.get("responsavel") || null) : null,
+        nome_conjuge: isCasado ? (formData.get("nome_conjuge") || null) : null,
+
         acessa_sistema: acessaSistema,
         senha: acessaSistema ? formData.get("senha") : null,
         perfis: acessaSistema ? perfisSelecionados : [], 
@@ -345,6 +372,7 @@ export default function NovoMembro() {
               <label className="block text-sm font-semibold text-gray-700 mb-1">Nome Completo *</label>
               <input required name="nome_completo" type="text" className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ex: Maria Silva" />
             </div>
+            
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">Gênero</label>
               <select name="genero" className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500 bg-white">
@@ -352,10 +380,31 @@ export default function NovoMembro() {
                 <option value="Feminino">Feminino</option>
               </select>
             </div>
+            
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">Data de Nascimento</label>
-              <input name="data_nascimento" type="date" className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500" />
+              <input 
+                name="data_nascimento" 
+                type="date" 
+                value={dataNascimento}
+                onChange={(e) => setDataNascimento(e.target.value)}
+                className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500" 
+              />
             </div>
+
+            {/* CAMPO CONDICIONAL: RESPONSÁVEL */}
+            {isMenorDeIdade && (
+              <div className="md:col-span-2 bg-blue-50 p-4 rounded-md border border-blue-100 transition-all duration-300">
+                <label className="block text-sm font-semibold text-blue-900 mb-1">Nome do Responsável *</label>
+                <input 
+                  required={isMenorDeIdade}
+                  name="responsavel" 
+                  type="text" 
+                  className="w-full p-3 border border-blue-200 rounded-md outline-none focus:ring-2 focus:ring-blue-500" 
+                  placeholder="Nome de quem responde por este menor" 
+                />
+              </div>
+            )}
             
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">
@@ -374,14 +423,34 @@ export default function NovoMembro() {
 
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">Estado Civil</label>
-              <select name="estado_civil" className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+              <select 
+                name="estado_civil" 
+                value={estadoCivil}
+                onChange={(e) => setEstadoCivil(e.target.value)}
+                className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              >
                 <option value="Solteiro(a)">Solteiro(a)</option>
                 <option value="Casado(a)">Casado(a)</option>
                 <option value="Divorciado(a)">Divorciado(a)</option>
                 <option value="Viúvo(a)">Viúvo(a)</option>
               </select>
             </div>
-            <div>
+
+            {/* CAMPO CONDICIONAL: CÔNJUGE */}
+            {isCasado && (
+              <div className="md:col-span-2 bg-pink-50 p-4 rounded-md border border-pink-100 transition-all duration-300">
+                <label className="block text-sm font-semibold text-pink-900 mb-1">Nome do Cônjuge *</label>
+                <input 
+                  required={isCasado}
+                  name="nome_conjuge" 
+                  type="text" 
+                  className="w-full p-3 border border-pink-200 rounded-md outline-none focus:ring-2 focus:ring-pink-500" 
+                  placeholder="Ex: João da Silva" 
+                />
+              </div>
+            )}
+
+            <div className="md:col-span-2">
               <label className="block text-sm font-semibold text-gray-700 mb-1">WhatsApp / Telefone</label>
               <input name="telefone" type="text" className="w-full p-3 border rounded-md outline-none focus:ring-2 focus:ring-blue-500" placeholder="(84) 99999-9999" />
             </div>

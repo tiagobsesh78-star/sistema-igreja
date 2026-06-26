@@ -13,6 +13,8 @@ interface Membro {
   genero: string;
   estado_civil: string;
   congregacao: string;
+  responsavel?: string;
+  nome_conjuge: string;
 }
 
 interface Departamento {
@@ -33,15 +35,15 @@ interface DepartamentoMembro {
   membros: Membro;
 }
 
-// Mapeamento dinâmico de cores para dar vida aos Departamentos
+// PALETA DE CORES: Cabeçalhos com cores sólidas e vibrantes
 const paletasDeCores = [
-  { bg: 'bg-teal-50', border: 'border-teal-100', titulo: 'text-teal-900', sub: 'text-teal-700', anel: 'ring-teal-500' },
-  { bg: 'bg-blue-50', border: 'border-blue-100', titulo: 'text-blue-900', sub: 'text-blue-700', anel: 'ring-blue-500' },
-  { bg: 'bg-fuchsia-50', border: 'border-fuchsia-100', titulo: 'text-fuchsia-900', sub: 'text-fuchsia-700', anel: 'ring-fuchsia-500' },
-  { bg: 'bg-amber-50', border: 'border-amber-100', titulo: 'text-amber-900', sub: 'text-amber-700', anel: 'ring-amber-500' },
-  { bg: 'bg-rose-50', border: 'border-rose-100', titulo: 'text-rose-900', sub: 'text-rose-700', anel: 'ring-rose-500' },
-  { bg: 'bg-indigo-50', border: 'border-indigo-100', titulo: 'text-indigo-900', sub: 'text-indigo-700', anel: 'ring-indigo-500' },
-  { bg: 'bg-emerald-50', border: 'border-emerald-100', titulo: 'text-emerald-900', sub: 'text-emerald-700', anel: 'ring-emerald-500' },
+  { bg: 'bg-teal-600', border: 'border-teal-700', titulo: 'text-white', sub: 'text-teal-100', anel: 'ring-teal-500', textoForte: 'text-teal-700' },
+  { bg: 'bg-blue-600', border: 'border-blue-700', titulo: 'text-white', sub: 'text-blue-100', anel: 'ring-blue-500', textoForte: 'text-blue-700' },
+  { bg: 'bg-fuchsia-600', border: 'border-fuchsia-700', titulo: 'text-white', sub: 'text-fuchsia-100', anel: 'ring-fuchsia-500', textoForte: 'text-fuchsia-700' },
+  { bg: 'bg-amber-500', border: 'border-amber-600', titulo: 'text-white', sub: 'text-amber-50', anel: 'ring-amber-500', textoForte: 'text-amber-700' },
+  { bg: 'bg-rose-600', border: 'border-rose-700', titulo: 'text-white', sub: 'text-rose-100', anel: 'ring-rose-500', textoForte: 'text-rose-700' },
+  { bg: 'bg-indigo-600', border: 'border-indigo-700', titulo: 'text-white', sub: 'text-indigo-100', anel: 'ring-indigo-500', textoForte: 'text-indigo-700' },
+  { bg: 'bg-emerald-600', border: 'border-emerald-700', titulo: 'text-white', sub: 'text-emerald-100', anel: 'ring-emerald-500', textoForte: 'text-emerald-700' },
 ];
 
 export default function DepartamentosPage() {
@@ -76,12 +78,13 @@ export default function DepartamentosPage() {
   const [tipoAcao, setTipoAcao] = useState<"Copiar" | "Transferir">("Copiar");
   const [deptDestinoId, setDeptDestinoId] = useState("");
 
-  // Estados para edição inteligente da "Função"
+  // Estados para edição inteligente da Descrição
   const [editandoFuncaoId, setEditandoFuncaoId] = useState<number | null>(null);
   const [funcaoTexto, setFuncaoTexto] = useState("");
 
   useEffect(() => {
     carregarContexto();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const carregarContexto = async () => {
@@ -143,14 +146,13 @@ export default function DepartamentosPage() {
     const { data: depts } = await supabase.from("departamentos").select("*").eq("igreja_id", idIgreja).order("nome");
     if (depts) setDepartamentos(depts);
 
-    const { data: membs } = await supabase.from("membros").select("id, nome_completo, data_nascimento, genero, estado_civil, congregacao").eq("igreja_id", idIgreja).order("nome_completo");
+    const { data: membs } = await supabase.from("membros").select("id, nome_completo, data_nascimento, genero, estado_civil, congregacao, responsavel, nome_conjuge").eq("igreja_id", idIgreja).order("nome_completo");
     if (membs) setMembros(membs);
 
-    const { data: vincs } = await supabase.from("departamento_membros").select("*, membros(id, nome_completo, data_nascimento, genero, estado_civil, congregacao)").eq("igreja_id", idIgreja);
+    const { data: vincs } = await supabase.from("departamento_membros").select("*, membros(id, nome_completo, data_nascimento, genero, estado_civil, congregacao, responsavel, nome_conjuge)").eq("igreja_id", idIgreja);
     if (vincs) setVinculos(vincs as any);
   };
 
-  // Funções Auxiliares de Datas e Inteligência
   const isHoje = (dataNascimento: string | null) => {
     if (!dataNascimento) return false;
     const hoje = new Date();
@@ -202,7 +204,6 @@ export default function DepartamentosPage() {
 
   const getPaleta = (id: number) => paletasDeCores[id % paletasDeCores.length];
 
-  // Ações Principais
   const salvarDepartamento = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!igrejaIdLogada) return;
@@ -249,16 +250,12 @@ export default function DepartamentosPage() {
     setModalMembrosAberto(true);
   };
 
-  // --- MÁGICA: FUNÇÃO BLINDADA DE MARCAR/DESMARCAR ---
   const toggleMembro = (membroId: string) => {
     const id = String(membroId);
     setMembrosSelecionados(prev => {
-      // Se ele já estava marcado, cria uma nova lista SEM ele (desmarca)
       if (prev.includes(id)) {
         return prev.filter(selecionado => selecionado !== id);
-      } 
-      // Se não estava marcado, adiciona na lista (marca)
-      else {
+      } else {
         return [...prev, id];
       }
     });
@@ -325,11 +322,19 @@ export default function DepartamentosPage() {
   const departamentosVisiveis = departamentosDaCongregacao.filter(d => deptFiltros.length === 0 || deptFiltros.includes(d.id));
   const podeMudarFiltro = perfisUsuario.includes("Pastor/Presbítero") || perfisUsuario.includes("Secretário") || perfisUsuario.includes("Administrador");
 
+  let gridClasses = "grid gap-6 w-full ";
+  if (departamentosVisiveis.length === 1) {
+    gridClasses += "grid-cols-1 md:max-w-4xl md:mx-auto";
+  } else if (departamentosVisiveis.length === 2) {
+    gridClasses += "grid-cols-1 md:grid-cols-2 md:max-w-5xl md:mx-auto";
+  } else {
+    gridClasses += "grid-cols-1 md:grid-cols-2 xl:grid-cols-3";
+  }
+
   if (carregando) return <div className="p-8 text-center text-gray-500">Carregando departamentos...</div>;
 
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-6">
-      {/* Cabeçalho da Página */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold text-gray-800">Departamentos</h1>
@@ -369,7 +374,6 @@ export default function DepartamentosPage() {
         </div>
       </div>
 
-      {/* Botões Inteligentes de Filtro de Departamentos (Visíveis) */}
       {departamentosDaCongregacao.length > 0 && (
         <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-200">
           <button 
@@ -392,7 +396,7 @@ export default function DepartamentosPage() {
                     : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50 hover:border-gray-400'
                   }`}
               >
-                <span className={`w-2.5 h-2.5 rounded-full ${isSelecionado ? paleta.border.replace('border-', 'bg-') : 'bg-gray-300'}`}></span>
+                <span className={`w-2.5 h-2.5 rounded-full ${isSelecionado ? 'bg-white' : paleta.bg.replace('bg-', 'bg-')}`}></span>
                 {d.nome}
               </button>
             );
@@ -400,15 +404,14 @@ export default function DepartamentosPage() {
         </div>
       )}
 
-      {/* Grid de Departamentos Exibidos */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+      <div className={gridClasses}>
         {departamentosVisiveis.map(dept => {
           const liderados = vinculos.filter(v => v.departamento_id === dept.id);
           const paleta = getPaleta(dept.id);
           
           return (
             <div key={dept.id} className="bg-white rounded-2xl shadow-md border border-gray-100 overflow-hidden flex flex-col transition-all hover:shadow-lg">
-              {/* Cabeçalho do Card (Colorido Dinamicamente) */}
+              
               <div className={`${paleta.bg} border-b ${paleta.border} p-5 flex justify-between items-start`}>
                 <div>
                   <h3 className={`text-xl font-black ${paleta.titulo}`}>{dept.nome}</h3>
@@ -420,24 +423,24 @@ export default function DepartamentosPage() {
                     {!dept.faixa_etaria_min && !dept.genero && !dept.estado_civil && <p>Aberto para todos.</p>}
                   </div>
                 </div>
-                <div className="flex gap-2 bg-white/50 p-1.5 rounded-lg backdrop-blur-sm shadow-sm border border-white/50">
-                  <button onClick={() => { setFormDept(dept); setModalDeptAberto(true); }} className="text-gray-500 hover:text-blue-600 px-1" title="Editar Filtros">✎</button>
-                  <button onClick={() => excluirDepartamento(dept.id)} className="text-gray-500 hover:text-red-600 px-1" title="Excluir">✕</button>
+                
+                <div className="flex gap-1.5 bg-black/10 p-1 rounded-lg backdrop-blur-sm shadow-inner border border-black/10">
+                  <button onClick={() => { setFormDept({ ...dept, faixa_etaria_min: dept.faixa_etaria_min ?? "", faixa_etaria_max: dept.faixa_etaria_max ?? "", genero: dept.genero ?? "", estado_civil: dept.estado_civil ?? "" }); setModalDeptAberto(true); }} className="text-white/80 hover:text-white px-1.5 py-0.5 rounded hover:bg-white/20 transition-all" title="Editar Filtros">✎</button>
+                  <button onClick={() => excluirDepartamento(dept.id)} className="text-white/80 hover:text-red-200 px-1.5 py-0.5 rounded hover:bg-white/20 transition-all" title="Excluir">✕</button>
                 </div>
               </div>
 
-              {/* Corpo do Card (Lista) */}
               <div className="p-5 flex-1 flex flex-col bg-gray-50/30">
                 <div className="flex justify-between items-center mb-4">
                   <span className="text-sm font-bold text-gray-700 bg-gray-100 px-3 py-1 rounded-full border border-gray-200">
                     👥 Liderados: {liderados.length}
                   </span>
-                  <button onClick={() => abrirModalMembros(dept)} className={`text-sm font-bold ${paleta.titulo} hover:underline decoration-2 underline-offset-4`}>
+                  <button onClick={() => abrirModalMembros(dept)} className={`text-sm font-bold ${paleta.textoForte} hover:underline decoration-2 underline-offset-4`}>
                     + Gerenciar
                   </button>
                 </div>
 
-                <div className="space-y-3 max-h-[320px] overflow-y-auto pr-2 custom-scrollbar flex-1">
+                <div className={`space-y-3 overflow-y-auto pr-2 custom-scrollbar flex-1 ${departamentosVisiveis.length === 1 ? 'max-h-[60vh] min-h-[300px]' : 'max-h-[320px]'}`}>
                   {liderados.length === 0 ? (
                     <div className="h-full flex flex-col items-center justify-center text-center text-gray-400 py-8">
                       <p className="text-2xl mb-2">📥</p>
@@ -461,14 +464,25 @@ export default function DepartamentosPage() {
                             }`}
                         >
                           <div className="flex justify-between items-start">
-                            <div>
-                              <p className={`font-bold text-sm flex items-center gap-1.5 ${aniversarioHoje ? 'text-orange-900' : 'text-gray-800'}`}>
-                                {m.nome_completo}
+                            <div className="min-w-0 flex-1">
+                              <p className={`font-bold text-sm flex items-center flex-wrap gap-1.5 ${aniversarioHoje ? 'text-orange-900' : 'text-gray-800'}`}>
+                                <span className="truncate">{m.nome_completo}</span>
                                 {aniversarioHoje && <span title="Faz aniversário hoje!" className="text-lg animate-bounce drop-shadow-sm">🎉</span>}
                               </p>
                               <p className={`text-[11px] mt-0.5 ${aniversarioHoje ? 'text-orange-700 font-bold' : 'text-gray-500 font-medium'}`}>
                                 {idade} anos • Niver: {formatarDataAniversario(m.data_nascimento)} {aniversarioHoje && <span className="bg-orange-200 text-orange-800 px-1.5 rounded ml-1 uppercase text-[10px]">Hoje!</span>}
                               </p>
+
+                              {m.nome_conjuge && (
+                                <p className="text-[10px] text-pink-600 font-bold mt-1 bg-pink-50 border border-pink-100 px-1.5 py-0.5 rounded w-max max-w-full truncate">
+                                  💍 Cônjuge: {m.nome_conjuge}
+                                </p>
+                              )}
+                              {m.responsavel && (
+                                <p className="text-[10px] text-blue-600 font-bold mt-1 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded w-max max-w-full truncate">
+                                  🛡️ Resp: {m.responsavel}
+                                </p>
+                              )}
                             </div>
                             <div className="flex gap-1.5 shrink-0 ml-2">
                               <button 
@@ -490,20 +504,19 @@ export default function DepartamentosPage() {
                             </div>
                           </div>
                           
-                          {/* Edição Inteligente da Função - Pequena e Discreta */}
                           <div className="mt-2.5">
                             {editandoFuncao ? (
                               <div className="flex items-center gap-1.5 w-full max-w-[240px]">
                                 <input 
                                   type="text" 
-                                  value={funcaoTexto} 
+                                  value={funcaoTexto || ""} 
                                   onChange={(e) => setFuncaoTexto(e.target.value)}
                                   onKeyDown={(e) => e.key === 'Enter' && salvarFuncaoAtiva(vinculo.id)}
-                                  placeholder="Cargo/Função..."
+                                  placeholder="Escreva uma descrição..."
                                   autoFocus
-                                  className="w-full text-xs px-2.5 py-1.5 border border-teal-400 rounded-md focus:outline-none focus:ring-1 focus:ring-teal-500 bg-white"
+                                  className={`w-full text-xs px-2.5 py-1.5 border rounded-md focus:outline-none focus:ring-1 bg-white ${paleta.border} ${paleta.anel}`}
                                 />
-                                <button onClick={() => salvarFuncaoAtiva(vinculo.id)} className="bg-teal-100 hover:bg-teal-200 text-teal-700 p-1.5 rounded-md transition-colors shrink-0" title="Salvar (Enter)">
+                                <button onClick={() => salvarFuncaoAtiva(vinculo.id)} className={`bg-gray-100 hover:bg-gray-200 ${paleta.textoForte} p-1.5 rounded-md transition-colors shrink-0`} title="Salvar (Enter)">
                                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" /></svg>
                                 </button>
                                 <button onClick={() => setEditandoFuncaoId(null)} className="bg-gray-100 hover:bg-gray-200 text-gray-600 p-1.5 rounded-md transition-colors shrink-0" title="Cancelar">
@@ -518,7 +531,7 @@ export default function DepartamentosPage() {
                                 `}
                               >
                                 <span className="truncate max-w-[150px]">
-                                  {vinculo.funcao || "+ Definir função"}
+                                  {vinculo.funcao || "+ Adicionar descrição"}
                                 </span>
                                 <svg className={`w-3 h-3 shrink-0 ${vinculo.funcao ? 'text-gray-400' : 'text-gray-300'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                               </button>
@@ -558,7 +571,8 @@ export default function DepartamentosPage() {
             <form onSubmit={salvarDepartamento} className="p-6 space-y-5 overflow-y-auto flex-1">
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-1.5">Nome do Departamento *</label>
-                <input type="text" required value={formDept.nome} onChange={e => setFormDept({...formDept, nome: e.target.value})} placeholder="Ex: Grupo de Jovens, Casais..." className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-gray-800 outline-none transition-shadow" />
+                {/* Aqui está a blindagem do || "" contra o valor null no Edit */}
+                <input type="text" required value={formDept.nome || ""} onChange={e => setFormDept({...formDept, nome: e.target.value})} placeholder="Ex: Grupo de Jovens, Casais..." className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-gray-800 outline-none transition-shadow" />
               </div>
               
               <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4">
@@ -566,16 +580,16 @@ export default function DepartamentosPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-1">Idade Mínima</label>
-                    <input type="number" value={formDept.faixa_etaria_min} onChange={e => setFormDept({...formDept, faixa_etaria_min: e.target.value})} placeholder="Opcional" className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-gray-800 outline-none" />
+                    <input type="number" value={formDept.faixa_etaria_min || ""} onChange={e => setFormDept({...formDept, faixa_etaria_min: e.target.value})} placeholder="Opcional" className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-gray-800 outline-none" />
                   </div>
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-1">Idade Máxima</label>
-                    <input type="number" value={formDept.faixa_etaria_max} onChange={e => setFormDept({...formDept, faixa_etaria_max: e.target.value})} placeholder="Opcional" className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-gray-800 outline-none" />
+                    <input type="number" value={formDept.faixa_etaria_max || ""} onChange={e => setFormDept({...formDept, faixa_etaria_max: e.target.value})} placeholder="Opcional" className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-gray-800 outline-none" />
                   </div>
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1">Filtro de Gênero</label>
-                  <select value={formDept.genero} onChange={e => setFormDept({...formDept, genero: e.target.value})} className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-gray-800 outline-none bg-white">
+                  <select value={formDept.genero || ""} onChange={e => setFormDept({...formDept, genero: e.target.value})} className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-gray-800 outline-none bg-white">
                     <option value="">Aberto para todos</option>
                     <option value="Masculino">Apenas Masculino</option>
                     <option value="Feminino">Apenas Feminino</option>
@@ -583,7 +597,7 @@ export default function DepartamentosPage() {
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1">Filtro de Estado Civil</label>
-                  <select value={formDept.estado_civil} onChange={e => setFormDept({...formDept, estado_civil: e.target.value})} className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-gray-800 outline-none bg-white">
+                  <select value={formDept.estado_civil || ""} onChange={e => setFormDept({...formDept, estado_civil: e.target.value})} className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-gray-800 outline-none bg-white">
                     <option value="">Aberto para todos</option>
                     <option value="Solteiro(a)">Apenas Solteiros(as)</option>
                     <option value="Casado(a)">Apenas Casados(as)</option>
@@ -602,7 +616,7 @@ export default function DepartamentosPage() {
         </div>
       )}
 
-      {/* MODAL ADICIONAR MEMBROS AO DEPARTAMENTO */}
+      {/* MODAL ADICIONAR MEMBROS */}
       {modalMembrosAberto && deptSelecionado && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[85vh]">
@@ -611,7 +625,7 @@ export default function DepartamentosPage() {
               <h2 className={`font-black text-xl ${getPaleta(deptSelecionado.id).titulo}`}>
                 Gerenciar: {deptSelecionado.nome}
               </h2>
-              <button type="button" onClick={() => setModalMembrosAberto(false)} className={`${getPaleta(deptSelecionado.id).sub} hover:text-black font-bold text-xl transition-colors`}>✕</button>
+              <button type="button" onClick={() => setModalMembrosAberto(false)} className={`${getPaleta(deptSelecionado.id).sub} hover:text-white font-bold text-xl transition-colors`}>✕</button>
             </div>
             
             <div className="p-5 shrink-0 bg-gray-50 border-b border-gray-200">
@@ -641,7 +655,7 @@ export default function DepartamentosPage() {
                         setMembrosSelecionados(Array.from(new Set([...membrosSelecionados, ...matches])));
                       }
                     }}
-                    className={`text-xs ${getPaleta(deptSelecionado.id).titulo} bg-white border-2 ${getPaleta(deptSelecionado.id).border} hover:bg-gray-50 px-4 py-2.5 rounded-xl font-bold transition-all w-full sm:w-auto flex-shrink-0 flex items-center justify-center gap-2`}
+                    className={`text-xs ${getPaleta(deptSelecionado.id).textoForte} bg-white border-2 ${getPaleta(deptSelecionado.id).border} hover:bg-gray-50 px-4 py-2.5 rounded-xl font-bold transition-all w-full sm:w-auto flex-shrink-0 flex items-center justify-center gap-2`}
                   >
                     Auto-selecionar Compatíveis
                   </button>
@@ -672,9 +686,9 @@ export default function DepartamentosPage() {
                       <div 
                         key={m.id} 
                         onClick={() => toggleMembro(m.id)}
-                        className={`flex items-center gap-4 p-4 rounded-xl border cursor-pointer select-none transition-all ${taNoDepto ? `${paleta.bg} ${paleta.border} shadow-sm ring-1 ${paleta.anel}` : 'bg-white border-gray-200 hover:bg-gray-50 hover:border-gray-300'}`}
+                        className={`flex items-center gap-4 p-4 rounded-xl border cursor-pointer select-none transition-all ${taNoDepto ? `${paleta.bg.replace('bg-','bg-')}/10 border-${paleta.border.replace('border-','')} shadow-sm ring-1 ${paleta.anel}` : 'bg-white border-gray-200 hover:bg-gray-50 hover:border-gray-300'}`}
                       >
-                        <div className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-colors ${taNoDepto ? `bg-current ${paleta.titulo} border-transparent` : 'border-gray-300 bg-white'}`}>
+                        <div className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-colors ${taNoDepto ? `bg-current ${paleta.textoForte} border-transparent` : 'border-gray-300 bg-white'}`}>
                           {taNoDepto && <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>}
                         </div>
                         
@@ -690,7 +704,7 @@ export default function DepartamentosPage() {
                       </div>
                     )
                   })}
-                </div>
+              </div>
             </div>
 
             <div className="p-5 border-t border-gray-200 shrink-0 flex gap-4 bg-gray-50">
