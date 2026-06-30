@@ -53,7 +53,7 @@ export default function Dashboard() {
   // Estados de Membros (Atualizados com os novos indicadores)
   const [stats, setStats] = useState({
     membros: 0,
-    congregados: 0,
+    cadastrados: 0,
     criancas: 0,
     jovens: 0,
     ativos: 0,
@@ -227,8 +227,8 @@ export default function Dashboard() {
     };
 
     // Novas métricas calculadas em tempo de execução
-    const totalMembros = membrosFiltrados.filter(m => m.cargo?.trim().toLowerCase() !== "congregado").length;
-    const totalCongregados = membrosFiltrados.filter(m => m.cargo?.trim().toLowerCase() === "congregado").length;
+    let totalMembros = 0;
+    const totalCadastrados = membrosFiltrados.length; // Pega todo mundo que está cadastrado
     
     let totalCriancas = 0;
     let totalJovens = 0;
@@ -237,6 +237,13 @@ export default function Dashboard() {
     let totalMulheres12Mais = 0;
 
     membrosFiltrados.forEach(m => {
+      // 1. Membros (Menos os Congregados baseados no Perfil de Acesso)
+      const perfisDesteMembro = formatarPerfis(m.perfis || m.nivel_acesso);
+      if (!perfisDesteMembro.includes("Congregado")) {
+        totalMembros++; // Se não tem o perfil congregado, entra na contagem de Membros
+      }
+
+      // 2. Cálculo de Idade e Gênero
       const idade = calcularIdade(m.data_nascimento);
       
       if (idade >= 0 && idade <= 11) {
@@ -261,7 +268,7 @@ export default function Dashboard() {
 
     setStats({ 
       membros: totalMembros, 
-      congregados: totalCongregados, 
+      cadastrados: totalCadastrados, 
       criancas: totalCriancas, 
       jovens: totalJovens, 
       ativos: totalAtivos,
@@ -423,15 +430,15 @@ export default function Dashboard() {
             <h3 className="text-3xl font-bold text-gray-900 ml-1">{stats.membros}</h3>
           </div>
 
-          {/* CARD 2: TOTAL DE CONGREGADOS */}
+          {/* CARD 2: TOTAL DE CADASTRADOS (TODOS NO SISTEMA) */}
           <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center gap-2 hover:border-purple-200 transition-colors">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-purple-50 flex items-center justify-center text-purple-600">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
               </div>
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Congregados</p>
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Cadastrados</p>
             </div>
-            <h3 className="text-3xl font-bold text-gray-900 ml-1">{stats.congregados}</h3>
+            <h3 className="text-3xl font-bold text-gray-900 ml-1">{stats.cadastrados}</h3>
           </div>
 
           {/* CARD 3: CRIANÇAS (0 A 11 ANOS) */}
