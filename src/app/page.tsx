@@ -50,8 +50,17 @@ export default function Dashboard() {
   const [dadosMembrosRaw, setDadosMembrosRaw] = useState<any[]>([]);
   const [programacoesRaw, setProgramacoesRaw] = useState<any[]>([]);
 
-  // Estados de Membros
-  const [stats, setStats] = useState({ total: 0, ativos: 0, inativos: 0, homens: 0, mulheres: 0 });
+  // Estados de Membros (Atualizados com os novos indicadores)
+  const [stats, setStats] = useState({
+    membros: 0,
+    congregados: 0,
+    criancas: 0,
+    jovens: 0,
+    ativos: 0,
+    adultos: 0,
+    homens12Mais: 0,
+    mulheres12Mais: 0
+  });
   const [recentes, setRecentes] = useState<any[]>([]);
   const [aniversariantes, setAniversariantes] = useState<any[]>([]); 
 
@@ -196,13 +205,71 @@ export default function Dashboard() {
           return m.congregacao?.trim() === filtroCongregacao;
         });
 
-    const total = membrosFiltrados.length;
-    const ativos = membrosFiltrados.filter((m) => m.status === "Ativo").length;
-    const inativos = membrosFiltrados.filter((m) => m.status === "Inativo").length; 
-    const homens = membrosFiltrados.filter((m) => m.genero === "Masculino").length;
-    const mulheres = membrosFiltrados.filter((m) => m.genero === "Feminino").length;
+    // Função interna para calcular idade com precisão milimétrica
+    const calcularIdade = (dataNasc: string) => {
+      if (!dataNasc) return -1;
+      const partes = dataNasc.split("-");
+      if (partes.length !== 3) return -1;
+      
+      const anoNasc = parseInt(partes[0], 10);
+      const mesNasc = parseInt(partes[1], 10);
+      const diaNasc = parseInt(partes[2], 10);
+      
+      const hoje = new Date();
+      let idade = hoje.getFullYear() - anoNasc;
+      const mesAtual = hoje.getMonth() + 1;
+      const diaAtual = hoje.getDate();
+      
+      if (mesAtual < mesNasc || (mesAtual === mesNasc && diaAtual < diaNasc)) {
+        idade--;
+      }
+      return idade;
+    };
 
-    setStats({ total, ativos, inativos, homens, mulheres });
+    // Novas métricas calculadas em tempo de execução
+    const totalMembros = membrosFiltrados.filter(m => m.cargo?.trim().toLowerCase() !== "congregado").length;
+    const totalCongregados = membrosFiltrados.filter(m => m.cargo?.trim().toLowerCase() === "congregado").length;
+    
+    let totalCriancas = 0;
+    let totalJovens = 0;
+    let totalAdultos = 0;
+    let totalHomens12Mais = 0;
+    let totalMulheres12Mais = 0;
+
+    membrosFiltrados.forEach(m => {
+      const idade = calcularIdade(m.data_nascimento);
+      
+      if (idade >= 0 && idade <= 11) {
+        totalCriancas++;
+      } else if (idade >= 12 && idade <= 18) {
+        totalJovens++;
+      }
+      
+      // Adultos (> 18)
+      if (idade > 18) {
+        totalAdultos++;
+      }
+
+      // Homens e Mulheres a partir de 12 anos
+      if (idade >= 12) {
+        if (m.genero === "Masculino") totalHomens12Mais++;
+        if (m.genero === "Feminino") totalMulheres12Mais++;
+      }
+    });
+
+    const totalAtivos = membrosFiltrados.filter((m) => m.status === "Ativo").length;
+
+    setStats({ 
+      membros: totalMembros, 
+      congregados: totalCongregados, 
+      criancas: totalCriancas, 
+      jovens: totalJovens, 
+      ativos: totalAtivos,
+      adultos: totalAdultos,
+      homens12Mais: totalHomens12Mais,
+      mulheres12Mais: totalMulheres12Mais
+    });
+
     setRecentes(membrosFiltrados.slice(0, 5));
 
     const hoje = new Date();
@@ -267,11 +334,21 @@ export default function Dashboard() {
     );
   }).sort((a, b) => new Date(a.data + "T00:00:00").getTime() - new Date(b.data + "T00:00:00").getTime());
 
+  // ==========================================
+  // REGRAS DE PERMISSÃO DE VISUALIZAÇÃO
+  // ==========================================
   const podeAdicionarMembro = podeEditar(perfisUsuario, 'membros');
+  
+  const podeVerEstatisticas = perfisUsuario.includes("Secretário") || 
+                              perfisUsuario.includes("Pastor/Presbítero") || 
+                              perfisUsuario.includes("Líder") ||
+                              perfisUsuario.includes("Administrador");
+
   const podeVerUltimosMembros = perfisUsuario.includes("Secretário") || 
                                 perfisUsuario.includes("Pastor/Presbítero") || 
                                 perfisUsuario.includes("Líder") ||
                                 perfisUsuario.includes("Administrador");
+
   const podeVerTodosMembros = perfisUsuario.includes("Secretário") || 
                               perfisUsuario.includes("Pastor/Presbítero") || 
                               perfisUsuario.includes("Administrador");
@@ -331,58 +408,100 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* 2. ESTATÍSTICAS RÁPIDAS */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 md:gap-6">
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center gap-2 hover:border-blue-200 transition-colors">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-600">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+      {/* 2. ESTATÍSTICAS RÁPIDAS - OCULTO PARA QUEM NÃO É LIDERANÇA */}
+      {podeVerEstatisticas && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
+          
+          {/* CARD 1: TOTAL DE MEMBROS (MENOS CONGREGADOS) */}
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center gap-2 hover:border-blue-200 transition-colors">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-600">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+              </div>
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Membros</p>
             </div>
-            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Total</p>
+            <h3 className="text-3xl font-bold text-gray-900 ml-1">{stats.membros}</h3>
           </div>
-          <h3 className="text-3xl font-bold text-gray-900 ml-1">{stats.total}</h3>
-        </div>
 
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center gap-2 hover:border-green-200 transition-colors">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-green-50 flex items-center justify-center text-green-600">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+          {/* CARD 2: TOTAL DE CONGREGADOS */}
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center gap-2 hover:border-purple-200 transition-colors">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-purple-50 flex items-center justify-center text-purple-600">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+              </div>
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Congregados</p>
             </div>
-            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Ativos</p>
+            <h3 className="text-3xl font-bold text-gray-900 ml-1">{stats.congregados}</h3>
           </div>
-          <h3 className="text-3xl font-bold text-gray-900 ml-1">{stats.ativos}</h3>
-        </div>
 
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center gap-2 hover:border-red-200 transition-colors">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center text-red-500">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>
+          {/* CARD 3: CRIANÇAS (0 A 11 ANOS) */}
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center gap-2 hover:border-amber-200 transition-colors">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-amber-50 flex items-center justify-center text-amber-500">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+              </div>
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Crianças (0-11)</p>
             </div>
-            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Inativos</p>
+            <h3 className="text-3xl font-bold text-gray-900 ml-1">{stats.criancas}</h3>
           </div>
-          <h3 className="text-3xl font-bold text-gray-900 ml-1">{stats.inativos}</h3>
-        </div>
 
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center gap-2 hover:border-indigo-200 transition-colors">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+          {/* CARD 4: JOVENS E ADOLESCENTES (12 A 18 ANOS) */}
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center gap-2 hover:border-indigo-200 transition-colors">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+              </div>
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Jovens (12-18)</p>
             </div>
-            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Homens</p>
+            <h3 className="text-3xl font-bold text-gray-900 ml-1">{stats.jovens}</h3>
           </div>
-          <h3 className="text-3xl font-bold text-gray-900 ml-1">{stats.homens}</h3>
-        </div>
 
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center gap-2 col-span-2 lg:col-span-1 hover:border-pink-200 transition-colors">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-pink-50 flex items-center justify-center text-pink-600">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+          {/* CARD 5: ADULTOS (> 18 ANOS) */}
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center gap-2 hover:border-rose-200 transition-colors">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-rose-50 flex items-center justify-center text-rose-600">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+              </div>
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Adultos (&gt; 18)</p>
             </div>
-            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Mulheres</p>
+            <h3 className="text-3xl font-bold text-gray-900 ml-1">{stats.adultos}</h3>
           </div>
-          <h3 className="text-3xl font-bold text-gray-900 ml-1">{stats.mulheres}</h3>
+
+          {/* CARD 6: HOMENS (A PARTIR DE 12 ANOS) */}
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center gap-2 hover:border-cyan-200 transition-colors">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-cyan-50 flex items-center justify-center text-cyan-600">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+              </div>
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Homens (12+)</p>
+            </div>
+            <h3 className="text-3xl font-bold text-gray-900 ml-1">{stats.homens12Mais}</h3>
+          </div>
+
+          {/* CARD 7: MULHERES (A PARTIR DE 12 ANOS) */}
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center gap-2 hover:border-pink-200 transition-colors">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-pink-50 flex items-center justify-center text-pink-600">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+              </div>
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Mulheres (12+)</p>
+            </div>
+            <h3 className="text-3xl font-bold text-gray-900 ml-1">{stats.mulheres12Mais}</h3>
+          </div>
+
+          {/* CARD 8: TOTAL DE ATIVOS */}
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center gap-2 hover:border-emerald-200 transition-colors">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-600">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+              </div>
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Total Ativos</p>
+            </div>
+            <h3 className="text-3xl font-bold text-gray-900 ml-1">{stats.ativos}</h3>
+          </div>
+
         </div>
-      </div>
+      )}
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
         
@@ -666,7 +785,7 @@ export default function Dashboard() {
                             </>
                           ) : (
                             <>
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>
                               Copiar Chave
                             </>
                           )}
