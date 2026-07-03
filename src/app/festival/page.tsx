@@ -69,7 +69,7 @@ export default function FestivalPage() {
             </div>
             <div>
               <p className="text-sm text-[#A8988C]">Data e Horário</p>
-              <p className="font-bold text-[#F4EFE6]">Sábado, 15 de Novembro • 18h</p>
+              <p className="font-bold text-[#F4EFE6]">Sábado, 18 de Julho • 15h</p>
             </div>
           </div>
 
