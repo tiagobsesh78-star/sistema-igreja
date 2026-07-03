@@ -11,9 +11,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const router = useRouter();
   const pathname = usePathname();
   
-  // REGRA DE ISOLAMENTO: Se for a página comercial (/conheca) ou login, renderiza o conteúdo liso ("puro")
+  // REGRA DE ISOLAMENTO: Se for a página comercial (/conheca), login ou festival, renderiza o conteúdo liso ("puro")
   const ehPaginaLogin = pathname === "/login";
   const ehPaginaComercial = pathname === "/conheca";
+  const ehPaginaFestival = pathname === "/festival";
 
   // Estados do Menu Lateral
   const [menuAberto, setMenuAberto] = useState(false);
@@ -36,19 +37,24 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
   // Carrega o nome da igreja salvo em cache imediatamente para evitar "pulos" visuais
   useEffect(() => {
-    if (ehPaginaLogin || ehPaginaComercial) return;
+    if (ehPaginaLogin || ehPaginaComercial || ehPaginaFestival) return;
     const nomeSalvo = localStorage.getItem("nomeIgrejaCadastrada");
     if (nomeSalvo) {
       setNomeIgreja(nomeSalvo);
     }
-  }, [ehPaginaLogin, ehPaginaComercial]);
+  }, [ehPaginaLogin, ehPaginaComercial, ehPaginaFestival]);
 
   // ---------------------------------------------------------
-  // Controle Dinâmico do Título da Aba (Sempre Doxo Hub)
+  // Controle Dinâmico do Título da Aba (Sempre Doxo Hub / Festival)
   // ---------------------------------------------------------
   useEffect(() => {
     if (pathname === '/login' || pathname === '/conheca') {
       document.title = 'Doxo Hub';
+      return;
+    }
+
+    if (pathname === '/festival') {
+      document.title = 'Festival de Arte Cristã | Doxo Criativa';
       return;
     }
 
@@ -75,7 +81,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
   // Carrega os dados do utilizador, a foto e as configurações da Igreja
   useEffect(() => {
-    if (ehPaginaLogin || ehPaginaComercial) return;
+    if (ehPaginaLogin || ehPaginaComercial || ehPaginaFestival) return;
 
     const userLocal = localStorage.getItem("usuarioLogado");
     if (userLocal) {
@@ -136,11 +142,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         console.error("Erro ao carregar sessão do utilizador.");
       }
     }
-  }, [pathname, ehPaginaLogin, ehPaginaComercial]);
+  }, [pathname, ehPaginaLogin, ehPaginaComercial, ehPaginaFestival]);
 
   // Fecha o menu flutuante se clicar fora dele
   useEffect(() => {
-    if (ehPaginaLogin || ehPaginaComercial) return;
+    if (ehPaginaLogin || ehPaginaComercial || ehPaginaFestival) return;
     const handleClickFora = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
       if (!target.closest(".user-menu-container")) {
@@ -149,7 +155,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     };
     document.addEventListener("mousedown", handleClickFora);
     return () => document.removeEventListener("mousedown", handleClickFora);
-  }, [ehPaginaLogin, ehPaginaComercial]);
+  }, [ehPaginaLogin, ehPaginaComercial, ehPaginaFestival]);
 
   const handleSair = () => {
     localStorage.removeItem("usuarioLogado");
@@ -206,8 +212,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     congregacaoUsuario === "geral" || 
     congregacaoUsuario === nomeIgreja?.trim()?.toLowerCase();
 
-  // Retorno simplificado para rotas isoladas (Landing Page e Login)
-  if (ehPaginaLogin || ehPaginaComercial) {
+  // Retorno simplificado para rotas isoladas (Landing Page, Login e Festival)
+  if (ehPaginaLogin || ehPaginaComercial || ehPaginaFestival) {
     return (
       <html lang="pt-BR">
         <body className="bg-gray-100 text-gray-900 overflow-x-hidden antialiased">
@@ -272,7 +278,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
             <Link href="/visitantes" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/visitantes') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Visitantes</Link>
             
-            {/* NOVO LINK PROTEGIDO: DEPARTAMENTOS */}
+            {/* LINK DEPARTAMENTOS */}
             {(perfisUsuario.includes('Secretário') || perfisUsuario.includes('Pastor/Presbítero') || perfisUsuario.includes('Líder') || perfisUsuario.includes('Administrador')) && (
               <Link 
                 href="/departamentos" 
@@ -283,7 +289,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </Link>
             )}
             
-            {/* TRAVA HIERÁRQUICA INTELIGENTE APLICADA AQUI */}
+            {/* TRAVA HIERÁRQUICA CONFIGURAÇÕES */}
             {(perfisUsuario.includes('Secretário') || perfisUsuario.includes('Pastor/Presbítero') || perfisUsuario.includes('Administrador')) && isSede && (
               <Link href="/configuracoes" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname === '/configuracoes' ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Configurações</Link>
             )}
