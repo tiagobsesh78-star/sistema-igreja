@@ -8,7 +8,6 @@ import { podeEditar, formatarPerfis } from "../../../../src/lib/permissoes";
 export default function ConfiguracoesTesouraria() {
   const router = useRouter();
   
-  // 1. STATES GERAIS E MULTI-TENANCY
   const [configuracoes, setConfiguracoes] = useState<any[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [igrejaIdLogada, setIgrejaIdLogada] = useState<string | null>(null);
@@ -18,14 +17,17 @@ export default function ConfiguracoesTesouraria() {
   const [congregacoes, setCongregacoes] = useState<string[]>([]);
   const [congregacaoSelecionada, setCongregacaoSelecionada] = useState("");
 
-  // Estados do Formulário Entradas/Saídas
   const [categoria, setCategoria] = useState("Saída");
   const [tipo, setTipo] = useState("");
-  const [percentual, setPercentual] = useState<number | "">("");
   const [origemDestino, setOrigemDestino] = useState("");
+  
+  // Controle de Tipo de Cobrança e Frequência
+  const [tipoValorDaConfig, setTipoValorDaConfig] = useState<"percentual" | "fixo">("percentual");
+  const [valorDigitado, setValorDigitado] = useState<number | "">("");
+  const [frequencia, setFrequencia] = useState("Mês");
+
   const [salvando, setSalvando] = useState(false);
 
-  // Estados para o PIX
   const [chavePix, setChavePix] = useState("");
   const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
   const [qrCodeArquivo, setQrCodeArquivo] = useState<File | null>(null);
@@ -39,7 +41,6 @@ export default function ConfiguracoesTesouraria() {
     setModalFeedback({ visivel: true, tipo, titulo, mensagem });
   };
 
-  // 2. EFFECT PRINCIPAL COM TRAVAS
   useEffect(() => {
     const usuarioLocal = localStorage.getItem("usuarioLogado");
     if (!usuarioLocal) {
@@ -61,31 +62,19 @@ export default function ConfiguracoesTesouraria() {
     async function inicializarDados() {
       setCarregando(true);
       try {
-        // Busca o nome oficial da Igreja Mãe
-        const { data: configMaster } = await supabase
-          .from("configuracao_igreja")
-          .select("nome_igreja")
-          .eq("igreja_id", igrejaId)
-          .maybeSingle();
-
+        const { data: configMaster } = await supabase.from("configuracao_igreja").select("nome_igreja").eq("igreja_id", igrejaId).maybeSingle();
         const nomeSede = configMaster?.nome_igreja?.trim() || "Sede Principal";
         setNomeSedeOficial(nomeSede);
 
-        // Define se o usuário logado é da Sede
         const congUser = usuario?.congregacao?.trim() || "";
         const congLow = congUser.toLowerCase();
         const isUserSede = !congLow || congLow === "sede" || congLow === "matriz" || congLow === "geral" || congLow === nomeSede.toLowerCase();
         
         setEhSede(isUserSede);
 
-        // Configura o Seletor de Congregações
         let congParaCarregar = nomeSede;
         if (isUserSede) {
-          const { data: filhas } = await supabase
-            .from("igrejas_filhas")
-            .select("nome")
-            .eq("igreja_id", igrejaId)
-            .order("nome", { ascending: true });
+          const { data: filhas } = await supabase.from("igrejas_filhas").select("nome").eq("igreja_id", igrejaId).order("nome", { ascending: true });
           const nomesFilhas = filhas ? filhas.map(f => f.nome) : [];
           setCongregacoes([nomeSede, ...nomesFilhas]);
         } else {
@@ -105,11 +94,9 @@ export default function ConfiguracoesTesouraria() {
     if (igrejaId) inicializarDados();
   }, [router]);
 
-  // Carrega os dados baseado na Congregação Selecionada
   async function carregarDadosEspecificos(idIgreja: string, congregacaoAlvo: string, nomeDaSede: string) {
     setCarregando(true);
     
-    // 1. Carrega as Configurações Fixas (Entradas/Saídas) travadas pela congregação
     let queryConfig = supabase
       .from("tesouraria_configuracoes")
       .select("*")
@@ -117,7 +104,6 @@ export default function ConfiguracoesTesouraria() {
       .order("categoria", { ascending: false })
       .order("id", { ascending: true });
 
-    // Trata valores antigos que estavam sem congregação assumindo que são da Sede
     if (congregacaoAlvo === nomeDaSede) {
       queryConfig = queryConfig.or(`congregacao.eq.${congregacaoAlvo},congregacao.is.null,congregacao.eq.,congregacao.ilike.sede,congregacao.ilike.geral`);
     } else {
@@ -127,28 +113,18 @@ export default function ConfiguracoesTesouraria() {
     const { data: configData } = await queryConfig;
     if (configData) setConfiguracoes(configData);
 
-    // 2. Carrega o PIX correto (Sede = tabela global | Filial = tabela filhas)
     setChavePix("");
     setQrCodeUrl(null);
     setQrCodeArquivo(null);
 
     if (congregacaoAlvo === nomeDaSede) {
-      const { data: pixData } = await supabase
-        .from("configuracao_igreja")
-        .select("chave_pix, qr_code_pix")
-        .eq("igreja_id", idIgreja)
-        .maybeSingle();
+      const { data: pixData } = await supabase.from("configuracao_igreja").select("chave_pix, qr_code_pix").eq("igreja_id", idIgreja).maybeSingle();
       if (pixData) {
         setChavePix(pixData.chave_pix || "");
         setQrCodeUrl(pixData.qr_code_pix || null);
       }
     } else {
-      const { data: pixFilha } = await supabase
-        .from("igrejas_filhas")
-        .select("chave_pix, qr_code_pix")
-        .eq("igreja_id", idIgreja)
-        .eq("nome", congregacaoAlvo)
-        .maybeSingle();
+      const { data: pixFilha } = await supabase.from("igrejas_filhas").select("chave_pix, qr_code_pix").eq("igreja_id", idIgreja).eq("nome", congregacaoAlvo).maybeSingle();
       if (pixFilha) {
         setChavePix(pixFilha.chave_pix || "");
         setQrCodeUrl(pixFilha.qr_code_pix || null);
@@ -158,40 +134,41 @@ export default function ConfiguracoesTesouraria() {
     setCarregando(false);
   }
 
-  // Dispara o recarregamento ao trocar de congregação no Select
   const handleTrocarCongregacao = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const novaCong = e.target.value;
     setCongregacaoSelecionada(novaCong);
     if (igrejaIdLogada) carregarDadosEspecificos(igrejaIdLogada, novaCong, nomeSedeOficial);
   };
 
-  // 3. FUNÇÕES DE MANIPULAÇÃO DE DADOS
   const salvarConfiguracao = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!tipo || percentual === "" || !origemDestino) {
+    if (!tipo || valorDigitado === "" || !origemDestino) {
       mostrarNotificacao("erro", "Campos Incompletos", "Por favor, preencha todos os campos da nova configuração fixa.");
       return;
     }
 
     setSalvando(true);
+    
     const novaConfig = {
       igreja_id: igrejaIdLogada,
-      congregacao: congregacaoSelecionada, // A MÁGICA ACONTECE AQUI
+      congregacao: congregacaoSelecionada,
       categoria,
       tipo,
-      percentual: Number(percentual),
       origem_destino: origemDestino,
+      tipo_valor: tipoValorDaConfig,
+      percentual: tipoValorDaConfig === "percentual" ? Number(valorDigitado) : null,
+      valor_fixo: tipoValorDaConfig === "fixo" ? Number(valorDigitado) : null,
+      frequencia: tipoValorDaConfig === "fixo" ? frequencia : null
     };
 
     const { error } = await supabase.from("tesouraria_configuracoes").insert([novaConfig]);
-
     setSalvando(false);
 
     if (error) {
       mostrarNotificacao("erro", "Erro no Servidor", "Não foi possível salvar: " + error.message);
     } else {
-      setTipo(""); setPercentual(""); setOrigemDestino("");
-      mostrarNotificacao("sucesso", "Configuração Adicionada", "A porcentagem fixa foi registrada com sucesso.");
+      setTipo(""); setValorDigitado(""); setOrigemDestino(""); setTipoValorDaConfig("percentual"); setFrequencia("Mês");
+      mostrarNotificacao("sucesso", "Configuração Adicionada", "O lançamento fixo foi registrado com sucesso.");
       if (igrejaIdLogada) carregarDadosEspecificos(igrejaIdLogada, congregacaoSelecionada, nomeSedeOficial); 
     }
   };
@@ -207,7 +184,6 @@ export default function ConfiguracoesTesouraria() {
     }
   };
 
-  // 3.1. FUNÇÃO PARA SALVAR O PIX (ROTEAMENTO INTELIGENTE)
   const salvarPix = async () => {
     if (!igrejaIdLogada) return;
     setSalvandoPix(true);
@@ -216,7 +192,6 @@ export default function ConfiguracoesTesouraria() {
     try {
       if (qrCodeArquivo) {
         const fileExt = qrCodeArquivo.name.split('.').pop();
-        // Nome único para evitar cache do navegador e conflito entre filiais
         const fileName = `${igrejaIdLogada}-${congregacaoSelecionada.replace(/\s+/g, '')}-pix-${Math.random()}.${fileExt}`;
         const filePath = `${igrejaIdLogada}/${fileName}`;
 
@@ -227,9 +202,7 @@ export default function ConfiguracoesTesouraria() {
         urlParaSalvar = publicUrlData.publicUrl;
       }
 
-      // Direciona o salvamento para a tabela correta
       if (congregacaoSelecionada === nomeSedeOficial) {
-        // Salva na Sede
         const { data: configAtual } = await supabase.from("configuracao_igreja").select("id").eq("igreja_id", igrejaIdLogada).maybeSingle();
         if (configAtual) {
           await supabase.from("configuracao_igreja").update({ chave_pix: chavePix, qr_code_pix: urlParaSalvar }).eq("id", configAtual.id);
@@ -237,7 +210,6 @@ export default function ConfiguracoesTesouraria() {
           await supabase.from("configuracao_igreja").insert([{ igreja_id: igrejaIdLogada, chave_pix: chavePix, qr_code_pix: urlParaSalvar }]);
         }
       } else {
-        // Salva na Filial
         await supabase.from("igrejas_filhas")
           .update({ chave_pix: chavePix, qr_code_pix: urlParaSalvar })
           .eq("igreja_id", igrejaIdLogada)
@@ -255,6 +227,8 @@ export default function ConfiguracoesTesouraria() {
     setSalvandoPix(false);
   };
 
+  const formatarMoedaVisual = (valor: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(valor);
+
   const configuracoesSaida = configuracoes.filter(c => c.categoria === "Saída");
   const configuracoesEntrada = configuracoes.filter(c => c.categoria === "Entrada");
 
@@ -264,11 +238,10 @@ export default function ConfiguracoesTesouraria() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between bg-white p-6 rounded-xl shadow-sm border border-gray-100 gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Configurações Globais</h1>
-          <p className="text-sm text-gray-500 mt-1">Gerencie as porcentagens fixas e o PIX por Congregação.</p>
+          <p className="text-sm text-gray-500 mt-1">Gerencie impostos, taxas, repasses e o PIX da Igreja.</p>
         </div>
         
         <div className="flex items-center gap-3 w-full sm:w-auto">
-          {/* SELETOR HIERÁRQUICO */}
           {ehSede ? (
             <select
               value={congregacaoSelecionada}
@@ -299,7 +272,6 @@ export default function ConfiguracoesTesouraria() {
         <div className="text-center py-10 text-gray-500 font-medium animate-pulse">Carregando configurações...</div>
       ) : (
         <>
-          {/* BLOCO REESTRUTURADO: CONFIGURAÇÃO DO PIX COMPATÍVEL E RESPONSIVO */}
           <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
             <div className="mb-6 border-b pb-3 border-gray-100">
               <h3 className="text-lg font-bold text-teal-800 flex items-center gap-2">
@@ -394,17 +366,16 @@ export default function ConfiguracoesTesouraria() {
             </div>
           </div>
 
-          {/* CONFIGURAÇÕES FIXAS */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="md:col-span-1 bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-fit">
-              <h3 className="text-lg font-bold text-gray-900 mb-4 border-b pb-2 border-gray-100">Nova Configuração</h3>
+              <h3 className="text-lg font-bold text-gray-900 mb-4 border-b pb-2 border-gray-100">Lançamento Fixo</h3>
               
               <form onSubmit={salvarConfiguracao} className="space-y-4">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1">Categoria</label>
                   <select 
                     value={categoria} onChange={(e) => setCategoria(e.target.value)}
-                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-teal-500"
+                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer"
                   >
                     <option value="Saída">Saída Fixa</option>
                     <option value="Entrada">Entrada Fixa</option>
@@ -414,25 +385,53 @@ export default function ConfiguracoesTesouraria() {
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1">Tipo (Nome)</label>
                   <input 
-                    type="text" placeholder="Ex: Fundo de Missões..."
+                    type="text" placeholder="Ex: Fundo de Missões, Aluguel..."
                     value={tipo} onChange={(e) => setTipo(e.target.value)}
                     className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-teal-500"
                   />
                 </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => { setTipoValorDaConfig("percentual"); setValorDigitado(""); }} className={`py-2 text-xs font-bold rounded-lg border transition-colors ${tipoValorDaConfig === "percentual" ? "bg-teal-50 border-teal-500 text-teal-700" : "bg-white border-gray-200 text-gray-500 hover:bg-gray-50"}`}>
+                    Percentual (%)
+                  </button>
+                  <button type="button" onClick={() => { setTipoValorDaConfig("fixo"); setValorDigitado(""); setFrequencia("Mês"); }} className={`py-2 text-xs font-bold rounded-lg border transition-colors ${tipoValorDaConfig === "fixo" ? "bg-teal-50 border-teal-500 text-teal-700" : "bg-white border-gray-200 text-gray-500 hover:bg-gray-50"}`}>
+                    Valor Fixo (R$)
+                  </button>
+                </div>
                 
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1">Percentual (%)</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">
+                    {tipoValorDaConfig === "percentual" ? "Percentual de Repasse (%)" : "Valor do Repasse/Despesa (R$)"}
+                  </label>
                   <input 
-                    type="number" step="0.01" min="0" max="100" placeholder="Ex: 10 para 10%"
-                    value={percentual} onChange={(e) => setPercentual(e.target.value ? parseFloat(e.target.value) : "")}
+                    type="number" step="0.01" min="0" max={tipoValorDaConfig === "percentual" ? "100" : undefined} 
+                    placeholder={tipoValorDaConfig === "percentual" ? "Ex: 10 para 10%" : "Ex: 300.00"}
+                    value={valorDigitado} onChange={(e) => setValorDigitado(e.target.value ? parseFloat(e.target.value) : "")}
                     className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-teal-500"
                   />
                 </div>
+
+                {/* EXIBE A FREQUÊNCIA APENAS SE FOR VALOR FIXO */}
+                {tipoValorDaConfig === "fixo" && (
+                  <div className="animate-fade-in">
+                    <label className="block text-sm font-semibold text-blue-700 mb-1">Frequência da Cobrança</label>
+                    <select 
+                      value={frequencia} onChange={(e) => setFrequencia(e.target.value)}
+                      className="w-full px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer font-bold text-blue-900"
+                    >
+                      <option value="Culto">Cobrar por Culto</option>
+                      <option value="Semana">Cobrar por Semana</option>
+                      <option value="Mês">Cobrar por Mês</option>
+                      <option value="Ano">Cobrar por Ano</option>
+                    </select>
+                  </div>
+                )}
                 
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1">Origem / Destino</label>
                   <input 
-                    type="text" placeholder="Ex: Conta da Sede..."
+                    type="text" placeholder="Ex: Conta da Sede, Imobiliária..."
                     value={origemDestino} onChange={(e) => setOrigemDestino(e.target.value)}
                     className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-teal-500"
                   />
@@ -448,7 +447,6 @@ export default function ConfiguracoesTesouraria() {
             </div>
 
             <div className="md:col-span-2 space-y-6">
-              {/* LISTA DE SAÍDAS FIXAS */}
               <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
                 <div className="p-4 bg-red-50 border-b border-red-100 flex justify-between items-center">
                   <h3 className="font-bold text-red-800">Saídas Fixas</h3>
@@ -462,7 +460,14 @@ export default function ConfiguracoesTesouraria() {
                       {configuracoesSaida.map(conf => (
                         <li key={conf.id} className="p-4 flex items-center justify-between hover:bg-gray-50 transition">
                           <div>
-                            <p className="font-bold text-gray-800">{conf.tipo} <span className="text-red-600 ml-1">({conf.percentual}%)</span></p>
+                            <p className="font-bold text-gray-800">
+                              {conf.tipo} 
+                              {conf.tipo_valor === "percentual" || conf.percentual !== null ? (
+                                <span className="text-red-600 ml-1 font-black">({conf.percentual}%)</span>
+                              ) : (
+                                <span className="text-red-600 ml-1 font-black">({formatarMoedaVisual(conf.valor_fixo)} / {conf.frequencia || 'Culto'})</span>
+                              )}
+                            </p>
                             <p className="text-xs text-gray-500">Destino: {conf.origem_destino}</p>
                           </div>
                           <button onClick={() => deletarConfiguracao(conf.id)} className="text-gray-400 hover:text-red-600 transition p-2">
@@ -475,7 +480,6 @@ export default function ConfiguracoesTesouraria() {
                 </div>
               </div>
 
-              {/* LISTA DE ENTRADAS FIXAS */}
               <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
                 <div className="p-4 bg-green-50 border-b border-green-100 flex justify-between items-center">
                   <h3 className="font-bold text-green-800">Entradas Fixas</h3>
@@ -489,7 +493,14 @@ export default function ConfiguracoesTesouraria() {
                       {configuracoesEntrada.map(conf => (
                         <li key={conf.id} className="p-4 flex items-center justify-between hover:bg-gray-50 transition">
                           <div>
-                            <p className="font-bold text-gray-800">{conf.tipo} <span className="text-green-600 ml-1">({conf.percentual}%)</span></p>
+                            <p className="font-bold text-gray-800">
+                              {conf.tipo} 
+                              {conf.tipo_valor === "percentual" || conf.percentual !== null ? (
+                                <span className="text-green-600 ml-1 font-black">({conf.percentual}%)</span>
+                              ) : (
+                                <span className="text-green-600 ml-1 font-black">({formatarMoedaVisual(conf.valor_fixo)} / {conf.frequencia || 'Culto'})</span>
+                              )}
+                            </p>
                             <p className="text-xs text-gray-500">Origem: {conf.origem_destino}</p>
                           </div>
                           <button onClick={() => deletarConfiguracao(conf.id)} className="text-gray-400 hover:text-red-600 transition p-2">
@@ -506,7 +517,6 @@ export default function ConfiguracoesTesouraria() {
         </>
       )}
 
-      {/* MODAL DE FEEDBACK */}
       {modalFeedback.visivel && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in">
           <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-xl border border-gray-100 transform scale-100 transition-all text-center">

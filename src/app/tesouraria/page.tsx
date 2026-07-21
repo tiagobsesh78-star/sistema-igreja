@@ -1,27 +1,136 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../../src/lib/supabase";
 import { podeVisualizar, podeEditar, formatarPerfis } from "../../../src/lib/permissoes";
 
+// ==========================================
+// INTERFACES DOS CAMPOS DINÂMICOS
+// ==========================================
+interface Membro {
+  id: string;
+  nome: string;
+  congregacao?: string;
+}
+
+interface DizimoItem {
+  id: string;
+  is_avulso: boolean;
+  membro_id: string;
+  nome_avulso: string;
+  valor: number | "";
+}
+
+interface OfertaEspecialItem {
+  id: string;
+  descricao: string;
+  valor: number | "";
+}
+
+interface SaidaItem {
+  id: string;
+  descricao: string;
+  valor: number | "";
+}
+
+// ==========================================
+// COMPONENTE: SELECT DE MEMBROS COM LUPA (Para a Edição)
+// ==========================================
+const MembroSearchSelect = ({ 
+  membros, 
+  valor, 
+  onChange 
+}: { 
+  membros: Membro[], 
+  valor: string, 
+  onChange: (val: string) => void 
+}) => {
+  const [aberto, setAberto] = useState(false);
+  const [busca, setBusca] = useState("");
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  const selecionado = membros.find(m => String(m.id) === String(valor));
+  
+  const normalizarTexto = (texto: string) => {
+    return texto?.toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() || "";
+  };
+
+  const filtrados = membros.filter(m => normalizarTexto(m.nome).includes(normalizarTexto(busca)));
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        setAberto(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  return (
+    <div className="relative w-full" ref={wrapperRef}>
+      <div 
+        onClick={() => setAberto(!aberto)}
+        className="w-full px-4 py-2.5 bg-blue-50/50 border border-blue-100 rounded-lg flex items-center justify-between cursor-pointer hover:bg-blue-50 transition-colors text-sm"
+      >
+        <span className={selecionado ? "text-gray-900 font-medium" : "text-gray-400 font-medium truncate pr-2"}>
+          {selecionado ? selecionado.nome : "Buscar membro..."}
+        </span>
+        <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+      </div>
+
+      {aberto && (
+        <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl overflow-hidden">
+          <div className="p-2 border-b border-gray-100 bg-gray-50" onClick={e => e.stopPropagation()}>
+            <input 
+              type="text" 
+              autoFocus
+              placeholder="Digite o nome..." 
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              className="w-full px-3 py-2 text-sm bg-white border border-gray-200 rounded-md focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
+            />
+          </div>
+          <ul className="max-h-48 overflow-y-auto">
+            {filtrados.length === 0 ? (
+              <li className="px-4 py-3 text-sm text-gray-500 text-center">Nenhum membro encontrado na congregação selecionada</li>
+            ) : (
+              filtrados.map(m => (
+                <li 
+                  key={m.id} 
+                  onClick={() => { onChange(m.id); setAberto(false); setBusca(""); }}
+                  className="px-4 py-2.5 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 cursor-pointer border-b border-gray-50 last:border-0 transition-colors truncate"
+                >
+                  {m.nome}
+                </li>
+              ))
+            )}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+};
+
 export default function TesourariaPage() {
   const router = useRouter();
   
-  // 1. TODOS OS STATES NO TOPO (REGRA DO REACT)
+  // 1. STATES PRINCIPAIS
   const [lancamentos, setLancamentos] = useState<any[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [perfisUsuario, setPerfisUsuario] = useState<string[]>([]); 
+  const [membros, setMembros] = useState<Membro[]>([]);
 
-  // Estados do Multi-tenancy Hierárquico
   const [ehSede, setEhSede] = useState(false);
   const [nomeSedeOficial, setNomeSedeOficial] = useState("Sede");
   const [congregacaoUsuario, setCongregacaoUsuario] = useState("");
+  const [igrejaIdLogada, setIgrejaIdLogada] = useState<string | null>(null);
 
   const [configIgreja, setConfigIgreja] = useState<any>(null);
   const [congregacoes, setCongregacoes] = useState<string[]>([]);
-  const [congregacaoSelecionada, setCongregacaoSelecionada] = useState(""); // "" = Todas
+  const [congregacaoSelecionada, setCongregacaoSelecionada] = useState(""); 
   const [configuracoesGlobais, setConfiguracoesGlobais] = useState<any[]>([]);
   const [totalDizimistasGeral, setTotalDizimistasGeral] = useState<any[]>([]);
 
@@ -31,11 +140,28 @@ export default function TesourariaPage() {
   const [dropdownAberto, setDropdownAberto] = useState<string | null>(null);
   const [opcoesAnos, setOpcoesAnos] = useState<string[]>([]);
 
-  // Estados do Modal de Exclusão Lógica
+  // Modal Visualização
+  const [modalVerAberto, setModalVerAberto] = useState(false);
+  const [lancamentoParaVer, setLancamentoParaVer] = useState<any>(null);
+
+  // Modal Exclusão
   const [modalExcluirAberto, setModalExcluirAberto] = useState(false);
   const [lancamentoParaExcluir, setLancamentoParaExcluir] = useState<any>(null);
   const [justificativa, setJustificativa] = useState("");
   const [excluindo, setExcluindo] = useState(false);
+
+  // Modal Edição (Com Listas Dinâmicas)
+  const [modalEditarAberto, setModalEditarAberto] = useState(false);
+  const [lancamentoParaEditar, setLancamentoParaEditar] = useState<any>(null);
+  
+  const [editData, setEditData] = useState("");
+  const [editTipoTrabalho, setEditTipoTrabalho] = useState("");
+  const [editOfertas, setEditOfertas] = useState<number | "">("");
+  const [editJustificativa, setEditJustificativa] = useState("");
+  
+  const [listaDizimos, setListaDizimos] = useState<DizimoItem[]>([]);
+  const [listaOfertasEspeciais, setListaOfertasEspeciais] = useState<OfertaEspecialItem[]>([]);
+  const [listaSaidas, setListaSaidas] = useState<SaidaItem[]>([]);
 
   const opcoesMeses = [
     { valor: "01", rotulo: "Janeiro" }, { valor: "02", rotulo: "Fevereiro" },
@@ -47,7 +173,7 @@ export default function TesourariaPage() {
   ];
   const opcoesTipos = ["Culto", "EBD", "Consagração", "Círculo de oração", "Outros"];
 
-  // 2. EFFECT PRINCIPAL COM A TRAVA DE ROTA E MULTI-TENANCY HIERÁRQUICO
+  // 2. FETCH DE DADOS
   useEffect(() => {
     async function carregarDados() {
       const usuarioLocal = localStorage.getItem("usuarioLogado");
@@ -58,17 +184,14 @@ export default function TesourariaPage() {
       const usuario = JSON.parse(usuarioLocal);
       const perfisLogado = formatarPerfis(usuario.perfis || usuario.nivel_acesso);
       
-      // ==================================================
-      // TRAVA DE ROTA: SÓ ENTRA QUEM PODE VER A TESOURARIA
-      // ==================================================
       if (!podeVisualizar(perfisLogado, 'tesouraria')) {
         router.push("/");
         return; 
       }
-      // ==================================================
 
       setPerfisUsuario(perfisLogado);
       const igrejaId = usuario.igreja_id || usuario.id_igreja || usuario.idIgreja;
+      setIgrejaIdLogada(igrejaId);
 
       if (!igrejaId) {
         setCarregando(false);
@@ -76,14 +199,12 @@ export default function TesourariaPage() {
       }
 
       try {
-        // 1. Busca os dados da Igreja Sede para referências globais
         const { data: dadosIgreja } = await supabase.from("configuracao_igreja").select("*").eq("igreja_id", igrejaId).limit(1).maybeSingle();
         if (dadosIgreja) setConfigIgreja(dadosIgreja);
 
         const nomeSede = dadosIgreja?.nome_igreja?.trim() || "Sede Principal";
         setNomeSedeOficial(nomeSede);
 
-        // 2. Validação Inteligente: Identifica se o usuário é da Sede ou Filial
         const congUser = usuario?.congregacao?.trim() || "";
         setCongregacaoUsuario(congUser);
         
@@ -96,7 +217,6 @@ export default function TesourariaPage() {
           setCongregacaoSelecionada(congUser);
         }
 
-        // 3. Monta as Consultas Base com Travas de Segurança (Se for Filial, trava a Query inteira nela)
         let queryMembros = supabase.from("membros").select("*").eq("igreja_id", igrejaId);
         let queryLancamentos = supabase.from("tesouraria_lancamentos").select("*").eq("igreja_id", igrejaId).order("data", { ascending: false });
 
@@ -105,7 +225,6 @@ export default function TesourariaPage() {
           queryLancamentos = queryLancamentos.eq("congregacao", congUser);
         }
 
-        // 4. Executa as buscas em paralelo
         const [resMembros, resLancamentos, resConfigs, resDizimistas, resFilhas] = await Promise.all([
           queryMembros,
           queryLancamentos,
@@ -114,20 +233,22 @@ export default function TesourariaPage() {
           supabase.from("igrejas_filhas").select("nome").eq("igreja_id", igrejaId).order("nome", { ascending: true })
         ]);
 
-        // Carrega Lista de Congregações para Filtro
         if (isUserSede) {
           const nomesFilhas = resFilhas.data ? resFilhas.data.map(f => f.nome) : [];
           setCongregacoes([nomeSede, ...nomesFilhas]);
         }
 
+        if (resMembros.data) {
+          setMembros(resMembros.data.map(m => ({ id: m.id, nome: m.nome_completo, congregacao: m.congregacao })));
+        }
+
         if (resConfigs.data) setConfiguracoesGlobais(resConfigs.data);
 
-        // Relaciona os dizimistas com a tabela membros já filtrada pela segurança
         if (resDizimistas.data && resMembros.data) {
           const unidos = resDizimistas.data.map(d => ({
             ...d,
             membros: resMembros.data.find(m => String(m.id) === String(d.membro_id)) || null
-          })).filter(d => d.membros !== null); // Remove "órfãos" que não passaram na trava de segurança de filial
+          })).filter(d => d.membros !== null); 
           setTotalDizimistasGeral(unidos);
         }
 
@@ -147,13 +268,12 @@ export default function TesourariaPage() {
     carregarDados();
   }, [router]);
 
-  // 3. FUNÇÕES COMUNS
+  // 3. UTILITÁRIOS E FILTROS GERAIS
   const toggleFiltro = (lista: string[], setLista: any, valor: string) => {
     if (lista.includes(valor)) setLista(lista.filter((v) => v !== valor));
     else setLista([...lista, valor]);
   };
 
-  // Normalizador Universal de Congregação (Equipara nomenclaturas perdidas à Sede Oficial)
   const normalizarSede = (c: string) => {
     const cong = c?.trim();
     if (!cong || cong.toLowerCase() === "sede" || cong.toLowerCase() === "matriz" || cong.toLowerCase() === "geral" || cong.toLowerCase() === nomeSedeOficial.toLowerCase()) {
@@ -167,18 +287,48 @@ export default function TesourariaPage() {
     return normalizarSede(m.congregacao || m.Congregacao);
   };
 
-  // Função para efetivar a exclusão lógica no Supabase
+  const parseJSON = (data: any) => {
+    if (!data) return [];
+    if (typeof data === 'string') {
+        try { return JSON.parse(data); } catch(e) { return []; }
+    }
+    return Array.isArray(data) ? data : [];
+  };
+
+  const membrosParaBuscaDaEdicao = membros.filter(m => {
+    if (!congregacaoSelecionada || congregacaoSelecionada === "Todas as Congregações (Geral)" || congregacaoSelecionada === "") return true;
+    
+    const c1 = m.congregacao?.toLowerCase().trim() || "";
+    const c2 = congregacaoSelecionada.toLowerCase().trim() || "";
+    
+    if (c2 === nomeSedeOficial.toLowerCase()) {
+      return c1 === "" || c1 === "sede" || c1 === "matriz" || c1 === "geral" || c1 === c2;
+    }
+    
+    return c1 === c2;
+  });
+
+  // 4. FUNÇÕES DE VISUALIZAÇÃO
+  const abrirModalVer = (lanc: any) => {
+    setLancamentoParaVer(lanc);
+    setModalVerAberto(true);
+  };
+
+  const resolverNomeMembro = (membro_id: string, nome_avulso: string, is_avulso: boolean) => {
+    if (is_avulso) return `${nome_avulso} (Visitante)`;
+    const m = membros.find(x => String(x.id) === String(membro_id));
+    return m ? m.nome : "Membro não encontrado";
+  };
+
+  // 5. FUNÇÕES DE EXCLUSÃO
   const executarExclusaoLogica = async () => {
     if (!justificativa.trim() || !lancamentoParaExcluir) return;
     setExcluindo(true);
 
-    const { error } = await supabase
-      .from("tesouraria_lancamentos")
-      .update({
-        excluido: true,
-        justificativa_exclusao: justificativa.trim()
-      })
-      .eq("id", lancamentoParaExcluir.id);
+    const { error } = await supabase.from("tesouraria_lancamentos").update({
+      excluido: true,
+      justificativa_exclusao: justificativa.trim()
+    }).eq("id", lancamentoParaExcluir.id);
 
     if (error) {
       alert("Erro ao excluir lançamento: " + error.message);
@@ -193,6 +343,110 @@ export default function TesourariaPage() {
     setExcluindo(false);
   };
 
+  // 6. FUNÇÕES DE EDIÇÃO COMPLEXA (Com Listas)
+  const abrirModalEditar = (lanc: any) => {
+    setLancamentoParaEditar(lanc);
+    setEditData(lanc.data || "");
+    setEditTipoTrabalho(lanc.tipo_trabalho || "Culto");
+    setEditOfertas(lanc.ofertas || "");
+    setEditJustificativa("");
+
+    setListaDizimos(parseJSON(lanc.detalhes_dizimos));
+    setListaOfertasEspeciais(parseJSON(lanc.detalhes_ofertas_especiais));
+    setListaSaidas(parseJSON(lanc.detalhes_saidas));
+
+    setModalEditarAberto(true);
+  };
+
+  const addDizimo = () => setListaDizimos([...listaDizimos, { id: Date.now().toString(), is_avulso: false, membro_id: "", nome_avulso: "", valor: "" }]);
+  const removeDizimo = (id: string) => setListaDizimos(listaDizimos.filter(d => d.id !== id));
+  const updateDizimo = (id: string, updates: Partial<DizimoItem>) => setListaDizimos(prev => prev.map(d => d.id === id ? { ...d, ...updates } : d));
+
+  const addOfertaEspecial = () => setListaOfertasEspeciais([...listaOfertasEspeciais, { id: Date.now().toString(), descricao: "", valor: "" }]);
+  const removeOfertaEspecial = (id: string) => setListaOfertasEspeciais(listaOfertasEspeciais.filter(o => o.id !== id));
+  const updateOfertaEspecial = (id: string, updates: Partial<OfertaEspecialItem>) => setListaOfertasEspeciais(prev => prev.map(o => o.id === id ? { ...o, ...updates } : o));
+
+  const addSaida = () => setListaSaidas([...listaSaidas, { id: Date.now().toString(), descricao: "", valor: "" }]);
+  const removeSaida = (id: string) => setListaSaidas(listaSaidas.filter(s => s.id !== id));
+  const updateSaida = (id: string, updates: Partial<SaidaItem>) => setListaSaidas(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
+
+  const editTotalOfertas = Number(editOfertas) || 0;
+  const editTotalDizimos = listaDizimos.reduce((acc, curr) => acc + (Number(curr.valor) || 0), 0);
+  const editTotalOfertaEspecial = listaOfertasEspeciais.reduce((acc, curr) => acc + (Number(curr.valor) || 0), 0);
+  const editTotalSaidas = listaSaidas.reduce((acc, curr) => acc + (Number(curr.valor) || 0), 0);
+  const editTotalCalculado = editTotalOfertas + editTotalDizimos + editTotalOfertaEspecial - editTotalSaidas;
+
+  const salvarEdicao = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editJustificativa.trim()) { alert("A justificativa é obrigatória para auditar a edição."); return; }
+    
+    if (listaDizimos.some(d => (d.is_avulso && !d.nome_avulso) || (!d.is_avulso && !d.membro_id) || !d.valor)) {
+      alert("Preencha corretamente todos os dízimos lançados."); return;
+    }
+    if (listaOfertasEspeciais.some(o => !o.descricao || !o.valor)) {
+      alert("Preencha a descrição e o valor de todas as ofertas especiais."); return;
+    }
+    if (listaSaidas.some(s => !s.descricao || !s.valor)) {
+      alert("Preencha a descrição e o valor de todas as saídas."); return;
+    }
+
+    setExcluindo(true);
+
+    const payload = {
+      data: editData,
+      tipo_trabalho: editTipoTrabalho,
+      ofertas: editTotalOfertas,
+      dizimos: editTotalDizimos,
+      oferta_especial: editTotalOfertaEspecial,
+      saidas: editTotalSaidas,
+      total: editTotalCalculado,
+      detalhes_dizimos: listaDizimos,
+      detalhes_ofertas_especiais: listaOfertasEspeciais,
+      detalhes_saidas: listaSaidas,
+      justificativa_edicao: editJustificativa.trim()
+    };
+
+    try {
+      const { error } = await supabase.from("tesouraria_lancamentos").update(payload).eq("id", lancamentoParaEditar.id);
+      if (error) throw error;
+
+      try {
+        const dizimistasCadastrados = listaDizimos.filter(d => d.is_avulso === false && d.membro_id);
+        if (dizimistasCadastrados.length > 0 && igrejaIdLogada) {
+          const periodoStr = editData.substring(0, 7); 
+          const { data: dizimistasBanco } = await supabase.from('tesouraria_dizimistas').select('membro_id, adicionado_em, removido_em').eq('igreja_id', igrejaIdLogada);
+          const unicosParaInserir = Array.from(new Set(dizimistasCadastrados.map(d => String(d.membro_id))));
+          const insercoesFinais: any[] = [];
+          
+          unicosParaInserir.forEach(membroIdStr => {
+              const registros = dizimistasBanco?.filter(x => String(x.membro_id) === membroIdStr) || [];
+              const curPeriod = parseInt(periodoStr.split('-')[0]) * 12 + parseInt(periodoStr.split('-')[1]);
+              const isAtivo = registros.some(row => {
+                  const addP = row.adicionado_em ? (parseInt(row.adicionado_em.split('-')[0]) * 12 + parseInt(row.adicionado_em.split('-')[1])) : 0;
+                  const remP = row.removido_em ? (parseInt(row.removido_em.split('-')[0]) * 12 + parseInt(row.removido_em.split('-')[1])) : Infinity;
+                  return curPeriod >= addP && curPeriod < remP;
+              });
+              if (!isAtivo) {
+                  insercoesFinais.push({ igreja_id: igrejaIdLogada, membro_id: membroIdStr, adicionado_em: periodoStr });
+              }
+          });
+
+          if (insercoesFinais.length > 0) {
+            await supabase.from('tesouraria_dizimistas').insert(insercoesFinais);
+          }
+        }
+      } catch (errAuto) { console.error("Erro no auto-cadastro:", errAuto); }
+
+      setLancamentos(prev => prev.map(l => l.id === lancamentoParaEditar.id ? { ...l, ...payload } : l));
+      setModalEditarAberto(false);
+    } catch (err: any) {
+      alert("Erro ao editar: " + err.message);
+    } finally {
+      setExcluindo(false);
+    }
+  };
+
+  // 7. RENDERIZAÇÃO E MATEMÁTICA DA TABELA
   const lancamentosFiltrados = lancamentos.filter((lanc) => {
     if (!lanc.data) return false;
     const [ano, mes] = lanc.data.split("-");
@@ -203,26 +457,45 @@ export default function TesourariaPage() {
     return matchCongregacao && matchMes && matchAno && matchTipo;
   });
 
-  // FILTRO ADICIONAL: Ignora registros excluídos para cálculos, Excel e PDF
   const lancamentosAtivos = lancamentosFiltrados.filter(l => !l.excluido);
 
-  const totalOfertas = lancamentosAtivos.reduce((acc, lanc) => acc + (Number(lanc.ofertas) || 0), 0);
-  const totalDizimos = lancamentosAtivos.reduce((acc, lanc) => acc + (Number(lanc.dizimos) || 0), 0);
-  const totalEspecial = lancamentosAtivos.reduce((acc, lanc) => acc + (Number(lanc.oferta_especial) || 0), 0);
-  const totalSaidasManuais = lancamentosAtivos.reduce((acc, lanc) => acc + (Number(lanc.saidas) || 0), 0);
+  const totalOfertasGerais = lancamentosAtivos.reduce((acc, lanc) => acc + (Number(lanc.ofertas) || 0), 0);
+  const totalDizimosGerais = lancamentosAtivos.reduce((acc, lanc) => acc + (Number(lanc.dizimos) || 0), 0);
+  const totalEspecialGerais = lancamentosAtivos.reduce((acc, lanc) => acc + (Number(lanc.oferta_especial) || 0), 0);
+  const totalSaidasGerais = lancamentosAtivos.reduce((acc, lanc) => acc + (Number(lanc.saidas) || 0), 0);
   
-  const totalEntradasBrutas = totalOfertas + totalDizimos + totalEspecial;
+  const totalEntradasBrutas = totalOfertasGerais + totalDizimosGerais + totalEspecialGerais;
 
-  const saidasFixasCalculadas = configuracoesGlobais
-    .filter(c => c.categoria === "Saída")
-    .map(c => ({ ...c, valorCalculado: totalEntradasBrutas * (c.percentual / 100) }));
+  const saidasFixasCalculadas = configuracoesGlobais.filter(c => c.categoria === "Saída").map(c => {
+    const isPercent = c.tipo_valor === "percentual" || c.percentual !== null;
+    const vCalc = isPercent ? (totalEntradasBrutas * (c.percentual / 100)) : (Number(c.valor_fixo) * lancamentosAtivos.length);
+    return { ...c, valorCalculado: vCalc };
+  });
 
   const totalRepassesFixos = saidasFixasCalculadas.reduce((acc, s) => acc + s.valorCalculado, 0);
-  const saldoLiquidoParcial = totalEntradasBrutas - totalSaidasManuais - totalRepassesFixos;
+  const saldoLiquidoParcial = totalEntradasBrutas - totalSaidasGerais - totalRepassesFixos;
+
+  const getPeriod = (dataStr: string | null) => {
+    if (!dataStr) return null;
+    const [ano, mes] = dataStr.split('-');
+    return parseInt(ano) * 12 + parseInt(mes);
+  };
 
   const contagemDizimistasFiltrados = totalDizimistasGeral.filter(d => {
-    if (congregacaoSelecionada === "") return true;
-    return obterCongregacaoMembro(d.membros) === congregacaoSelecionada;
+    if (congregacaoSelecionada !== "" && normalizarSede(d.membros?.congregacao) !== congregacaoSelecionada) {
+      return false;
+    }
+    let active = true;
+    if (anosSelecionados.length === 1 && mesesSelecionados.length === 1) {
+       const curP = parseInt(anosSelecionados[0]) * 12 + parseInt(mesesSelecionados[0]);
+       const addP = getPeriod(d.adicionado_em) || 0;
+       const remP = getPeriod(d.removido_em) || Infinity;
+       active = (curP >= addP && curP < remP);
+    } else {
+       const remP = getPeriod(d.removido_em) || Infinity;
+       active = remP === Infinity; 
+    }
+    return active;
   }).length;
 
   const formatarMoeda = (valor: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(valor || 0);
@@ -239,7 +512,7 @@ export default function TesourariaPage() {
   const exportarPDF = () => window.print();
 
   const exportarExcel = () => {
-    let csv = `Relatório Financeiro - ${nomeIgrejaPrincipal}\nCongregação: ${nomeCongregacao}\nDizimistas Ativos no Filtro: ${contagemDizimistasFiltrados}\nData de Geração: ${new Date().toLocaleDateString('pt-BR')}\n\n`;
+    let csv = `Relatório Financeiro - ${nomeIgrejaPrincipal}\nCongregação: ${nomeCongregacao}\nData de Geração: ${new Date().toLocaleDateString('pt-BR')}\n\n`;
     csv += "Data;Congregação;Trabalho;Ofertas;Dízimos;Oferta Especial;Saídas;Total\n";
     
     lancamentosAtivos.forEach((lanc) => {
@@ -247,11 +520,12 @@ export default function TesourariaPage() {
     });
     
     csv += `\nRESUMO FINANCEIRO\n`;
-    csv += `Dizimistas Ativos;;;;;;${contagemDizimistasFiltrados}\n`;
     csv += `Entradas Brutas;;;;;;${formatarMoedaExcel(totalEntradasBrutas)}\n`;
-    csv += `Saídas Lançamentos;;;;;;${formatarMoedaExcel(totalSaidasManuais)}\n`;
+    csv += `Saídas Lançamentos;;;;;;${formatarMoedaExcel(totalSaidasGerais)}\n`;
     saidasFixasCalculadas.forEach(s => {
-      csv += `Repasse - ${s.tipo} (${s.percentual}%);;;;;;${formatarMoedaExcel(s.valorCalculado)}\n`;
+      const isPercent = s.tipo_valor === "percentual" || s.percentual !== null;
+      const tag = isPercent ? `${s.percentual}%` : 'Fixo por Culto';
+      csv += `Repasse - ${s.tipo} (${tag});;;;;;${formatarMoedaExcel(s.valorCalculado)}\n`;
     });
     csv += `SALDO LÍQUIDO PARCIAL;;;;;;${formatarMoedaExcel(saldoLiquidoParcial)}\n`;
 
@@ -270,7 +544,7 @@ export default function TesourariaPage() {
   if (carregando) return <div className="p-8 text-center text-gray-600">Carregando tesouraria...</div>;
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
+    <div className="max-w-7xl mx-auto space-y-6">
       <style dangerouslySetInnerHTML={{__html: `
         .cabecalho-impressao { display: none !important; }
         @media print {
@@ -291,7 +565,6 @@ export default function TesourariaPage() {
         <h2 className="text-md font-bold text-gray-700 mt-0.5">Relatório Financeiro da Congregação: {nomeCongregacao}</h2>
         <div className="flex justify-between items-center text-xs text-gray-500 mt-4 px-2">
           <span>Data de Emissão: {new Date().toLocaleDateString('pt-BR')}</span>
-          <span>Dizimistas Ativos: {contagemDizimistasFiltrados}</span>
           <span>Total de Lançamentos: {lancamentosAtivos.length}</span>
         </div>
       </div>
@@ -306,9 +579,7 @@ export default function TesourariaPage() {
         
         {ehEditor && (
           <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-           
-              <Link href="/tesouraria/configuracoes" className="flex-1 md:flex-none px-4 py-2 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition text-sm text-center">Configurações Globais</Link>
-           
+            <Link href="/tesouraria/configuracoes" className="flex-1 md:flex-none px-4 py-2 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition text-sm text-center">Configurações</Link>
             <Link href="/tesouraria/dizimistas" className="flex-1 md:flex-none px-4 py-2 bg-blue-50 text-blue-700 font-medium rounded-lg hover:bg-blue-100 transition text-sm text-center">Dizimistas</Link>
             <Link href="/tesouraria/novo" className="flex-1 md:flex-none px-4 py-2 bg-teal-600 text-white font-medium rounded-lg hover:bg-teal-700 transition shadow-sm text-sm text-center">+ Novo Lançamento</Link>
           </div>
@@ -322,7 +593,7 @@ export default function TesourariaPage() {
             {ehSede ? (
               <select
                 value={congregacaoSelecionada} onChange={(e) => setCongregacaoSelecionada(e.target.value)}
-                className="w-full md:w-80 px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 font-bold outline-none focus:ring-2 focus:ring-teal-500"
+                className="w-full md:w-80 px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 font-bold outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer"
               >
                 <option value="">🌍 Todas as Congregações (Geral)</option>
                 <option value={nomeSedeOficial}>🏢 {nomeSedeOficial}</option>
@@ -337,7 +608,7 @@ export default function TesourariaPage() {
 
           <div className="flex items-center gap-3 w-full md:w-auto justify-end">
             <button onClick={exportarExcel} className="flex items-center gap-2 px-4 py-2 bg-green-50 text-green-700 font-bold text-sm rounded-lg hover:bg-green-100 transition shadow-sm border border-green-200">Excel</button>
-            <button onClick={exportarPDF} className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-700 font-bold text-sm rounded-lg hover:bg-red-100 transition shadow-sm border border-red-200">Exportar PDF</button>
+            <button onClick={exportarPDF} className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-700 font-bold text-sm rounded-lg hover:bg-red-100 transition shadow-sm border border-red-200">PDF</button>
           </div>
         </div>
         
@@ -377,7 +648,7 @@ export default function TesourariaPage() {
 
             <div className="relative">
               <button type="button" onClick={() => setDropdownAberto(dropdownAberto === 'tipos' ? null : 'tipos')} className="px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 font-medium w-full md:w-48 text-left flex justify-between items-center hover:bg-gray-100 transition">
-                {tiposSelecionados.length === 0 ? "Reunião" : `Trabalhos (${tiposSelecionados.length})`}
+                {tiposSelecionados.length === 0 ? "Trabalhos" : `Trabalhos (${tiposSelecionados.length})`}
               </button>
               {dropdownAberto === 'tipos' && (
                 <div className="absolute top-full left-0 mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-xl overflow-hidden z-30 max-h-64 overflow-y-auto">
@@ -421,7 +692,12 @@ export default function TesourariaPage() {
                       <span className={lanc.excluido ? 'line-through decoration-red-500 decoration-2 text-gray-400' : ''}>{lanc.tipo_trabalho}</span>
                       {lanc.excluido && lanc.justificativa_exclusao && (
                         <div className="text-xs text-red-600 font-bold mt-1 bg-red-100/60 px-2 py-1 rounded border border-red-200/50 block normal-case max-w-xs break-words">
-                          Justificativa: {lanc.justificativa_exclusao}
+                          Excluído: {lanc.justificativa_exclusao}
+                        </div>
+                      )}
+                      {!lanc.excluido && lanc.justificativa_edicao && (
+                        <div className="text-xs text-blue-600 font-bold mt-1 bg-blue-50 px-2 py-1 rounded border border-blue-100 block normal-case max-w-xs break-words">
+                          Editado: {lanc.justificativa_edicao}
                         </div>
                       )}
                     </td>
@@ -433,21 +709,19 @@ export default function TesourariaPage() {
                     <td className="px-6 py-4 text-sm text-center whitespace-nowrap print-oculto">
                       {ehEditor ? (
                         !lanc.excluido ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setLancamentoParaExcluir(lanc);
-                              setModalExcluirAberto(true);
-                            }}
-                            className="px-2.5 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg text-xs font-bold transition border border-red-100 shadow-sm"
-                          >
-                            Excluir
-                          </button>
+                          <div className="flex gap-2 justify-center">
+                            <button onClick={() => abrirModalVer(lanc)} className="px-2.5 py-1.5 bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-lg text-xs font-bold transition border border-gray-200 shadow-sm">Ver</button>
+                            <button onClick={() => abrirModalEditar(lanc)} className="px-2.5 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg text-xs font-bold transition border border-blue-100 shadow-sm">Editar</button>
+                            <button onClick={() => { setLancamentoParaExcluir(lanc); setModalExcluirAberto(true); }} className="px-2.5 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg text-xs font-bold transition border border-red-100 shadow-sm">Excluir</button>
+                          </div>
                         ) : (
-                          <span className="text-xs text-red-500 font-bold uppercase tracking-wider bg-red-50 px-2 py-1 rounded border border-red-100/50">Excluído</span>
+                          <div className="flex gap-2 justify-center items-center">
+                            <button onClick={() => abrirModalVer(lanc)} className="px-2.5 py-1.5 bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-lg text-xs font-bold transition border border-gray-200 shadow-sm">Ver</button>
+                            <span className="text-xs text-red-500 font-bold uppercase tracking-wider bg-red-50 px-2 py-1 rounded border border-red-100/50 inline-block">Excluído</span>
+                          </div>
                         )
                       ) : (
-                        <span className="text-gray-300">-</span>
+                        <button onClick={() => abrirModalVer(lanc)} className="px-2.5 py-1.5 bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-lg text-xs font-bold transition border border-gray-200 shadow-sm">Ver</button>
                       )}
                     </td>
                   </tr>
@@ -469,10 +743,6 @@ export default function TesourariaPage() {
               <h3 className="text-lg font-bold text-white tracking-wide">Resumo Financeiro e Repasses</h3>
               <p className="text-xs text-gray-400">Cálculos baseados nos lançamentos exibidos acima.</p>
             </div>
-            <div className="text-right">
-              <span className="text-xs font-bold text-teal-400 uppercase tracking-wider block">Dizimistas Ativos</span>
-              <span className="text-xl font-black text-white">{contagemDizimistasFiltrados}</span>
-            </div>
           </div>
           
           <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -484,21 +754,29 @@ export default function TesourariaPage() {
               </div>
               <div className="flex justify-between items-center text-red-600">
                 <span className="text-sm font-medium">(-) Saídas Lançamentos Manuais</span>
-                <span className="text-base font-bold">{formatarMoeda(totalSaidasManuais)}</span>
+                <span className="text-base font-bold">{formatarMoeda(totalSaidasGerais)}</span>
               </div>
             </div>
 
             <div className="space-y-4">
-              <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-2">Repasses Fixos Calculados <span className="text-xs text-gray-400 normal-case font-normal">(Sobre a Entrada Bruta)</span></h4>
+              <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-2">Repasses Fixos Calculados</h4>
               {saidasFixasCalculadas.length === 0 ? (
                 <p className="text-sm text-gray-400 italic">Nenhuma saída fixa configurada.</p>
               ) : (
-                saidasFixasCalculadas.map((saida) => (
-                  <div key={saida.id} className="flex justify-between items-center text-orange-600">
-                    <span className="text-sm font-medium">(-) {saida.tipo} <span className="text-xs">({saida.percentual}%)</span></span>
-                    <span className="text-sm font-bold">{formatarMoeda(saida.valorCalculado)}</span>
-                  </div>
-                ))
+                saidasFixasCalculadas.map((saida) => {
+                  const isPercent = saida.tipo_valor === "percentual" || saida.percentual !== null;
+                  return (
+                    <div key={saida.id} className="flex justify-between items-center text-orange-600">
+                      <span className="text-sm font-medium">
+                        (-) {saida.tipo} 
+                        <span className="text-xs ml-1 font-normal">
+                          {isPercent ? `(${saida.percentual}%)` : `(Fixo por Culto)`}
+                        </span>
+                      </span>
+                      <span className="text-sm font-bold">{formatarMoeda(saida.valorCalculado)}</span>
+                    </div>
+                  );
+                })
               )}
               {totalRepassesFixos > 0 && (
                 <div className="flex justify-between items-center pt-2 border-t border-gray-100 mt-2">
@@ -521,46 +799,242 @@ export default function TesourariaPage() {
         </div>
       )}
 
-      {/* MODAL DE JUSTIFICATIVA (UX ENTERPRISE MODERNA E RESPONSIVA) */}
+      {/* ========================================== */}
+      {/* MODAL 1: VISUALIZAR DETALHES (Somente Leitura) */}
+      {/* ========================================== */}
+      {modalVerAberto && lancamentoParaVer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm transition-opacity animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 max-w-2xl w-full overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-5 border-b border-gray-100 bg-gray-50 flex justify-between items-center sticky top-0 z-10">
+              <div>
+                <h3 className="text-lg font-black text-gray-900">Extrato do Lançamento</h3>
+                <p className="text-xs font-medium text-gray-500 mt-1">{formatarData(lancamentoParaVer.data)} • {lancamentoParaVer.tipo_trabalho} • {normalizarSede(lancamentoParaVer.congregacao)}</p>
+              </div>
+              <button onClick={() => setModalVerAberto(false)} className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-200 text-gray-600 hover:bg-red-100 hover:text-red-600 transition-colors font-bold">✕</button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto space-y-6 bg-white">
+              
+              {lancamentoParaVer.excluido && (
+                <div className="p-4 bg-red-50 border border-red-200 rounded-xl">
+                  <h4 className="text-sm font-bold text-red-800 uppercase">🚫 Lançamento Excluído</h4>
+                  <p className="text-sm text-red-700 mt-1">{lancamentoParaVer.justificativa_exclusao}</p>
+                </div>
+              )}
+              {!lancamentoParaVer.excluido && lancamentoParaVer.justificativa_edicao && (
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
+                  <h4 className="text-sm font-bold text-blue-800 uppercase">✏️ Lançamento Editado</h4>
+                  <p className="text-sm text-blue-700 mt-1">{lancamentoParaVer.justificativa_edicao}</p>
+                </div>
+              )}
+
+              <div>
+                <h4 className="text-sm font-bold text-gray-800 uppercase border-b border-gray-100 pb-2 mb-3">Dízimos Recebidos ({formatarMoeda(lancamentoParaVer.dizimos)})</h4>
+                {parseJSON(lancamentoParaVer.detalhes_dizimos).length === 0 ? (
+                  <p className="text-sm text-gray-400 italic">Nenhum dízimo registrado.</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {parseJSON(lancamentoParaVer.detalhes_dizimos).map((d: any, idx: number) => (
+                      <li key={idx} className="flex justify-between items-center bg-green-50/50 p-2.5 rounded-lg border border-green-100/50">
+                        <span className="text-sm font-medium text-gray-800">{resolverNomeMembro(d.membro_id, d.nome_avulso, d.is_avulso)}</span>
+                        <span className="text-sm font-bold text-green-700">{formatarMoeda(Number(d.valor))}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div>
+                <h4 className="text-sm font-bold text-gray-800 uppercase border-b border-gray-100 pb-2 mb-3">Ofertas Especiais ({formatarMoeda(lancamentoParaVer.oferta_especial)})</h4>
+                {parseJSON(lancamentoParaVer.detalhes_ofertas_especiais).length === 0 ? (
+                  <p className="text-sm text-gray-400 italic">Nenhuma oferta especial registrada.</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {parseJSON(lancamentoParaVer.detalhes_ofertas_especiais).map((o: any, idx: number) => (
+                      <li key={idx} className="flex justify-between items-center bg-yellow-50/50 p-2.5 rounded-lg border border-yellow-100/50">
+                        <span className="text-sm font-medium text-gray-800">{o.descricao}</span>
+                        <span className="text-sm font-bold text-yellow-700">{formatarMoeda(Number(o.valor))}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div>
+                <h4 className="text-sm font-bold text-gray-800 uppercase border-b border-gray-100 pb-2 mb-3">Despesas e Saídas ({formatarMoeda(lancamentoParaVer.saidas)})</h4>
+                {parseJSON(lancamentoParaVer.detalhes_saidas).length === 0 ? (
+                  <p className="text-sm text-gray-400 italic">Nenhuma saída registrada.</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {parseJSON(lancamentoParaVer.detalhes_saidas).map((s: any, idx: number) => (
+                      <li key={idx} className="flex justify-between items-center bg-red-50/50 p-2.5 rounded-lg border border-red-100/50">
+                        <span className="text-sm font-medium text-gray-800">{s.descricao}</span>
+                        <span className="text-sm font-bold text-red-600">- {formatarMoeda(Number(s.valor))}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div className="bg-gray-50 p-4 rounded-xl flex justify-between items-center border border-gray-200">
+                <span className="text-sm font-bold text-gray-600 uppercase">Ofertas Gerais:</span>
+                <span className="text-lg font-black text-blue-700">{formatarMoeda(lancamentoParaVer.ofertas)}</span>
+              </div>
+            </div>
+            
+            <div className="p-4 bg-gray-900 flex justify-between items-center sticky bottom-0">
+              <span className="text-sm font-bold text-white uppercase tracking-wider">Saldo Líquido</span>
+              <span className="text-2xl font-black text-teal-400">{formatarMoeda(lancamentoParaVer.total)}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+
+      {/* ========================================== */}
+      {/* MODAL 2: EDITAR LANÇAMENTO (Poder Total)   */}
+      {/* ========================================== */}
+      {modalEditarAberto && lancamentoParaEditar && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm transition-opacity animate-fadeIn">
+          <div className="bg-gray-50 rounded-2xl shadow-2xl border border-gray-200 max-w-4xl w-full overflow-hidden flex flex-col max-h-[95vh]">
+            <div className="p-5 border-b border-gray-200 bg-white flex justify-between items-center sticky top-0 z-20 shadow-sm">
+              <div>
+                <h3 className="text-lg font-black text-gray-900">Editar Lançamento Completo</h3>
+                <p className="text-xs text-gray-500 mt-1">Altere qualquer informação ou lista deste culto.</p>
+              </div>
+              <button onClick={() => setModalEditarAberto(false)} className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-200 text-gray-600 hover:bg-red-100 hover:text-red-600 transition-colors font-bold">✕</button>
+            </div>
+            
+            <div className="overflow-y-auto p-4 md:p-6 space-y-8 flex-1">
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Data</label>
+                  <input type="date" value={editData} onChange={e => setEditData(e.target.value)} className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500" required />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Trabalho</label>
+                  <select value={editTipoTrabalho} onChange={e => setEditTipoTrabalho(e.target.value)} className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer" required>
+                    {opcoesTipos.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Ofertas Gerais Culto</label>
+                  <input type="number" step="0.01" value={editOfertas} onChange={e => setEditOfertas(e.target.value ? parseFloat(e.target.value) : "")} className="w-full px-3 py-2 bg-blue-50 border border-blue-100 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 font-bold" />
+                </div>
+              </div>
+
+              <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                <div className="flex items-center justify-between mb-3 border-b border-gray-100 pb-2">
+                  <h3 className="text-sm font-black text-gray-800 uppercase">Dízimos</h3>
+                  <button type="button" onClick={addDizimo} className="px-3 py-1 bg-green-100 hover:bg-green-200 text-green-700 text-xs font-bold rounded-lg transition-colors">+ Dízimo</button>
+                </div>
+                <div className="space-y-3">
+                  {listaDizimos.map((item) => (
+                    <div key={item.id} className="flex flex-col sm:flex-row gap-2 items-start sm:items-center bg-gray-50 p-2 rounded-lg border border-gray-100">
+                      <select value={item.is_avulso ? "sim" : "nao"} onChange={(e) => updateDizimo(item.id, { is_avulso: e.target.value === "sim", membro_id: "", nome_avulso: "" })} className="w-full sm:w-auto px-2 py-2 bg-white border border-gray-200 rounded text-xs outline-none">
+                        <option value="nao">Cadastrado</option>
+                        <option value="sim">Visitante</option>
+                      </select>
+                      <div className="flex-1 w-full min-w-[150px]">
+                        {item.is_avulso ? (
+                          <input type="text" placeholder="Nome..." value={item.nome_avulso} onChange={(e) => updateDizimo(item.id, { nome_avulso: e.target.value })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded text-xs outline-none" />
+                        ) : (
+                          <MembroSearchSelect membros={membrosParaBuscaDaEdicao} valor={item.membro_id} onChange={(val) => updateDizimo(item.id, { membro_id: val })} />
+                        )}
+                      </div>
+                      <input type="number" step="0.01" placeholder="Valor" value={item.valor} onChange={(e) => updateDizimo(item.id, { valor: e.target.value ? parseFloat(e.target.value) : "" })} className="w-full sm:w-28 px-3 py-2 bg-green-50 border border-green-200 text-green-900 rounded text-sm font-bold outline-none" />
+                      <button type="button" onClick={() => removeDizimo(item.id)} className="w-full sm:w-8 h-8 flex items-center justify-center bg-red-100 text-red-600 hover:bg-red-500 hover:text-white rounded transition-colors text-xs font-bold">X</button>
+                    </div>
+                  ))}
+                  <div className="text-right text-xs font-bold text-gray-500 pt-1">Subtotal Dízimos: <span className="text-green-600 text-sm">{formatarMoeda(editTotalDizimos)}</span></div>
+                </div>
+              </div>
+
+              <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                <div className="flex items-center justify-between mb-3 border-b border-gray-100 pb-2">
+                  <h3 className="text-sm font-black text-gray-800 uppercase">Ofertas Especiais</h3>
+                  <button type="button" onClick={addOfertaEspecial} className="px-3 py-1 bg-yellow-100 hover:bg-yellow-200 text-yellow-700 text-xs font-bold rounded-lg transition-colors">+ Oferta</button>
+                </div>
+                <div className="space-y-3">
+                  {listaOfertasEspeciais.map((item) => (
+                    <div key={item.id} className="flex flex-col sm:flex-row gap-2 items-start sm:items-center bg-gray-50 p-2 rounded-lg border border-gray-100">
+                      <input type="text" placeholder="Propósito..." value={item.descricao} onChange={(e) => updateOfertaEspecial(item.id, { descricao: e.target.value })} className="flex-1 w-full px-3 py-2 bg-white border border-gray-200 rounded text-sm outline-none" />
+                      <input type="number" step="0.01" placeholder="Valor" value={item.valor} onChange={(e) => updateOfertaEspecial(item.id, { valor: e.target.value ? parseFloat(e.target.value) : "" })} className="w-full sm:w-28 px-3 py-2 bg-yellow-50 border border-yellow-200 text-yellow-900 rounded text-sm font-bold outline-none" />
+                      <button type="button" onClick={() => removeOfertaEspecial(item.id)} className="w-full sm:w-8 h-8 flex items-center justify-center bg-red-100 text-red-600 hover:bg-red-500 hover:text-white rounded transition-colors text-xs font-bold">X</button>
+                    </div>
+                  ))}
+                  <div className="text-right text-xs font-bold text-gray-500 pt-1">Subtotal Especiais: <span className="text-yellow-600 text-sm">{formatarMoeda(editTotalOfertaEspecial)}</span></div>
+                </div>
+              </div>
+
+              <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                <div className="flex items-center justify-between mb-3 border-b border-gray-100 pb-2">
+                  <h3 className="text-sm font-black text-gray-800 uppercase">Saídas e Despesas</h3>
+                  <button type="button" onClick={addSaida} className="px-3 py-1 bg-red-100 hover:bg-red-200 text-red-700 text-xs font-bold rounded-lg transition-colors">+ Saída</button>
+                </div>
+                <div className="space-y-3">
+                  {listaSaidas.map((item) => (
+                    <div key={item.id} className="flex flex-col sm:flex-row gap-2 items-start sm:items-center bg-gray-50 p-2 rounded-lg border border-gray-100">
+                      <input type="text" placeholder="Descrição da saída..." value={item.descricao} onChange={(e) => updateSaida(item.id, { descricao: e.target.value })} className="flex-1 w-full px-3 py-2 bg-white border border-gray-200 rounded text-sm outline-none" />
+                      <input type="number" step="0.01" placeholder="Valor" value={item.valor} onChange={(e) => updateSaida(item.id, { valor: e.target.value ? parseFloat(e.target.value) : "" })} className="w-full sm:w-28 px-3 py-2 bg-red-50 border border-red-200 text-red-900 rounded text-sm font-bold outline-none" />
+                      <button type="button" onClick={() => removeSaida(item.id)} className="w-full sm:w-8 h-8 flex items-center justify-center bg-red-100 text-red-600 hover:bg-red-500 hover:text-white rounded transition-colors text-xs font-bold">X</button>
+                    </div>
+                  ))}
+                  <div className="text-right text-xs font-bold text-gray-500 pt-1">Subtotal Saídas: <span className="text-red-600 text-sm">- {formatarMoeda(editTotalSaidas)}</span></div>
+                </div>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                <label className="block text-xs font-black text-blue-800 uppercase mb-2">Justificativa da Edição *</label>
+                <textarea 
+                  value={editJustificativa} 
+                  onChange={e => setEditJustificativa(e.target.value)} 
+                  placeholder="Por que você está alterando os valores ou itens deste culto? Essa justificativa ficará salva no histórico para auditoria..." 
+                  className="w-full px-4 py-3 bg-white border border-blue-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded-lg text-sm resize-none outline-none font-medium text-gray-800" 
+                  rows={3} 
+                  required 
+                />
+              </div>
+
+            </div>
+
+            <div className="p-5 bg-white border-t border-gray-200 flex flex-col sm:flex-row justify-between items-center gap-4 sticky bottom-0 z-20">
+              <div className="bg-gray-100 px-4 py-2 rounded-lg border border-gray-200 w-full sm:w-auto text-center sm:text-left">
+                <span className="text-xs font-bold text-gray-500 uppercase block">Saldo Total Ajustado</span>
+                <span className={`text-xl font-black ${editTotalCalculado >= 0 ? 'text-teal-700' : 'text-red-600'}`}>{formatarMoeda(editTotalCalculado)}</span>
+              </div>
+              <div className="flex w-full sm:w-auto gap-3">
+                <button type="button" onClick={() => setModalEditarAberto(false)} className="flex-1 sm:flex-none px-6 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-sm font-bold transition">Cancelar</button>
+                <button type="submit" disabled={excluindo || !editJustificativa.trim()} onClick={salvarEdicao} className="flex-1 sm:flex-none px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-black transition disabled:opacity-50 shadow-md">Gravar Correção</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: JUSTIFICATIVA DE EXCLUSÃO */}
       {modalExcluirAberto && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm transition-opacity animate-fadeIn">
           <div className="bg-white rounded-xl shadow-xl border border-gray-100 max-w-md w-full overflow-hidden transform transition-all scale-100">
             <div className="p-5 border-b border-gray-100 bg-gray-50">
               <h3 className="text-lg font-bold text-gray-900">Justificativa de Exclusão</h3>
-              <p className="text-xs text-gray-500 mt-1">
-                Informe o motivo da exclusão deste lançamento. Ele permanecerá listado com marcação visual, mas será completamente ignorado nos relatórios e saldos.
-              </p>
+              <p className="text-xs text-gray-500 mt-1">Informe o motivo da exclusão deste lançamento.</p>
             </div>
             <div className="p-5 space-y-4">
               <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Por que você está excluindo este lançamento?</label>
+                <label className="block text-xs font-bold text-red-500 uppercase tracking-wider mb-2">Motivo *</label>
                 <textarea
                   value={justificativa}
                   onChange={(e) => setJustificativa(e.target.value)}
-                  placeholder="Ex: Lançamento duplicado no sistema, valor digitado incorretamente..."
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none text-sm min-h-[110px] resize-none transition"
+                  placeholder="Ex: Lançamento duplicado..."
+                  className="w-full px-4 py-3 border border-red-200 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none text-sm min-h-[110px] resize-none transition"
                 />
               </div>
             </div>
             <div className="p-4 bg-gray-50 border-t border-gray-100 flex items-center justify-end gap-3">
-              <button
-                type="button"
-                disabled={excluindo}
-                onClick={() => {
-                  setModalExcluirAberto(false);
-                  setLancamentoParaExcluir(null);
-                  setJustificativa("");
-                }}
-                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium text-sm rounded-lg transition"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                disabled={excluindo || !justificativa.trim()}
-                onClick={executarExclusaoLogica}
-                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-medium text-sm rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm font-bold"
-              >
+              <button type="button" disabled={excluindo} onClick={() => { setModalExcluirAberto(false); setLancamentoParaExcluir(null); setJustificativa(""); }} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium text-sm rounded-lg transition">Cancelar</button>
+              <button type="button" disabled={excluindo || !justificativa.trim()} onClick={executarExclusaoLogica} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-medium text-sm rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm font-bold">
                 {excluindo ? "Excluindo..." : "Confirmar Exclusão"}
               </button>
             </div>

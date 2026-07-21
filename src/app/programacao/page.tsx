@@ -7,7 +7,7 @@ import { podeEditar, formatarPerfis } from "../../lib/permissoes";
 interface Programacao {
   id?: number;
   igreja_id: string;
-  congregacao?: string; // Novo Campo
+  congregacao?: string;
   titulo: string;
   descricao: string;
   tipo: "Fixa" | "Evento" | "Reunião";
@@ -179,7 +179,7 @@ export default function ProgramacaoPage() {
   }, [filtroCongregacao, programacoesRaw, nomeSedeOficial]);
 
 
-  // FUNÇÃO REUTILIZÁVEL PARA RECARREGAR (Usada após salvar/excluir)
+  // FUNÇÃO REUTILIZÁVEL PARA RECARREGAR
   async function carregarProgramacoes() {
     if (!igrejaId) return;
     try {
@@ -230,13 +230,20 @@ export default function ProgramacaoPage() {
     e.preventDefault();
     if (!igrejaId) return;
 
+    // Proteção extra contra tentativa de salvar evento sem data 
+    if (tipo === "Evento" && !data) {
+      alert("Por favor, preencha a data do evento.");
+      return;
+    }
+
     const congregacaoFinal = ehSede ? congregacaoForm : congregacaoUsuario;
 
+    // Tratativa de payload para evitar envio de strings vazias que quebram o DB
     const payload = {
       igreja_id: igrejaId,
-      congregacao: congregacaoFinal, // INJEÇÃO SEGURA DA HIERARQUIA
-      titulo,
-      descricao,
+      congregacao: congregacaoFinal || null, 
+      titulo: titulo.trim(),
+      descricao: descricao.trim() || null,
       tipo,
       horario,
       data: tipo === "Evento" ? data : null,
@@ -253,9 +260,11 @@ export default function ProgramacaoPage() {
       }
       setModalAberto(false);
       carregarProgramacoes();
-    } catch (err) {
-      console.error("Erro ao salvar programação:", err);
-      alert("Ocorreu um erro ao processar sua solicitação.");
+    } catch (err: any) {
+      // Aqui garantimos que o erro real vai aparecer em texto claro!
+      const errorMessage = err?.message || err?.details || JSON.stringify(err);
+      console.error("Erro detalhado ao salvar programação:", err);
+      alert(`Erro ao salvar: ${errorMessage}`);
     }
   }
 
