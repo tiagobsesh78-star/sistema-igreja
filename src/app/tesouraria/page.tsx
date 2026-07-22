@@ -150,6 +150,10 @@ export default function TesourariaPage() {
   const [justificativa, setJustificativa] = useState("");
   const [excluindo, setExcluindo] = useState(false);
 
+  // NOVO: Modal Assinaturas para o PDF
+  const [modalAssinaturasAberto, setModalAssinaturasAberto] = useState(false);
+  const [assinaturasSelecionadas, setAssinaturasSelecionadas] = useState<string[]>([]);
+
   // Modal Edição (Com Listas Dinâmicas)
   const [modalEditarAberto, setModalEditarAberto] = useState(false);
   const [lancamentoParaEditar, setLancamentoParaEditar] = useState<any>(null);
@@ -283,11 +287,6 @@ export default function TesourariaPage() {
       return nomeSedeOficial;
     }
     return cong;
-  };
-
-  const obterCongregacaoMembro = (m: any) => {
-    if (!m) return nomeSedeOficial;
-    return normalizarSede(m.congregacao || m.Congregacao);
   };
 
   const parseJSON = (data: any) => {
@@ -469,20 +468,19 @@ export default function TesourariaPage() {
   const totalSaidasGerais = lancamentosAtivos.reduce((acc, lanc) => acc + (Number(lanc.saidas) || 0), 0);
   const totalEntradasBrutas = totalOfertasGerais + totalDizimosGerais + totalEspecialGerais;
 
-  // Matemática de Frequências Inteligentes (Calcula os fatores multiplicadores)
+  // Matemática de Frequências Inteligentes
   const distinctCultos = lancamentosAtivos.length;
   const distinctMeses = new Set(lancamentosAtivos.map(l => l.data?.substring(0, 7))).size;
   const distinctAnos = new Set(lancamentosAtivos.map(l => l.data?.substring(0, 4))).size;
   const distinctSemanas = new Set(lancamentosAtivos.map(l => {
     if (!l.data) return "";
-    const date = new Date(l.data + "T12:00:00Z"); // Usamos UTC ao meio-dia para evitar bug de fuso
+    const date = new Date(l.data + "T12:00:00Z"); 
     date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
     const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
     const weekNo = Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
     return `${date.getUTCFullYear()}-W${weekNo}`;
   })).size;
 
-  // Função centralizada para processar repasses e entradas configuradas
   const calcularValorConfiguracao = (c: any) => {
     const isPercent = c.tipo_valor === "percentual" || c.percentual !== null;
     let vCalc = 0;
@@ -494,7 +492,7 @@ export default function TesourariaPage() {
       if (c.frequencia === "Semana") multiplicador = distinctSemanas;
       else if (c.frequencia === "Mês") multiplicador = distinctMeses;
       else if (c.frequencia === "Ano") multiplicador = distinctAnos;
-      else multiplicador = distinctCultos; // Padrão 'Culto'
+      else multiplicador = distinctCultos; 
       
       vCalc = valorFixo * multiplicador;
     }
@@ -525,7 +523,17 @@ export default function TesourariaPage() {
   const nomeIgrejaPrincipal = configIgreja?.nome_igreja || "Igreja Principal";
   const nomeCongregacao = congregacaoSelecionada || "Todas as Congregações (Geral)";
 
-  const exportarPDF = () => window.print();
+  const abrirModalParaPDF = () => {
+    setAssinaturasSelecionadas([]); // Reseta as seleções pra começar limpo
+    setModalAssinaturasAberto(true);
+  };
+
+  const confirmarEGerarPDF = () => {
+    setModalAssinaturasAberto(false);
+    setTimeout(() => {
+      window.print();
+    }, 150); // Timeout leve para dar tempo da animação do modal fechar e a página ir limpa pra impressão
+  };
 
   const exportarExcel = () => {
     let csv = `Relatório Financeiro - ${nomeIgrejaPrincipal}\nCongregação: ${nomeCongregacao}\nData de Geração: ${new Date().toLocaleDateString('pt-BR')}\n\n`;
@@ -568,7 +576,7 @@ export default function TesourariaPage() {
   if (carregando) return <div className="p-8 text-center text-gray-600">Carregando tesouraria...</div>;
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
+    <div className="max-w-7xl mx-auto space-y-6 print:flex print:flex-col print:min-h-screen print:max-w-none print:m-0 print:p-0">
       <style dangerouslySetInnerHTML={{__html: `
         .cabecalho-impressao { display: none !important; }
         @media print {
@@ -584,7 +592,7 @@ export default function TesourariaPage() {
       `}} />
 
       <div className="cabecalho-impressao text-center mb-8 border-b-2 border-black pb-4">
-        {configIgreja?.logo_url && <img src={configIgreja.logo_url} alt="Logo" className="h-20 mx-auto mb-3 object-contain" />}
+        {configIgreja?.logo_url && <img src={configIgreja.logo_url} alt="Logo" className="h-20 mx-auto mb-3 object-contain" crossOrigin="anonymous" />}
         <h1 className="text-2xl font-black uppercase tracking-wide text-gray-900">{nomeIgrejaPrincipal}</h1>
         <h2 className="text-md font-bold text-gray-700 mt-0.5">Relatório Financeiro da Congregação: {nomeCongregacao}</h2>
         <div className="flex justify-between items-center text-xs text-gray-500 mt-4 px-2">
@@ -632,7 +640,7 @@ export default function TesourariaPage() {
 
           <div className="flex items-center gap-3 w-full md:w-auto justify-end">
             <button onClick={exportarExcel} className="flex items-center gap-2 px-4 py-2 bg-green-50 text-green-700 font-bold text-sm rounded-lg hover:bg-green-100 transition shadow-sm border border-green-200">Excel</button>
-            <button onClick={exportarPDF} className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-700 font-bold text-sm rounded-lg hover:bg-red-100 transition shadow-sm border border-red-200">PDF</button>
+            <button onClick={abrirModalParaPDF} className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-700 font-bold text-sm rounded-lg hover:bg-red-100 transition shadow-sm border border-red-200">PDF</button>
           </div>
         </div>
         
@@ -844,11 +852,33 @@ export default function TesourariaPage() {
         </div>
       )}
 
+      {/* ========================================================================= */}
+      {/* BLOCO DE ASSINATURAS (SÓ APARECE NA HORA DA IMPRESSÃO E VAI PRO FINAL DA PÁG) */}
+      {/* ========================================================================= */}
+      {assinaturasSelecionadas.length > 0 && (
+        <div className="hidden print:flex mt-auto pt-16 pb-8 flex-wrap justify-center gap-12 md:gap-24 break-inside-avoid w-full">
+          {configIgreja?.assinaturas
+            ?.filter((a: any) => assinaturasSelecionadas.includes(a.id))
+            .map((ass: any) => (
+              <div key={ass.id} className="flex flex-col items-center justify-end w-48 text-center">
+                {ass.url ? (
+                  <img src={ass.url} alt="Assinatura" className="h-16 object-contain mb-1" crossOrigin="anonymous" />
+                ) : (
+                  <div className="h-16 w-full mb-1"></div> 
+                )}
+                <div className="w-full border-t border-black mb-1"></div>
+                <p className="text-[10px] font-bold uppercase text-black">{ass.titulo}</p>
+              </div>
+          ))}
+        </div>
+      )}
+
+
       {/* ========================================== */}
       {/* MODAL 1: VISUALIZAR DETALHES (Somente Leitura) */}
       {/* ========================================== */}
       {modalVerAberto && lancamentoParaVer && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm transition-opacity animate-fadeIn">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm transition-opacity animate-fadeIn print-oculto">
           <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 max-w-2xl w-full overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-5 border-b border-gray-100 bg-gray-50 flex justify-between items-center sticky top-0 z-10">
               <div>
@@ -935,12 +965,11 @@ export default function TesourariaPage() {
         </div>
       )}
 
-
       {/* ========================================== */}
       {/* MODAL 2: EDITAR LANÇAMENTO (Poder Total)   */}
       {/* ========================================== */}
       {modalEditarAberto && lancamentoParaEditar && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm transition-opacity animate-fadeIn">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm transition-opacity animate-fadeIn print-oculto">
           <div className="bg-gray-50 rounded-2xl shadow-2xl border border-gray-200 max-w-4xl w-full overflow-hidden flex flex-col max-h-[95vh]">
             <div className="p-5 border-b border-gray-200 bg-white flex justify-between items-center sticky top-0 z-20 shadow-sm">
               <div>
@@ -1060,7 +1089,7 @@ export default function TesourariaPage() {
 
       {/* MODAL 3: JUSTIFICATIVA DE EXCLUSÃO */}
       {modalExcluirAberto && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm transition-opacity animate-fadeIn">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm transition-opacity animate-fadeIn print-oculto">
           <div className="bg-white rounded-xl shadow-xl border border-gray-100 max-w-md w-full overflow-hidden transform transition-all scale-100">
             <div className="p-5 border-b border-gray-100 bg-gray-50">
               <h3 className="text-lg font-bold text-gray-900">Justificativa de Exclusão</h3>
@@ -1081,6 +1110,61 @@ export default function TesourariaPage() {
               <button type="button" disabled={excluindo} onClick={() => { setModalExcluirAberto(false); setLancamentoParaExcluir(null); setJustificativa(""); }} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium text-sm rounded-lg transition">Cancelar</button>
               <button type="button" disabled={excluindo || !justificativa.trim()} onClick={executarExclusaoLogica} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-medium text-sm rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm font-bold">
                 {excluindo ? "Excluindo..." : "Confirmar Exclusão"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================== */}
+      {/* MODAL 4: ESCOLHA DE ASSINATURAS PARA O PDF */}
+      {/* ========================================== */}
+      {modalAssinaturasAberto && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm transition-opacity animate-fadeIn print-oculto">
+          <div className="bg-white rounded-xl shadow-2xl border border-gray-100 max-w-lg w-full overflow-hidden">
+            <div className="p-5 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Gerar PDF do Relatório</h3>
+                <p className="text-xs text-gray-500 mt-1">Selecione as assinaturas que aparecerão no final do documento.</p>
+              </div>
+              <button onClick={() => setModalAssinaturasAberto(false)} className="text-gray-400 hover:text-red-600 font-bold text-xl">&times;</button>
+            </div>
+            
+            <div className="p-5">
+              {configIgreja?.assinaturas && configIgreja.assinaturas.length > 0 ? (
+                <div className="flex flex-wrap gap-3">
+                  {configIgreja.assinaturas.map((ass: any) => (
+                    <label key={ass.id} className={`flex items-center gap-2 cursor-pointer px-4 py-2 border rounded-lg shadow-sm transition-all ${assinaturasSelecionadas.includes(ass.id) ? 'bg-blue-50 border-blue-400' : 'bg-white border-gray-300 hover:border-gray-400'}`}>
+                      <input
+                        type="checkbox"
+                        checked={assinaturasSelecionadas.includes(ass.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setAssinaturasSelecionadas(prev => [...prev, ass.id]);
+                          } else {
+                            setAssinaturasSelecionadas(prev => prev.filter(id => id !== ass.id));
+                          }
+                        }}
+                        className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer"
+                      />
+                      <span className="text-sm font-semibold text-gray-700">{ass.titulo}</span>
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500 italic">Nenhuma assinatura configurada. Vá em Configurações Globais para cadastrar.</p>
+              )}
+            </div>
+            
+            <div className="p-4 bg-gray-50 border-t border-gray-100 flex justify-end gap-3">
+              <button type="button" onClick={() => setModalAssinaturasAberto(false)} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium text-sm rounded-lg transition">Cancelar</button>
+              <button 
+                type="button" 
+                onClick={confirmarEGerarPDF} 
+                className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white font-medium text-sm rounded-lg transition shadow-sm font-bold flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+                Confirmar e Imprimir
               </button>
             </div>
           </div>

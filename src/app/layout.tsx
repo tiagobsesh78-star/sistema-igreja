@@ -63,13 +63,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     const titulosSistema: Record<string, string> = {
       '/': 'Início',
       '/membros': 'Membros',
+      '/pastoral': 'Pastoral', // NOVO TÍTULO ADICIONADO
       '/tesouraria': 'Tesouraria',
       '/patrimonio': 'Patrimônio',
       '/escalas': 'Escalas',
       '/reunioes': 'Reuniões',
       '/programacao': 'Programação',
       '/visitantes': 'Visitantes',
-      '/pastoral': 'Pastoral', // NOVO TÍTULO ADICIONADO
       '/departamentos': 'Departamentos', 
       '/configuracoes': 'Configurações',
     };
@@ -256,6 +256,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             {podeVisualizar(perfisUsuario, 'membros') && (
               <Link href="/membros" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/membros') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Membros</Link>
             )}
+
+                        {/* NOVO LINK PASTORAL - VISÍVEL APENAS PARA PASTOR/PRESBÍTERO E ADMIN */}
+            {(perfisUsuario.includes('Pastor/Presbítero') || perfisUsuario.includes('Administrador')) && (
+              <Link 
+                href="/pastoral" 
+                onClick={fecharMenu} 
+                className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/pastoral') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}
+              >
+                Pastoral
+              </Link>
+            )}
+
             
             {podeVisualizar(perfisUsuario, 'tesouraria') && (
               <Link href="/tesouraria" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/tesouraria') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Tesouraria</Link>
@@ -279,16 +291,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
             <Link href="/visitantes" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/visitantes') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Visitantes</Link>
             
-            {/* NOVO LINK PASTORAL - VISÍVEL APENAS PARA PASTOR/PRESBÍTERO E ADMIN */}
-            {(perfisUsuario.includes('Pastor/Presbítero') || perfisUsuario.includes('Administrador')) && (
-              <Link 
-                href="/pastoral" 
-                onClick={fecharMenu} 
-                className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/pastoral') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}
-              >
-                Pastoral
-              </Link>
-            )}
 
             {/* LINK DEPARTAMENTOS */}
             {(perfisUsuario.includes('Secretário') || perfisUsuario.includes('Pastor/Presbítero') || perfisUsuario.includes('Líder') || perfisUsuario.includes('Administrador')) && (

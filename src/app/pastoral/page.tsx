@@ -41,7 +41,6 @@ const compactarParaBase64 = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
     const maxSize = 500 * 1024; // 500 KB
     
-    // Se for imagem, tenta compactar
     if (file.type.startsWith("image/")) {
       const reader = new FileReader();
       reader.readAsDataURL(file);
@@ -65,14 +64,12 @@ const compactarParaBase64 = (file: File): Promise<string> => {
           canvas.height = height;
           ctx?.drawImage(img, 0, 0, width, height);
           
-          // Exporta com qualidade 0.7 para reduzir tamanho
           const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
           resolve(dataUrl);
         };
       };
       reader.onerror = error => reject(error);
     } else {
-      // Se for PDF ou outro documento, apenas converte (limite checado antes)
       if (file.size > maxSize) {
         reject(new Error("Arquivo maior que 500KB."));
         return;
@@ -94,7 +91,9 @@ export default function Pastoral() {
   const [usuarioAtual, setUsuarioAtual] = useState<any>(null);
   const [mesAtualCalendario, setMesAtualCalendario] = useState(new Date());
 
-  // Dados
+  // Dados Globais
+  const [configIgreja, setConfigIgreja] = useState<any>(null);
+  const [ehSede, setEhSede] = useState(true);
   const [membros, setMembros] = useState<any[]>([]);
   const [registros, setRegistros] = useState<any[]>([]);
   const [anotacoes, setAnotacoes] = useState<any[]>([]);
@@ -108,7 +107,7 @@ export default function Pastoral() {
     mes: "Todos",
     congregacao: "Todas",
     cargo: "Todos",
-    publico: "Todos" // "Todos", "Membros", "Outros"
+    publico: "Todos"
   });
 
   // Estados de Modais
@@ -118,13 +117,14 @@ export default function Pastoral() {
   const [modalAnotacaoAberto, setModalAnotacaoAberto] = useState(false);
   const [salvando, setSalvando] = useState(false);
 
-  const formZerado = { id: "", tipo: "Gabinete", membro_id: "", nome_nao_membro: "", data_hora: "", local: "", assunto: "", descricao: "", status: "Agendado", anexo_url: "" };
+  // Sistema Multimembros (Pessoas Atendidas)
+  const [buscaMembro, setBuscaMembro] = useState("");
+  const [envolvidos, setEnvolvidos] = useState<{ id?: string, nome: string, tipo: 'membro' | 'visitante' }[]>([]);
+
+  const formZerado = { id: "", tipo: "Gabinete", data_hora: "", local: "", assunto: "", descricao: "", status: "Agendado", anexo_url: "" };
   const [formRegistro, setFormRegistro] = useState(formZerado);
   const [formAnotacao, setFormAnotacao] = useState({ id: "", titulo: "", texto: "" });
   const [anexoNome, setAnexoNome] = useState("");
-
-  // Pesquisa local dentro do select de membro
-  const [buscaMembroModal, setBuscaMembroModal] = useState("");
 
   useEffect(() => {
     const userLocal = localStorage.getItem("usuarioLogado");
@@ -148,34 +148,41 @@ export default function Pastoral() {
     const pastorId = usuario.id;
 
     try {
-      const { data: dadosMembros } = await supabase
-        .from("membros")
-        .select("id, nome_completo, congregacao, cargo")
-        .eq("igreja_id", igrejaId)
-        .order("nome_completo", { ascending: true });
+      // 1. Busca Configuração Global da Igreja para o Papel Timbrado e Multi-tenancy
+      const { data: config } = await supabase.from("configuracao_igreja").select("*").eq("igreja_id", igrejaId).maybeSingle();
+      setConfigIgreja(config);
 
-      if (dadosMembros) {
-        setMembros(dadosMembros);
-        setOpcoesCongregacao(Array.from(new Set(dadosMembros.map(m => m.congregacao || "Sede"))));
-        setOpcoesCargo(Array.from(new Set(dadosMembros.map(m => m.cargo || "Membro"))));
+      const nomeSede = config?.nome_igreja?.trim() || "Sede Principal";
+      const congUser = usuario?.congregacao?.trim() || "";
+      const isUserSede = !congUser || congUser.toLowerCase() === "sede" || congUser.toLowerCase() === "matriz" || congUser.toLowerCase() === "geral" || congUser.toLowerCase() === nomeSede.toLowerCase();
+      setEhSede(isUserSede);
+
+      // 2. Busca Membros e aplica a Trava de Isolamento por Congregação
+      const { data: dadosMembros } = await supabase.from("membros").select("id, nome_completo, congregacao, cargo").eq("igreja_id", igrejaId).order("nome_completo", { ascending: true });
+
+      let membrosProcessados = dadosMembros || [];
+      if (!isUserSede) {
+        // BLINDAGEM DE DADOS: Pastor de filial só puxa membros da sua filial
+        membrosProcessados = membrosProcessados.filter(m => (m.congregacao?.trim() || "Sede") === congUser);
+      }
+      setMembros(membrosProcessados);
+
+      // Seta filtros globais e os bloqueia se for filial
+      if (isUserSede) {
+        setOpcoesCongregacao(Array.from(new Set(membrosProcessados.map(m => m.congregacao || "Sede"))));
+      } else {
+        setOpcoesCongregacao([congUser]);
+        setFiltros(prev => ({...prev, congregacao: congUser}));
       }
 
-      const { data: dadosRegistros } = await supabase
-        .from("pastoral_registros")
-        .select("*")
-        .eq("igreja_id", igrejaId)
-        .eq("pastor_id", pastorId)
-        .order("data_hora", { ascending: false });
+      setOpcoesCargo(Array.from(new Set(membrosProcessados.map(m => m.cargo || "Membro"))));
 
+      // 3. Busca Registros
+      const { data: dadosRegistros } = await supabase.from("pastoral_registros").select("*").eq("igreja_id", igrejaId).eq("pastor_id", pastorId).order("data_hora", { ascending: false });
       if (dadosRegistros) setRegistros(dadosRegistros);
 
-      const { data: dadosAnotacoes } = await supabase
-        .from("pastoral_anotacoes")
-        .select("*")
-        .eq("igreja_id", igrejaId)
-        .eq("pastor_id", pastorId)
-        .order("created_at", { ascending: false });
-
+      // 4. Busca Anotações
+      const { data: dadosAnotacoes } = await supabase.from("pastoral_anotacoes").select("*").eq("igreja_id", igrejaId).eq("pastor_id", pastorId).order("created_at", { ascending: false });
       if (dadosAnotacoes) setAnotacoes(dadosAnotacoes);
 
     } catch (error) { console.error(error); } 
@@ -187,32 +194,93 @@ export default function Pastoral() {
   // ==========================================
   const registrosFiltrados = useMemo(() => {
     return registros.filter(reg => {
-      const membro = membros.find(m => m.id === reg.membro_id);
-      
-      // Filtro Mês
+      let membrosIds = reg.membro_id ? reg.membro_id.split(",").map((i: string) => i.trim()) : [];
+      let membrosDoReg = membros.filter(m => membrosIds.includes(m.id));
+
       if (filtros.mes !== "Todos") {
         const mesReg = getMonth(parseISO(reg.data_hora)).toString();
         if (mesReg !== filtros.mes) return false;
       }
 
-      // Filtro Público
-      if (filtros.publico === "Membros" && !membro) return false;
-      if (filtros.publico === "Outros" && membro) return false;
+      const temMembro = membrosDoReg.length > 0;
+      const temVisitante = !!reg.nome_nao_membro;
+      if (filtros.publico === "Membros" && !temMembro) return false;
+      if (filtros.publico === "Outros" && !temVisitante) return false;
 
-      // Filtros Específicos de Membro (Congregação e Cargo)
-      if (membro) {
-        const congNormalizada = membro.congregacao || "Sede";
-        const cargoNormalizado = membro.cargo || "Membro";
-        if (filtros.congregacao !== "Todas" && congNormalizada !== filtros.congregacao) return false;
-        if (filtros.cargo !== "Todos" && cargoNormalizado !== filtros.cargo) return false;
-      } else {
-        // Se for "Outro" (visitante), e houver filtro de congregacao/cargo estrito, ocultamos (pois visitante não tem cargo)
-        if (filtros.congregacao !== "Todas" || filtros.cargo !== "Todos") return false;
+      if (filtros.congregacao !== "Todas" || filtros.cargo !== "Todos") {
+        const matchCong = membrosDoReg.some(m => {
+            const cong = m.congregacao || "Sede";
+            return (filtros.congregacao === "Todas" || cong === filtros.congregacao);
+        });
+        const matchCargo = membrosDoReg.some(m => {
+            const cargo = m.cargo || "Membro";
+            return (filtros.cargo === "Todos" || cargo === filtros.cargo);
+        });
+
+        if (!temMembro || !matchCong || !matchCargo) return false;
       }
 
       return true;
     });
   }, [registros, membros, filtros]);
+
+  // Função utilitária para renderizar Nomes Múltiplos
+  const obterNomesEnvolvidosTexto = (reg: any) => {
+    let nomes = [];
+    if (reg.membro_id) {
+        reg.membro_id.split(",").forEach((id: string) => {
+           const m = membros.find(x => x.id === id.trim());
+           if(m) nomes.push(m.nome_completo);
+        });
+    }
+    if (reg.nome_nao_membro) {
+        reg.nome_nao_membro.split(",").forEach((n: string) => {
+           if(n.trim()) nomes.push(n.trim() + " (Vis)");
+        });
+    }
+    return nomes.join(", ") || "Não informado";
+  };
+
+
+  // ==========================================
+  // LÓGICA DE MULTI-PESSOAS (TAGS/CHIPS E SEARCH)
+  // ==========================================
+  const membrosFiltradosBusca = buscaMembro.trim() === "" ? [] : membros.filter(m =>
+    m.nome_completo.toLowerCase().includes(buscaMembro.toLowerCase()) &&
+    !envolvidos.some(e => e.id === m.id)
+  );
+
+  const addMembroLista = (m: any) => {
+    setEnvolvidos([...envolvidos, { id: m.id, nome: m.nome_completo, tipo: 'membro' }]);
+    setBuscaMembro("");
+  };
+
+  const addVisitanteLista = () => {
+    if (buscaMembro.trim()) {
+        setEnvolvidos([...envolvidos, { nome: buscaMembro.trim(), tipo: 'visitante' }]);
+        setBuscaMembro("");
+    }
+  };
+
+  const removerEnvolvido = (index: number) => {
+    setEnvolvidos(envolvidos.filter((_, i) => i !== index));
+  };
+
+  const converterRegParaEnvolvidos = (reg: any) => {
+    let envs: any[] = [];
+    if (reg.membro_id) {
+        reg.membro_id.split(",").forEach((id: string) => {
+            const m = membros.find(x => x.id === id.trim());
+            if (m) envs.push({ id: m.id, nome: m.nome_completo, tipo: 'membro' });
+        });
+    }
+    if (reg.nome_nao_membro) {
+        reg.nome_nao_membro.split(",").forEach((n: string) => {
+            if (n.trim()) envs.push({ nome: n.trim(), tipo: 'visitante' });
+        });
+    }
+    setEnvolvidos(envs);
+  };
 
 
   // ==========================================
@@ -220,14 +288,18 @@ export default function Pastoral() {
   // ==========================================
   const abrirAgendamento = () => {
     setFormRegistro({...formZerado, tipo: "Gabinete"});
-    setBuscaMembroModal("");
+    setEnvolvidos([]);
+    setBuscaMembro("");
     setAnexoNome("");
     setModalAgendaAberto(true);
   };
 
   const clicarNoCompromisso = (registro: any) => {
     setFormRegistro(registro);
+    converterRegParaEnvolvidos(registro);
+    setBuscaMembro("");
     setAnexoNome("");
+    
     if (registro.tipo === "Gabinete") {
       setAbaAtiva("atendimentos");
       setModalGabineteAberto(true);
@@ -235,7 +307,6 @@ export default function Pastoral() {
       setAbaAtiva("visitas");
       setModalVisitaAberto(true);
     } else {
-      // Abre no próprio modal de agenda caso seja "Outro"
       setAbaAtiva("agenda");
       setModalAgendaAberto(true);
     }
@@ -245,29 +316,40 @@ export default function Pastoral() {
     const file = e.target.files[0];
     if (!file) return;
     if (file.size > 500 * 1024) {
-      alert("⚠️ O arquivo é muito grande! Por favor, escolha um anexo de no máximo 500KB.");
+      alert("⚠️ O arquivo é muito grande! O limite é de 500KB.");
       return;
     }
-    setAnexoNome("Compactando e anexando...");
+    setAnexoNome("Compactando...");
     try {
       const base64Url = await compactarParaBase64(file);
       setFormRegistro({ ...formRegistro, anexo_url: base64Url });
-      setAnexoNome(file.name + " (Anexado com sucesso ✓)");
+      setAnexoNome(file.name + " (✓ Anexado)");
     } catch (err) {
-      alert("Erro ao anexar documento.");
+      alert("Erro ao anexar.");
       setAnexoNome("");
     }
   };
 
   const salvarRegistro = async () => {
-    if (!formRegistro.data_hora || !formRegistro.tipo) return;
+    if (!formRegistro.data_hora || !formRegistro.tipo) {
+      alert("Data e Tipo são obrigatórios.");
+      return;
+    }
+    if (envolvidos.length === 0) {
+      alert("Você precisa adicionar pelo menos uma pessoa.");
+      return;
+    }
+
     setSalvando(true);
+    const idsMembros = envolvidos.filter(e => e.tipo === 'membro').map(e => e.id).join(",");
+    const nomesVisitantes = envolvidos.filter(e => e.tipo === 'visitante').map(e => e.nome).join(",");
+
     const payload = {
       igreja_id: usuarioAtual.igreja_id || usuarioAtual.id_igreja,
       pastor_id: usuarioAtual.id,
       tipo: formRegistro.tipo,
-      membro_id: formRegistro.membro_id === "outros" ? null : formRegistro.membro_id,
-      nome_nao_membro: formRegistro.membro_id === "outros" ? formRegistro.nome_nao_membro : null,
+      membro_id: idsMembros || null,
+      nome_nao_membro: nomesVisitantes || null,
       data_hora: formRegistro.data_hora,
       local: formRegistro.local,
       assunto: formRegistro.assunto,
@@ -286,6 +368,7 @@ export default function Pastoral() {
     setSalvando(false);
   };
 
+  // Função para salvar a Anotação Confidencial (Novo ou Edição)
   const salvarAnotacao = async () => {
     if (!formAnotacao.titulo) return;
     setSalvando(true);
@@ -310,12 +393,12 @@ export default function Pastoral() {
   };
 
   const exportarCSV = () => {
-    let csv = "Data;Tipo;Pessoa;Local;Assunto;Status;Observacoes\n";
+    let csv = "Data;Tipo;Pessoas Envolvidas;Local;Assunto;Status;Observacoes\n";
     registrosFiltrados.forEach(r => {
-      const nome = r.membro_id ? membros.find(m => m.id === r.membro_id)?.nome_completo : r.nome_nao_membro;
+      const nomeTexto = obterNomesEnvolvidosTexto(r);
       const dataFormatada = format(parseISO(r.data_hora), "dd/MM/yyyy HH:mm");
       const desc = r.descricao ? r.descricao.replace(/\n/g, " ") : "";
-      csv += `${dataFormatada};${r.tipo};${nome || ""};${r.local || ""};${r.assunto || ""};${r.status};${desc}\n`;
+      csv += `${dataFormatada};${r.tipo};${nomeTexto};${r.local || ""};${r.assunto || ""};${r.status};${desc}\n`;
     });
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement("a");
@@ -336,7 +419,7 @@ export default function Pastoral() {
   };
 
   const temaAba = obterConfiguracaoAba(abaAtiva);
-  const membrosFiltradosBusca = membros.filter(m => m.nome_completo?.toLowerCase().includes(buscaMembroModal.toLowerCase()));
+
 
   // ==========================================
   // RENDERIZAÇÃO DAS ABAS
@@ -352,7 +435,7 @@ export default function Pastoral() {
 
       return (
         <div className="space-y-6 animate-fadeIn">
-          <div className="flex justify-between items-center bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+          <div className="flex justify-between items-center bg-white p-5 rounded-2xl shadow-sm border border-gray-100 print:hidden">
             <div>
               <h2 className="text-xl font-black text-gray-800 flex items-center gap-2">📅 Central de Marcações</h2>
               <p className="text-xs text-gray-400 mt-0.5">Clique em '+ Agendar' para criar um evento. Clique em um agendamento para iniciar o prontuário.</p>
@@ -364,10 +447,10 @@ export default function Pastoral() {
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* CALENDÁRIO */}
-            <div className="lg:col-span-2 bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+            <div className="lg:col-span-2 bg-white p-6 rounded-3xl shadow-sm border border-gray-100 print:border-none print:shadow-none">
               <div className="flex justify-between items-center mb-6">
                 <h3 className="text-lg font-black text-gray-800 capitalize">{format(mesAtualCalendario, "MMMM 'de' yyyy", { locale: ptBR })}</h3>
-                <div className="flex gap-2">
+                <div className="flex gap-2 print:hidden">
                   <button onClick={() => setMesAtualCalendario(subMonths(mesAtualCalendario, 1))} className="p-2.5 border border-gray-200 rounded-xl hover:bg-gray-50 font-bold">‹</button>
                   <button onClick={() => setMesAtualCalendario(addMonths(mesAtualCalendario, 1))} className="p-2.5 border border-gray-200 rounded-xl hover:bg-gray-50 font-bold">›</button>
                 </div>
@@ -382,11 +465,11 @@ export default function Pastoral() {
                   const ags = registrosFiltrados.filter(r => isSameDay(parseISO(r.data_hora), dia));
                   
                   return (
-                    <div key={idx} className={`min-h-[80px] p-2 border border-gray-50 rounded-xl flex flex-col transition-colors ${noMesAtual ? "bg-white" : "bg-gray-50/50"} ${isToday(dia) ? "ring-2 ring-indigo-500 bg-indigo-50/10" : ""}`}>
+                    <div key={idx} className={`min-h-[80px] p-2 border border-gray-50 rounded-xl flex flex-col transition-colors ${noMesAtual ? "bg-white print:border-gray-300" : "bg-gray-50/50"} ${isToday(dia) ? "ring-2 ring-indigo-500 bg-indigo-50/10" : ""}`}>
                       <span className={`text-xs font-bold mb-1 ${isToday(dia) ? "text-indigo-600" : noMesAtual ? "text-gray-700" : "text-gray-300"}`}>{format(dia, "d")}</span>
                       <div className="space-y-1.5 overflow-y-auto no-scrollbar">
                         {ags.map(ag => (
-                          <div key={ag.id} onClick={() => clicarNoCompromisso(ag)} className={`text-[10px] font-bold p-1 rounded-md truncate cursor-pointer hover:opacity-80 shadow-sm ${ag.tipo === 'Gabinete' ? 'bg-emerald-500 text-white' : ag.tipo === 'Visita' ? 'bg-sky-500 text-white' : 'bg-indigo-500 text-white'}`} title={ag.assunto}>
+                          <div key={ag.id} onClick={() => clicarNoCompromisso(ag)} className={`text-[10px] font-bold p-1 rounded-md truncate cursor-pointer hover:opacity-80 shadow-sm print:border print:text-black ${ag.tipo === 'Gabinete' ? 'bg-emerald-500 text-white' : ag.tipo === 'Visita' ? 'bg-sky-500 text-white' : 'bg-indigo-500 text-white'}`} title={ag.assunto}>
                             {format(parseISO(ag.data_hora), "HH:mm")} - {ag.assunto || ag.tipo}
                           </div>
                         ))}
@@ -398,18 +481,17 @@ export default function Pastoral() {
             </div>
 
             {/* PRÓXIMOS EVENTOS */}
-            <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col max-h-[550px]">
+            <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col max-h-[550px] print:hidden">
               <h3 className="font-black text-gray-800 text-md mb-4 flex items-center gap-2">📋 Lembretes Futuros</h3>
               <div className="space-y-3 overflow-y-auto flex-1 pr-2 custom-scrollbar">
                 {registrosFiltrados.filter(r => r.status === "Agendado" || r.status === "Pendente").slice(0, 10).map(comp => {
-                  const nomePessoa = comp.membro_id ? membros.find(m => m.id === comp.membro_id)?.nome_completo : comp.nome_nao_membro;
                   return (
                     <div key={comp.id} onClick={() => clicarNoCompromisso(comp)} className="p-3.5 bg-gray-50 border border-gray-100 rounded-2xl cursor-pointer hover:border-indigo-300 hover:shadow-sm transition-all group">
                       <div className="flex justify-between items-start mb-1">
                         <span className={`text-[10px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider ${comp.tipo === 'Gabinete' ? 'bg-emerald-100 text-emerald-700' : comp.tipo === 'Visita' ? 'bg-sky-100 text-sky-700' : 'bg-indigo-100 text-indigo-700'}`}>{comp.tipo}</span>
                         <span className="text-[10px] font-bold text-gray-400 group-hover:text-indigo-500 transition-colors">{format(parseISO(comp.data_hora), "dd/MM HH:mm")}</span>
                       </div>
-                      <h4 className="font-bold text-sm text-gray-800 truncate">{nomePessoa || "Compromisso Geral"}</h4>
+                      <h4 className="font-bold text-sm text-gray-800 truncate">{obterNomesEnvolvidosTexto(comp)}</h4>
                       {comp.assunto && <p className="text-xs text-gray-500 truncate mt-0.5 font-medium">{comp.assunto}</p>}
                     </div>
                   );
@@ -430,23 +512,22 @@ export default function Pastoral() {
         <div className="space-y-4 animate-fadeIn">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {lista.map(reg => {
-              const nome = reg.membro_id ? membros.find(m => m.id === reg.membro_id)?.nome_completo : reg.nome_nao_membro;
               return (
-                <div key={reg.id} className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col relative group hover:shadow-md transition-all">
+                <div key={reg.id} className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col relative group hover:shadow-md transition-all print:border-gray-300 print:shadow-none print:break-inside-avoid">
                   <div className="flex justify-between items-center mb-4">
-                    <span className={`text-[10px] font-black px-2.5 py-1 rounded-lg uppercase tracking-wider ${reg.status === 'Resolvido' || reg.status === 'Finalizado' ? 'bg-green-100 text-green-700' : reg.status === 'Em Acompanhamento' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
+                    <span className={`text-[10px] font-black px-2.5 py-1 rounded-lg uppercase tracking-wider print:border print:text-black ${reg.status === 'Resolvido' || reg.status === 'Finalizado' ? 'bg-green-100 text-green-700' : reg.status === 'Em Acompanhamento' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
                       {reg.status === 'Finalizado' ? 'Resolvido' : reg.status}
                     </span>
-                    <div className="flex gap-3">
-                      <button onClick={() => { setFormRegistro(reg); setModalGabineteAberto(true); }} className="text-xs font-bold text-gray-400 hover:text-emerald-600 transition-colors">Abrir Prontuário</button>
+                    <div className="flex gap-3 print:hidden">
+                      <button onClick={() => clicarNoCompromisso(reg)} className="text-xs font-bold text-gray-400 hover:text-emerald-600 transition-colors">Abrir Prontuário</button>
                       <button onClick={() => excluirRegistro(reg.id, "pastoral_registros")} className="text-xs font-bold text-gray-300 hover:text-red-500 transition-colors">✕</button>
                     </div>
                   </div>
-                  <h3 className="text-lg font-black text-gray-800 leading-tight">{nome || "Não informado"}</h3>
+                  <h3 className="text-lg font-black text-gray-800 leading-tight">{obterNomesEnvolvidosTexto(reg)}</h3>
                   <p className="text-xs font-bold text-gray-400 mt-1">📅 {format(parseISO(reg.data_hora), "dd/MM/yyyy 'às' HH:mm")}</p>
                   {reg.assunto && <div className="mt-4 p-3 bg-gray-50 rounded-xl text-sm font-semibold text-gray-700 border border-gray-100">{reg.assunto}</div>}
                   {reg.anexo_url && (
-                    <a href={reg.anexo_url} target="_blank" rel="noopener noreferrer" className="mt-3 flex items-center justify-center gap-2 text-xs font-bold text-blue-600 bg-blue-50 py-2 rounded-xl hover:bg-blue-100 transition-colors">
+                    <a href={reg.anexo_url} target="_blank" rel="noopener noreferrer" className="mt-3 flex items-center justify-center gap-2 text-xs font-bold text-blue-600 bg-blue-50 py-2 rounded-xl hover:bg-blue-100 transition-colors print:hidden">
                       📎 Ver Documento Anexo
                     </a>
                   )}
@@ -463,9 +544,9 @@ export default function Pastoral() {
       const lista = registrosFiltrados.filter(r => r.tipo === "Visita");
       return (
         <div className="space-y-4 animate-fadeIn">
-          <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden print:border-gray-400">
             <div className="p-6 border-b border-gray-50 flex items-center gap-3">
-              <span className="text-2xl">🚗</span>
+              <span className="text-2xl print:hidden">🚗</span>
               <div>
                 <h2 className="text-lg font-black text-gray-800">Dashboard de Visitas Domiciliares</h2>
                 <p className="text-xs font-medium text-gray-400">Histórico rápido de assistência nos lares e hospitais.</p>
@@ -474,25 +555,24 @@ export default function Pastoral() {
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="bg-gray-50/50 text-[10px] uppercase tracking-wider text-gray-500 font-black">
-                    <th className="p-4">Data</th>
-                    <th className="p-4">Membro / Pessoa</th>
-                    <th className="p-4">Local / Endereço</th>
-                    <th className="p-4">Observação / Foco</th>
-                    <th className="p-4 text-center">Ações</th>
+                  <tr className="bg-gray-50/50 text-[10px] uppercase tracking-wider text-gray-500 font-black print:bg-gray-200">
+                    <th className="p-4 border-b">Data</th>
+                    <th className="p-4 border-b">Pessoas Visitadas</th>
+                    <th className="p-4 border-b">Local / Endereço</th>
+                    <th className="p-4 border-b">Observação / Foco</th>
+                    <th className="p-4 text-center border-b print:hidden">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="text-sm font-medium text-gray-700 divide-y divide-gray-50">
                   {lista.map(reg => {
-                    const nome = reg.membro_id ? membros.find(m => m.id === reg.membro_id)?.nome_completo : reg.nome_nao_membro;
                     return (
-                      <tr key={reg.id} className="hover:bg-sky-50/30 transition-colors">
+                      <tr key={reg.id} className="hover:bg-sky-50/30 transition-colors print:border-b">
                         <td className="p-4 text-xs font-bold text-gray-500">{format(parseISO(reg.data_hora), "dd/MM/yy")}</td>
-                        <td className="p-4 font-bold text-gray-900">{nome}</td>
+                        <td className="p-4 font-bold text-gray-900">{obterNomesEnvolvidosTexto(reg)}</td>
                         <td className="p-4 text-sky-600">{reg.local || "-"}</td>
                         <td className="p-4 text-xs text-gray-500 max-w-xs truncate">{reg.descricao || reg.assunto || "-"}</td>
-                        <td className="p-4 flex justify-center gap-3">
-                          <button onClick={() => { setFormRegistro(reg); setModalVisitaAberto(true); }} className="text-xs font-bold text-sky-600 hover:text-sky-800">Editar</button>
+                        <td className="p-4 flex justify-center gap-3 print:hidden">
+                          <button onClick={() => clicarNoCompromisso(reg)} className="text-xs font-bold text-sky-600 hover:text-sky-800">Editar</button>
                           <button onClick={() => excluirRegistro(reg.id, "pastoral_registros")} className="text-xs font-bold text-red-400 hover:text-red-600">Excluir</button>
                         </td>
                       </tr>
@@ -508,16 +588,17 @@ export default function Pastoral() {
     }
 
     if (abaAtiva === "acompanhados") {
-      // Cálculo de Métricas para o Dashboard
       const registrosTratados = registrosFiltrados.filter(r => r.tipo === "Gabinete" || r.tipo === "Visita");
-      const idsUnicos = Array.from(new Set(registrosTratados.filter(r => r.membro_id).map(r => r.membro_id)));
+      
+      // Contar ocorrências por ID de membro
+      const listaIds = registrosTratados.flatMap(r => r.membro_id ? r.membro_id.split(",").map((i: string) => i.trim()) : []);
+      const idsUnicos = Array.from(new Set(listaIds));
       
       const totalResolvidos = registrosTratados.filter(r => r.status === "Resolvido" || r.status === "Finalizado").length;
       const totalAndamento = registrosTratados.filter(r => r.status === "Em Acompanhamento").length;
       const totalPendentes = registrosTratados.filter(r => r.status === "Agendado" || r.status === "Pendente").length;
-      const totalGeral = registrosTratados.length || 1; // evitar divisao por zero
+      const totalGeral = registrosTratados.length || 1;
       
-      // Contagem de Assuntos para Ranking
       const contagemAssuntos: Record<string, number> = {};
       registrosTratados.forEach(r => {
         const assunto = r.assunto ? r.assunto.trim().toUpperCase() : "GERAL";
@@ -529,63 +610,61 @@ export default function Pastoral() {
         <div className="space-y-6 animate-fadeIn">
           {/* MÉTRICAS TOP */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 text-center">
+            <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 text-center print:border-gray-300 print:shadow-none">
               <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Vidas Assistidas</p>
-              <h3 className="text-4xl font-black text-purple-600">{idsUnicos.length}</h3>
+              <h3 className="text-4xl font-black text-purple-600 print:text-black">{idsUnicos.length}</h3>
             </div>
-            <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 text-center">
+            <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 text-center print:border-gray-300 print:shadow-none">
               <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Casos Resolvidos</p>
-              <h3 className="text-4xl font-black text-green-500">{totalResolvidos}</h3>
+              <h3 className="text-4xl font-black text-green-500 print:text-black">{totalResolvidos}</h3>
             </div>
-            <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 text-center">
-              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Em Acompanhamento</p>
-              <h3 className="text-4xl font-black text-blue-500">{totalAndamento}</h3>
+            <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 text-center print:border-gray-300 print:shadow-none">
+              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Em Andamento</p>
+              <h3 className="text-4xl font-black text-blue-500 print:text-black">{totalAndamento}</h3>
             </div>
-            <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 text-center">
+            <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 text-center print:border-gray-300 print:shadow-none">
               <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Na Fila / Pendentes</p>
-              <h3 className="text-4xl font-black text-amber-500">{totalPendentes}</h3>
+              <h3 className="text-4xl font-black text-amber-500 print:text-black">{totalPendentes}</h3>
             </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* GRÁFICO DE EFETIVIDADE (PROGRESS BARS) */}
-            <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+            <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 print:border-gray-400">
               <h3 className="text-sm font-black text-gray-800 mb-6 uppercase tracking-wider">Status do Cuidado Pastoral</h3>
               <div className="space-y-5">
                 <div>
                   <div className="flex justify-between text-xs font-bold mb-1">
-                    <span className="text-green-600">Resolvidos / Finalizados</span>
+                    <span className="text-green-600 print:text-black">Resolvidos / Finalizados</span>
                     <span className="text-gray-500">{Math.round((totalResolvidos/totalGeral)*100)}%</span>
                   </div>
-                  <div className="w-full bg-gray-100 rounded-full h-3"><div className="bg-green-500 h-3 rounded-full" style={{width: `${(totalResolvidos/totalGeral)*100}%`}}></div></div>
+                  <div className="w-full bg-gray-100 rounded-full h-3 print:border"><div className="bg-green-500 h-3 rounded-full print:bg-black" style={{width: `${(totalResolvidos/totalGeral)*100}%`}}></div></div>
                 </div>
                 <div>
                   <div className="flex justify-between text-xs font-bold mb-1">
-                    <span className="text-blue-600">Em Acompanhamento Contínuo</span>
+                    <span className="text-blue-600 print:text-black">Em Acompanhamento</span>
                     <span className="text-gray-500">{Math.round((totalAndamento/totalGeral)*100)}%</span>
                   </div>
-                  <div className="w-full bg-gray-100 rounded-full h-3"><div className="bg-blue-500 h-3 rounded-full" style={{width: `${(totalAndamento/totalGeral)*100}%`}}></div></div>
+                  <div className="w-full bg-gray-100 rounded-full h-3 print:border"><div className="bg-blue-500 h-3 rounded-full print:bg-gray-500" style={{width: `${(totalAndamento/totalGeral)*100}%`}}></div></div>
                 </div>
                 <div>
                   <div className="flex justify-between text-xs font-bold mb-1">
-                    <span className="text-amber-600">Aguardando Atendimento</span>
+                    <span className="text-amber-600 print:text-black">Aguardando</span>
                     <span className="text-gray-500">{Math.round((totalPendentes/totalGeral)*100)}%</span>
                   </div>
-                  <div className="w-full bg-gray-100 rounded-full h-3"><div className="bg-amber-500 h-3 rounded-full" style={{width: `${(totalPendentes/totalGeral)*100}%`}}></div></div>
+                  <div className="w-full bg-gray-100 rounded-full h-3 print:border"><div className="bg-amber-500 h-3 rounded-full print:bg-gray-300" style={{width: `${(totalPendentes/totalGeral)*100}%`}}></div></div>
                 </div>
               </div>
             </div>
 
-            {/* GRÁFICO DE INCIDÊNCIA DE ASSUNTOS */}
-            <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+            <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 print:border-gray-400">
               <h3 className="text-sm font-black text-gray-800 mb-6 uppercase tracking-wider">Top 4 Assuntos Tratados</h3>
               <div className="space-y-4">
                 {topAssuntos.map(([assunto, count], i) => (
                   <div key={i} className="flex items-center gap-4">
-                    <div className="w-8 h-8 rounded-xl bg-purple-100 text-purple-700 font-black flex items-center justify-center text-xs shrink-0">{count}</div>
+                    <div className="w-8 h-8 rounded-xl bg-purple-100 text-purple-700 font-black flex items-center justify-center text-xs shrink-0 print:border">{count}</div>
                     <div className="flex-1">
                       <p className="text-xs font-bold text-gray-800 truncate">{assunto}</p>
-                      <div className="w-full bg-gray-100 rounded-full h-1.5 mt-1.5"><div className="bg-purple-500 h-1.5 rounded-full" style={{width: `${(count/totalGeral)*100}%`}}></div></div>
+                      <div className="w-full bg-gray-100 rounded-full h-1.5 mt-1.5 print:border"><div className="bg-purple-500 h-1.5 rounded-full print:bg-black" style={{width: `${(count/totalGeral)*100}%`}}></div></div>
                     </div>
                   </div>
                 ))}
@@ -601,43 +680,26 @@ export default function Pastoral() {
       return (
         <div className="space-y-4 animate-fadeIn">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            {/* Botão de Adicionar como Card */}
-            <div onClick={() => { setFormAnotacao({ id: "", titulo: "", texto: "" }); setModalAnotacaoAberto(true); }} className="bg-amber-100/50 border-2 border-dashed border-amber-300 p-6 rounded-3xl flex flex-col items-center justify-center cursor-pointer hover:bg-amber-100 hover:border-amber-400 transition-all min-h-[200px]">
+            <div onClick={() => { setFormAnotacao({ id: "", titulo: "", texto: "" }); setModalAnotacaoAberto(true); }} className="bg-amber-100/50 border-2 border-dashed border-amber-300 p-6 rounded-3xl flex flex-col items-center justify-center cursor-pointer hover:bg-amber-100 hover:border-amber-400 transition-all min-h-[200px] print:hidden">
               <span className="text-4xl text-amber-400 mb-2">+</span>
               <span className="font-bold text-amber-700 text-sm">Criar Nova Nota</span>
             </div>
             {anotacoes.map(nota => (
-              <div key={nota.id} className="bg-[#fffbe6] p-6 rounded-3xl shadow-sm border border-amber-100 relative group flex flex-col justify-between hover:shadow-md transition-all min-h-[200px]">
+              <div key={nota.id} className="bg-[#fffbe6] p-6 rounded-3xl shadow-sm border border-amber-100 relative group flex flex-col justify-between hover:shadow-md transition-all min-h-[200px] print:border-gray-400 print:break-inside-avoid print:bg-white">
                 <div>
                   <div className="flex justify-between items-start mb-4">
                     <h3 className="font-black text-gray-800 text-base line-clamp-1">{nota.titulo}</h3>
-                    <button onClick={() => excluirRegistro(nota.id, "pastoral_anotacoes")} className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 font-bold transition-all">✕</button>
+                    <div className="opacity-0 group-hover:opacity-100 transition-all flex gap-3 print:hidden">
+                       {/* BOTÃO DE EDIÇÃO INCLUÍDO AQUI */}
+                       <button onClick={() => { setFormAnotacao(nota); setModalAnotacaoAberto(true); }} className="text-gray-400 hover:text-amber-600 font-bold text-sm">✏️</button>
+                       <button onClick={() => excluirRegistro(nota.id, "pastoral_anotacoes")} className="text-gray-300 hover:text-red-500 font-bold text-sm">✕</button>
+                    </div>
                   </div>
                   <p className="text-xs font-medium text-gray-600 whitespace-pre-wrap line-clamp-5 leading-relaxed">{nota.texto}</p>
                 </div>
                 <p className="text-[10px] text-gray-400 mt-4 text-right font-bold tracking-wider">{format(parseISO(nota.created_at), "dd/MM/yy")}</p>
               </div>
             ))}
-          </div>
-        </div>
-      );
-    }
-
-    if (abaAtiva === "relatorios") {
-      return (
-        <div className="bg-white p-10 rounded-3xl shadow-sm border border-gray-100 text-center max-w-2xl mx-auto mt-8 animate-fadeIn">
-          <div className="w-20 h-20 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-5 text-3xl shadow-sm">📊</div>
-          <h2 className="text-2xl font-black text-gray-800 mb-3">Relatórios Dinâmicos</h2>
-          <p className="text-sm font-medium text-gray-500 mb-8 max-w-md mx-auto leading-relaxed">
-            O relatório gerado respeitará os filtros globais aplicados no topo da tela (Mês, Congregação, Cargo, etc).
-          </p>
-          <div className="flex flex-col sm:flex-row justify-center gap-4">
-            <button onClick={() => window.print()} className="bg-gray-800 hover:bg-black text-white px-8 py-3.5 rounded-xl text-sm font-bold shadow-md transition-all transform hover:-translate-y-0.5">
-              Imprimir / Salvar PDF
-            </button>
-            <button onClick={exportarCSV} className="bg-green-600 hover:bg-green-700 text-white px-8 py-3.5 rounded-xl text-sm font-bold shadow-md transition-all transform hover:-translate-y-0.5">
-              Exportar para Excel
-            </button>
           </div>
         </div>
       );
@@ -650,25 +712,53 @@ export default function Pastoral() {
 
   return (
     <div className="min-h-screen bg-gray-50/30 p-4 md:p-8">
-      {/* CABEÇALHO */}
-      <div className="mb-6 flex flex-col md:flex-row md:items-end justify-between gap-4">
+      
+      {/* CABEÇALHO PARA IMPRESSÃO (PAPEL TIMBRADO) */}
+      <div className="hidden print:block w-full bg-white mb-8 pb-6 border-b-2 border-gray-900">
+        <div className="flex items-center">
+          {configIgreja?.logo_url && <img src={configIgreja.logo_url} alt="Logo da Igreja" className="h-20 w-auto object-contain mr-6" />}
+          <div className="flex-1">
+            <h1 className="text-2xl font-black uppercase tracking-wider">{configIgreja?.nome_igreja || "Relatório Eclesiástico"}</h1>
+            <p className="text-sm font-bold text-gray-600 uppercase tracking-widest mt-1">Gabinete Pastoral - Aba: {abaAtiva}</p>
+          </div>
+          <div className="text-right text-xs text-gray-600 font-bold border-l-2 border-gray-200 pl-4">
+            <p>Gerado por: {usuarioAtual?.nome}</p>
+            <p>Em: {format(new Date(), "dd/MM/yyyy 'às' HH:mm")}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* CABEÇALHO DA TELA (TELA NORMAL) */}
+      <div className="mb-6 flex flex-col md:flex-row md:items-end justify-between gap-4 print:hidden">
         <div>
           <h1 className="text-3xl font-black text-gray-900 tracking-tight">Atendimento Pastoral</h1>
           <p className="text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">Centro Integrado de Cuidados e Gestão</p>
         </div>
+        
+        {/* BOTÕES DE EXPORTAÇÃO RÁPIDOS */}
+        <div className="flex gap-3">
+          <button onClick={() => window.print()} className="bg-gray-800 hover:bg-black text-white px-5 py-2.5 rounded-xl text-xs font-bold shadow-md transition-all flex items-center gap-2">
+            📄 Gerar PDF Timbrado
+          </button>
+          <button onClick={exportarCSV} className="bg-green-600 hover:bg-green-700 text-white px-5 py-2.5 rounded-xl text-xs font-bold shadow-md transition-all flex items-center gap-2">
+            📊 Tabela Excel
+          </button>
+        </div>
       </div>
 
-      {/* BARRA DE FILTROS GLOBAIS (ESTILO DASHBOARD) */}
+      {/* BARRA DE FILTROS GLOBAIS COM TRAVA DE MULTI-TENANCY */}
       <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 mb-6 flex flex-wrap gap-3 items-center print:hidden">
-        <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-2">Filtros Globais:</span>
+        <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-2">Filtros da Base:</span>
         <select value={filtros.mes} onChange={e => setFiltros({...filtros, mes: e.target.value})} className="bg-gray-50 text-xs font-bold text-gray-700 px-4 py-2 rounded-xl border border-transparent hover:border-gray-200 outline-none transition-all cursor-pointer">
-          <option value="Todos">📅 Todos os Meses</option>
+          <option value="Todos">📅 Qualquer Mês</option>
           {Array.from({length: 12}).map((_, i) => <option key={i} value={i.toString()}>{format(new Date(2000, i, 1), "MMMM", {locale:ptBR})}</option>)}
         </select>
-        <select value={filtros.congregacao} onChange={e => setFiltros({...filtros, congregacao: e.target.value})} className="bg-gray-50 text-xs font-bold text-gray-700 px-4 py-2 rounded-xl border border-transparent hover:border-gray-200 outline-none transition-all cursor-pointer">
-          <option value="Todas">⛪ Todas Congregações</option>
+        
+        <select disabled={!ehSede} value={filtros.congregacao} onChange={e => setFiltros({...filtros, congregacao: e.target.value})} className={`bg-gray-50 text-xs font-bold px-4 py-2 rounded-xl border border-transparent hover:border-gray-200 outline-none transition-all ${ehSede ? "text-gray-700 cursor-pointer" : "text-gray-400 cursor-not-allowed opacity-70"}`}>
+          {ehSede && <option value="Todas">⛪ Todas Congregações</option>}
           {opcoesCongregacao.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
+
         <select value={filtros.cargo} onChange={e => setFiltros({...filtros, cargo: e.target.value})} className="bg-gray-50 text-xs font-bold text-gray-700 px-4 py-2 rounded-xl border border-transparent hover:border-gray-200 outline-none transition-all cursor-pointer">
           <option value="Todos">👔 Todos os Cargos</option>
           {opcoesCargo.map(c => <option key={c} value={c}>{c}</option>)}
@@ -676,7 +766,7 @@ export default function Pastoral() {
         <select value={filtros.publico} onChange={e => setFiltros({...filtros, publico: e.target.value})} className="bg-gray-50 text-xs font-bold text-gray-700 px-4 py-2 rounded-xl border border-transparent hover:border-gray-200 outline-none transition-all cursor-pointer">
           <option value="Todos">👥 Membros & Visitantes</option>
           <option value="Membros">Apenas Membros</option>
-          <option value="Outros">Apenas Não-Membros</option>
+          <option value="Outros">Apenas Visitantes</option>
         </select>
       </div>
 
@@ -687,8 +777,7 @@ export default function Pastoral() {
           { id: "atendimentos", rotulo: "Gabinete", icone: "🛋️" },
           { id: "visitas", rotulo: "Visitas", icone: "🚗" },
           { id: "acompanhados", rotulo: "Acompanhamento", icone: "❤️" },
-          { id: "anotacoes", rotulo: "Anotações", icone: "📝" },
-          { id: "relatorios", rotulo: "Relatórios", icone: "📊" }
+          { id: "anotacoes", rotulo: "Anotações", icone: "📝" }
         ].map((item) => (
           <button
             key={item.id}
@@ -704,8 +793,8 @@ export default function Pastoral() {
         ))}
       </div>
 
-      {/* CONTEÚDO PRINCIPAL */}
-      <div className="print:m-0 print:p-0">
+      {/* CORPO CENTRAL */}
+      <div>
         {renderAbaConteudo()}
       </div>
 
@@ -739,24 +828,41 @@ export default function Pastoral() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Pessoa Relacionada</label>
-                <div className="flex gap-2 mb-2">
-                  <input type="text" placeholder="Buscar na lista..." value={buscaMembroModal} onChange={e => setBuscaMembroModal(e.target.value)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-xs font-medium outline-none focus:border-indigo-500" />
+              {/* MÚLTIPLAS PESSOAS - COMPONENTE INTELIGENTE */}
+              <div className="bg-indigo-50/30 p-4 rounded-2xl border border-indigo-100/50">
+                <label className="block text-[10px] font-black text-indigo-800 uppercase tracking-widest mb-3">Adicionar Pessoas ao Evento</label>
+                
+                <div className="relative mb-4">
+                  <div className="flex bg-white border-2 border-indigo-100 rounded-xl overflow-hidden focus-within:border-indigo-400 transition-colors">
+                    <span className="flex items-center justify-center pl-4 text-indigo-300">🔍</span>
+                    <input type="text" placeholder="Digite o nome para buscar ou adicionar..." value={buscaMembro} onChange={e => setBuscaMembro(e.target.value)} className="w-full p-3 outline-none text-sm font-bold text-gray-700" />
+                  </div>
+                  
+                  {buscaMembro.trim() !== "" && (
+                     <ul className="absolute z-50 w-full bg-white border border-gray-200 shadow-xl max-h-48 overflow-y-auto mt-2 rounded-xl overflow-hidden divide-y divide-gray-50">
+                        {membrosFiltradosBusca.map(m => (
+                           <li key={m.id} onClick={() => addMembroLista(m)} className="p-3 hover:bg-indigo-50 cursor-pointer text-sm font-bold flex justify-between items-center group">
+                              <span className="text-gray-800 group-hover:text-indigo-700">{m.nome_completo}</span>
+                              <span className="text-[10px] font-black uppercase text-gray-400 bg-gray-100 px-2 py-1 rounded-md">{m.congregacao || 'Sede'}</span>
+                           </li>
+                        ))}
+                        <li onClick={addVisitanteLista} className="p-3 bg-gray-50 hover:bg-indigo-600 hover:text-white cursor-pointer text-xs font-black text-indigo-600 transition-colors flex items-center justify-center gap-2">
+                           ➕ ADD "{buscaMembro}" COMO VISITANTE
+                        </li>
+                     </ul>
+                  )}
                 </div>
-                <select value={formRegistro.membro_id} onChange={e => setFormRegistro({...formRegistro, membro_id: e.target.value})} className="w-full p-3 bg-indigo-50 text-indigo-900 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none">
-                  <option value="">Selecione quem será atendido...</option>
-                  {membrosFiltradosBusca.map(m => <option key={m.id} value={m.id}>{m.nome_completo}</option>)}
-                  <option value="outros">Outra Pessoa (Visitante / Externo)</option>
-                </select>
-              </div>
 
-              {formRegistro.membro_id === "outros" && (
-                <div>
-                  <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Nome do Visitante/Externo</label>
-                  <input type="text" value={formRegistro.nome_nao_membro} onChange={e => setFormRegistro({...formRegistro, nome_nao_membro: e.target.value})} className="w-full p-3 bg-gray-50 border-none rounded-xl text-sm font-bold text-gray-800 focus:ring-2 focus:ring-indigo-500 outline-none" />
+                <div className="flex flex-wrap gap-2">
+                   {envolvidos.map((e, idx) => (
+                      <div key={idx} className="flex items-center gap-2 bg-indigo-100 text-indigo-800 px-3 py-1.5 rounded-lg text-xs font-black shadow-sm">
+                         {e.nome} {e.tipo === 'visitante' && <span className="bg-indigo-200 px-1.5 py-0.5 rounded text-[9px] uppercase tracking-widest">Ext</span>}
+                         <button onClick={() => removerEnvolvido(idx)} className="hover:text-red-500 ml-1 text-sm bg-indigo-200 w-5 h-5 rounded-md flex items-center justify-center">✕</button>
+                      </div>
+                   ))}
+                   {envolvidos.length === 0 && <span className="text-xs font-bold text-gray-400">Ninguém adicionado ainda.</span>}
                 </div>
-              )}
+              </div>
 
               <div>
                 <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Resumo / Pauta (Opcional)</label>
@@ -804,16 +910,36 @@ export default function Pastoral() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Pessoa Atendida</label>
-                <div className="flex gap-2 mb-2">
-                  <input type="text" placeholder="Buscar..." value={buscaMembroModal} onChange={e => setBuscaMembroModal(e.target.value)} className="w-full p-2.5 bg-gray-50 border-none rounded-lg text-xs font-bold outline-none focus:ring-2 focus:ring-emerald-500" />
+              {/* MÚLTIPLAS PESSOAS - COMPONENTE INTELIGENTE NO GABINETE */}
+              <div className="bg-emerald-50/30 p-4 rounded-2xl border border-emerald-100/50">
+                <label className="block text-[10px] font-black text-emerald-800 uppercase tracking-widest mb-3">Pessoas Atendidas</label>
+                <div className="relative mb-4">
+                  <div className="flex bg-white border-2 border-emerald-100 rounded-xl overflow-hidden focus-within:border-emerald-400 transition-colors">
+                    <span className="flex items-center justify-center pl-4 text-emerald-300">🔍</span>
+                    <input type="text" placeholder="Adicionar mais pessoas ao prontuário..." value={buscaMembro} onChange={e => setBuscaMembro(e.target.value)} className="w-full p-3 outline-none text-sm font-bold text-gray-700" />
+                  </div>
+                  {buscaMembro.trim() !== "" && (
+                     <ul className="absolute z-50 w-full bg-white border border-gray-200 shadow-xl max-h-48 overflow-y-auto mt-2 rounded-xl overflow-hidden divide-y divide-gray-50">
+                        {membrosFiltradosBusca.map(m => (
+                           <li key={m.id} onClick={() => addMembroLista(m)} className="p-3 hover:bg-emerald-50 cursor-pointer text-sm font-bold flex justify-between items-center group">
+                              <span className="text-gray-800 group-hover:text-emerald-700">{m.nome_completo}</span>
+                           </li>
+                        ))}
+                        <li onClick={addVisitanteLista} className="p-3 bg-gray-50 hover:bg-emerald-600 hover:text-white cursor-pointer text-xs font-black text-emerald-600 transition-colors flex items-center justify-center gap-2">
+                           ➕ ADD "{buscaMembro}" (VISITANTE)
+                        </li>
+                     </ul>
+                  )}
                 </div>
-                <select value={formRegistro.membro_id} onChange={e => setFormRegistro({...formRegistro, membro_id: e.target.value})} className="w-full p-3 bg-gray-50 border-none rounded-xl text-sm font-bold text-gray-900 outline-none">
-                  <option value="">Selecione...</option>
-                  {membrosFiltradosBusca.map(m => <option key={m.id} value={m.id}>{m.nome_completo}</option>)}
-                  <option value="outros">Visitante / Externo</option>
-                </select>
+                <div className="flex flex-wrap gap-2">
+                   {envolvidos.map((e, idx) => (
+                      <div key={idx} className="flex items-center gap-2 bg-emerald-100 text-emerald-800 px-3 py-1.5 rounded-lg text-xs font-black shadow-sm">
+                         {e.nome} {e.tipo === 'visitante' && <span className="bg-emerald-200 px-1.5 py-0.5 rounded text-[9px] uppercase tracking-widest">Ext</span>}
+                         <button onClick={() => removerEnvolvido(idx)} className="hover:text-red-500 ml-1 text-sm bg-emerald-200 w-5 h-5 rounded-md flex items-center justify-center">✕</button>
+                      </div>
+                   ))}
+                   {envolvidos.length === 0 && <span className="text-xs font-bold text-gray-400">Prontuário sem pessoas vinculadas.</span>}
+                </div>
               </div>
 
               <div>
@@ -879,18 +1005,37 @@ export default function Pastoral() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Quem foi visitado?</label>
-                <select value={formRegistro.membro_id} onChange={e => setFormRegistro({...formRegistro, membro_id: e.target.value})} className="w-full p-3 bg-gray-50 border-none rounded-xl text-sm font-bold text-gray-900 outline-none">
-                  <option value="">Selecione...</option>
-                  {membros.map(m => <option key={m.id} value={m.id}>{m.nome_completo}</option>)}
-                  <option value="outros">Visitante / Externo</option>
-                </select>
+              {/* MÚLTIPLAS PESSOAS - COMPONENTE INTELIGENTE NA VISITA */}
+              <div className="bg-sky-50/50 p-4 rounded-2xl border border-sky-100">
+                <label className="block text-[10px] font-black text-sky-800 uppercase tracking-widest mb-3">Família / Pessoas Visitadas</label>
+                <div className="relative mb-3">
+                  <input type="text" placeholder="Buscar pessoa..." value={buscaMembro} onChange={e => setBuscaMembro(e.target.value)} className="w-full p-3 border-none bg-white shadow-sm rounded-xl outline-none text-sm font-bold text-gray-700 focus:ring-2 focus:ring-sky-400" />
+                  {buscaMembro.trim() !== "" && (
+                     <ul className="absolute z-50 w-full bg-white border border-gray-200 shadow-xl max-h-48 overflow-y-auto mt-2 rounded-xl overflow-hidden divide-y divide-gray-50">
+                        {membrosFiltradosBusca.map(m => (
+                           <li key={m.id} onClick={() => addMembroLista(m)} className="p-3 hover:bg-sky-50 cursor-pointer text-sm font-bold flex justify-between items-center group">
+                              <span className="text-gray-800 group-hover:text-sky-700">{m.nome_completo}</span>
+                           </li>
+                        ))}
+                        <li onClick={addVisitanteLista} className="p-3 bg-gray-50 hover:bg-sky-600 hover:text-white cursor-pointer text-xs font-black text-sky-600 transition-colors text-center">
+                           ➕ ADCIONAR "{buscaMembro}"
+                        </li>
+                     </ul>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                   {envolvidos.map((e, idx) => (
+                      <div key={idx} className="flex items-center gap-2 bg-sky-100 text-sky-800 px-3 py-1.5 rounded-lg text-xs font-black shadow-sm">
+                         {e.nome}
+                         <button onClick={() => removerEnvolvido(idx)} className="hover:text-red-500 ml-1 text-sm bg-sky-200 w-5 h-5 rounded-md flex items-center justify-center">✕</button>
+                      </div>
+                   ))}
+                </div>
               </div>
 
               <div>
-                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Observações (Opcional)</label>
-                <textarea rows={3} value={formRegistro.descricao} onChange={e => setFormRegistro({...formRegistro, descricao: e.target.value})} className="w-full p-3 bg-gray-50 border-none rounded-xl text-sm font-medium text-gray-700 outline-none resize-none" placeholder="Nota rápida sobre a visita..."></textarea>
+                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Observações da Visita (Opcional)</label>
+                <textarea rows={3} value={formRegistro.descricao} onChange={e => setFormRegistro({...formRegistro, descricao: e.target.value})} className="w-full p-3 bg-gray-50 border-none rounded-xl text-sm font-medium text-gray-700 outline-none resize-none" placeholder="Motivo da visita, orações feitas..."></textarea>
               </div>
             </div>
 
@@ -910,7 +1055,9 @@ export default function Pastoral() {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fadeIn">
           <div className="bg-[#fffdf0] rounded-[2rem] w-full max-w-md overflow-hidden flex flex-col shadow-2xl border border-amber-100">
             <div className="p-6 border-b border-amber-100 bg-[#fffbe6] flex justify-between items-center">
-              <h2 className="text-xl font-black text-gray-900">Nova Anotação</h2>
+              <h2 className="text-xl font-black text-gray-900">
+                {formAnotacao.id ? "Editar Anotação" : "Nova Anotação"}
+              </h2>
               <button onClick={() => setModalAnotacaoAberto(false)} className="text-amber-500 hover:text-red-500 font-bold text-xl transition-colors">✕</button>
             </div>
             <div className="p-6 space-y-4">

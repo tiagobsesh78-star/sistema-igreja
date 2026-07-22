@@ -78,6 +78,9 @@ export default function DizimistasPage() {
           const { data: filhas } = await supabase.from("igrejas_filhas").select("nome").eq("igreja_id", idIgreja).order("nome", { ascending: true });
           const nomesFilhas = filhas ? filhas.map(f => f.nome) : [];
           setCongregacoes([nomeSede, ...nomesFilhas]);
+          
+          // REGRA SOLICITADA: Por padrão, caso seja igreja mãe, vem com o filtro da Sede já marcado
+          setCongregacaoFiltro(nomeSede);
         } else {
           setCongregacoes([congUser]);
           setCongregacaoFiltro(congUser); 
@@ -101,7 +104,6 @@ export default function DizimistasPage() {
           setMembros(resMembros.data);
 
           if (resDizimistas.data) {
-            // Unimos os membros sem filtrar o mês ainda
             const unidos = resDizimistas.data.map((d: any) => ({
               ...d, membros: resMembros.data.find(m => String(m.id) === String(d.membro_id)) || null
             })).filter(d => d.membros !== null);
@@ -188,10 +190,8 @@ export default function DizimistasPage() {
   dizimistas.forEach(d => {
     if (membrosProcessados.has(d.membro_id)) return;
     
-    // Pega todas as passagens da pessoa pela lista
     const rows = dizimistas.filter(x => String(x.membro_id) === String(d.membro_id));
     
-    // Verifica se ela estava ativa em alguma dessas passagens durante o mês selecionado
     const isAtivoNoMes = rows.some(row => {
         const addP = getPeriod(row.adicionado_em) || 0;
         const remP = getPeriod(row.removido_em) || Infinity;
@@ -199,7 +199,6 @@ export default function DizimistasPage() {
     });
 
     if (isAtivoNoMes) {
-        // Encontra exatamente qual registro torna ela ativa para amarrarmos o botão "Remover"
         const activeRow = rows.find(row => {
             const addP = getPeriod(row.adicionado_em) || 0;
             const remP = getPeriod(row.removido_em) || Infinity;
@@ -230,7 +229,7 @@ export default function DizimistasPage() {
 
     setSalvando(true);
     const padMes = mesFiltro < 10 ? `0${mesFiltro}` : mesFiltro;
-    const periodoStr = `${anoFiltro}-${padMes}`; // Data que a pessoa começou
+    const periodoStr = `${anoFiltro}-${padMes}`;
 
     const { error } = await supabase.from("tesouraria_dizimistas").insert([{ 
       membro_id: String(membroSelecionado),
@@ -248,7 +247,7 @@ export default function DizimistasPage() {
     if (!igrejaIdLogada) return;
 
     const padMes = mesFiltro < 10 ? `0${mesFiltro}` : mesFiltro;
-    const periodoStr = `${anoFiltro}-${padMes}`; // Marca até quando a pessoa ficou ativa
+    const periodoStr = `${anoFiltro}-${padMes}`;
 
     const { error } = await supabase.from("tesouraria_dizimistas").update({ removido_em: periodoStr }).eq("id", id).eq("igreja_id", igrejaIdLogada);
     if (!error) recarregarDadosManualmente();
@@ -283,6 +282,55 @@ export default function DizimistasPage() {
 
   const formatarMoeda = (v: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v || 0);
 
+  // =====================================
+  // EXPORTAR EXCEL (CSV)
+  // =====================================
+  const exportarExcel = () => {
+    if (dizimistasExibicao.length === 0) {
+      alert("Não há dizimistas exibidos com os filtros atuais para exportar.");
+      return;
+    }
+
+    const nomeMes = meses.find((m) => m.valor === mesFiltro)?.nome || "";
+    const congregacaoTexto = congregacaoFiltro || "Geral (Todas as Congregações)";
+
+    let csv = `Relatório de Dizimistas Ativos - ${nomeMes}/${anoFiltro}\n`;
+    csv += `Congregação: ${congregacaoTexto}\n\n`;
+    csv += `Nome;Congregação;Status no Mês;Valor no Mês (R$)\n`;
+
+    dizimistasExibicao.forEach((d) => {
+      const valorDizimado = calcularValorDizimadoNoMes(d.membro_id);
+      const status = valorDizimado > 0 ? "Dizimou" : "Pendente";
+      const nome = obterNomeMembro(d.membros).replace(/;/g, ",");
+      const cong = obterCongregacaoMembro(d.membros).replace(/;/g, ",");
+      const valorFormatted = valorDizimado.toFixed(2).replace(".", ",");
+
+      csv += `"${nome}";"${cong}";"${status}";"${valorFormatted}"\n`;
+    });
+
+    csv += `\n"Total Geral Dízimos";"";"";"${valorTotalDizimosMes.toFixed(2).replace(".", ",")}"\n`;
+    csv += `"Dizimistas Ativos";"";"";"${qtdDizimistasAtivos}"\n`;
+    csv += `"Média por Dizimista";"";"";"${mediaDizimo.toFixed(2).replace(".", ",")}"\n`;
+
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    const nomeLimpoCong = congregacaoTexto.replace(/[^\w\s]/gi, '').trim().replace(/\s+/g, '_');
+    link.download = `Dizimistas_${nomeLimpoCong}_${nomeMes}_${anoFiltro}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  // =====================================
+  // EXPORTAR PDF (IMPRESSÃO)
+  // =====================================
+  const exportarPDF = () => {
+    window.print();
+  };
+
   if (erroBanco) return (
     <div className="max-w-2xl mx-auto mt-10 bg-white border border-red-200 rounded-xl p-6 text-center shadow-sm">
       <h2 className="text-lg font-bold text-red-600 mb-2">Diagnóstico de Sincronização</h2>
@@ -295,16 +343,82 @@ export default function DizimistasPage() {
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+      {/* ESTILOS EXCLUSIVOS PARA IMPRESSÃO EM PDF */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media print {
+          .print-oculto { display: none !important; }
+          body { background-color: white !important; color: black !important; }
+          .max-w-6xl { max-width: 100% !important; margin: 0 !important; padding: 0 !important; }
+          .shadow-sm, .shadow-md, .shadow-lg { box-shadow: none !important; }
+          .border { border-color: #e5e7eb !important; }
+          table { width: 100% !important; border-collapse: collapse !important; }
+          th, td { padding: 6px 8px !important; font-size: 11px !important; }
+          .max-h-96 { max-height: none !important; overflow: visible !important; }
+          .overflow-x-auto { overflow: visible !important; }
+          tr { page-break-inside: avoid; }
+        }
+      ` }} />
+
+      {/* CABEÇALHO EXCLUSIVO DA IMPRESSÃO (EXIBIDO APENAS NO PDF/PRINT) */}
+      <div className="hidden print:block mb-6 border-b pb-4 border-gray-300">
+        <div className="flex justify-between items-center">
+          <div>
+            <h1 className="text-xl font-bold text-gray-900 uppercase tracking-tight">{nomeSedeOficial}</h1>
+            <h2 className="text-base font-semibold text-gray-700">Relatório de Dizimistas Ativos</h2>
+            <p className="text-xs text-gray-600 font-medium mt-1">
+              Período: <strong>{meses.find(m => m.valor === mesFiltro)?.nome} / {anoFiltro}</strong> | Congregação: <strong>{congregacaoFiltro || "Geral (Todas as Congregações)"}</strong>
+            </p>
+          </div>
+          <div className="text-right text-xs text-gray-500">
+            <p>Gerado em: {new Date().toLocaleDateString('pt-BR')}</p>
+            <p>{new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* CAMEÇALHO PRINCIPAL DA TELA (OCULTO NA IMPRESSÃO) */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-xl shadow-sm border border-gray-100 print:hidden">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Dizimistas Ativos</h1>
           <p className="text-sm text-gray-500 mt-1">Cadastro de dizimistas ativos e cálculo de dízimo médio geral.</p>
         </div>
-        <button onClick={() => router.push("/tesouraria")} className="px-4 py-2 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition text-sm">Voltar</button>
+        
+        {/* BOTÕES DE AÇÃO: EXCEL, PDF E VOLTAR */}
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={exportarExcel}
+            className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg transition text-sm flex items-center gap-1.5 shadow-sm"
+            title="Exportar dados filtrados para planilha Excel"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            Excel
+          </button>
+
+          <button
+            onClick={exportarPDF}
+            className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg transition text-sm flex items-center gap-1.5 shadow-sm"
+            title="Gerar PDF ou Imprimir Relatório"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+            </svg>
+            PDF / Imprimir
+          </button>
+
+          <button 
+            onClick={() => router.push("/tesouraria")} 
+            className="px-4 py-2 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition text-sm"
+          >
+            Voltar
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-1 bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-fit">
+        {/* FORMULÁRIO DE CADASTRO (OCULTO NA IMPRESSÃO) */}
+        <div className="lg:col-span-1 bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-fit print:hidden">
           <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider mb-4 border-b pb-2 border-gray-100">Adicionar à Lista</h3>
           <form onSubmit={salvarDizimista} className="space-y-4">
             <div>
@@ -332,8 +446,10 @@ export default function DizimistasPage() {
           </form>
         </div>
 
-        <div className="lg:col-span-2 space-y-6">
-          <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-wrap gap-3">
+        {/* ÁREA DA LISTA E INDICADORES (OCUPA LARGURA TOTAL NO PDF) */}
+        <div className="lg:col-span-2 space-y-6 print:w-full print:col-span-3">
+          {/* BARRA DE FILTROS DA TELA (OCULTA NA IMPRESSÃO) */}
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-wrap gap-3 print:hidden">
             {ehSede ? (
               <select value={congregacaoFiltro} onChange={(e) => setCongregacaoFiltro(e.target.value)} className="px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none flex-1 font-semibold text-gray-800 cursor-pointer">
                 <option value="">🌍 Geral (Todas as Congregações)</option>
@@ -355,6 +471,7 @@ export default function DizimistasPage() {
             </div>
           </div>
 
+          {/* INDICADORES RESUMIDOS */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="bg-white p-4 rounded-xl border border-gray-100 border-l-4 border-l-green-500">
               <p className="text-xs text-gray-400 font-bold uppercase mb-1">Total Dízimos ({meses.find(m => m.valor === mesFiltro)?.nome})</p>
@@ -370,6 +487,7 @@ export default function DizimistasPage() {
             </div>
           </div>
 
+          {/* TABELA DE DIZIMISTAS */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="overflow-x-auto max-h-96">
               <table className="w-full text-left border-collapse">
@@ -379,7 +497,7 @@ export default function DizimistasPage() {
                     <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">Congregação</th>
                     <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-center">Status no Mês</th>
                     <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-center">Valor no Mês</th>
-                    <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-center">Ação</th>
+                    <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-center print:hidden">Ação</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -396,7 +514,7 @@ export default function DizimistasPage() {
                              : <span className="inline-block px-2 py-1 bg-orange-100 text-orange-700 text-xs font-bold rounded-md">⏳ Pendente</span>}
                           </td>
                           <td className="px-4 py-3 text-sm font-black text-gray-900 text-center">{formatarMoeda(valorDizimado)}</td>
-                          <td className="px-4 py-3 text-center">
+                          <td className="px-4 py-3 text-center print:hidden">
                             <button onClick={() => removerDizimista(d.id)} className="text-red-500 hover:text-red-700 p-1 bg-red-50 rounded text-xs font-bold transition">Remover</button>
                           </td>
                         </tr>
