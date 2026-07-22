@@ -213,7 +213,10 @@ export default function TesourariaPage() {
         
         setEhSede(isUserSede);
 
-        if (!isUserSede) {
+        // Sempre inicializar o filtro com a congregação do próprio usuário logado
+        if (isUserSede) {
+          setCongregacaoSelecionada(nomeSede);
+        } else {
           setCongregacaoSelecionada(congUser);
         }
 
@@ -459,44 +462,57 @@ export default function TesourariaPage() {
 
   const lancamentosAtivos = lancamentosFiltrados.filter(l => !l.excluido);
 
+  // Totais Brutos
   const totalOfertasGerais = lancamentosAtivos.reduce((acc, lanc) => acc + (Number(lanc.ofertas) || 0), 0);
   const totalDizimosGerais = lancamentosAtivos.reduce((acc, lanc) => acc + (Number(lanc.dizimos) || 0), 0);
   const totalEspecialGerais = lancamentosAtivos.reduce((acc, lanc) => acc + (Number(lanc.oferta_especial) || 0), 0);
   const totalSaidasGerais = lancamentosAtivos.reduce((acc, lanc) => acc + (Number(lanc.saidas) || 0), 0);
-  
   const totalEntradasBrutas = totalOfertasGerais + totalDizimosGerais + totalEspecialGerais;
 
-  const saidasFixasCalculadas = configuracoesGlobais.filter(c => c.categoria === "Saída").map(c => {
+  // Matemática de Frequências Inteligentes (Calcula os fatores multiplicadores)
+  const distinctCultos = lancamentosAtivos.length;
+  const distinctMeses = new Set(lancamentosAtivos.map(l => l.data?.substring(0, 7))).size;
+  const distinctAnos = new Set(lancamentosAtivos.map(l => l.data?.substring(0, 4))).size;
+  const distinctSemanas = new Set(lancamentosAtivos.map(l => {
+    if (!l.data) return "";
+    const date = new Date(l.data + "T12:00:00Z"); // Usamos UTC ao meio-dia para evitar bug de fuso
+    date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
+    const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+    const weekNo = Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+    return `${date.getUTCFullYear()}-W${weekNo}`;
+  })).size;
+
+  // Função centralizada para processar repasses e entradas configuradas
+  const calcularValorConfiguracao = (c: any) => {
     const isPercent = c.tipo_valor === "percentual" || c.percentual !== null;
-    const vCalc = isPercent ? (totalEntradasBrutas * (c.percentual / 100)) : (Number(c.valor_fixo) * lancamentosAtivos.length);
-    return { ...c, valorCalculado: vCalc };
-  });
-
-  const totalRepassesFixos = saidasFixasCalculadas.reduce((acc, s) => acc + s.valorCalculado, 0);
-  const saldoLiquidoParcial = totalEntradasBrutas - totalSaidasGerais - totalRepassesFixos;
-
-  const getPeriod = (dataStr: string | null) => {
-    if (!dataStr) return null;
-    const [ano, mes] = dataStr.split('-');
-    return parseInt(ano) * 12 + parseInt(mes);
+    let vCalc = 0;
+    if (isPercent) {
+      vCalc = totalEntradasBrutas * ((c.percentual || 0) / 100);
+    } else {
+      const valorFixo = Number(c.valor_fixo) || 0;
+      let multiplicador = 0;
+      if (c.frequencia === "Semana") multiplicador = distinctSemanas;
+      else if (c.frequencia === "Mês") multiplicador = distinctMeses;
+      else if (c.frequencia === "Ano") multiplicador = distinctAnos;
+      else multiplicador = distinctCultos; // Padrão 'Culto'
+      
+      vCalc = valorFixo * multiplicador;
+    }
+    return vCalc;
   };
 
-  const contagemDizimistasFiltrados = totalDizimistasGeral.filter(d => {
-    if (congregacaoSelecionada !== "" && normalizarSede(d.membros?.congregacao) !== congregacaoSelecionada) {
-      return false;
-    }
-    let active = true;
-    if (anosSelecionados.length === 1 && mesesSelecionados.length === 1) {
-       const curP = parseInt(anosSelecionados[0]) * 12 + parseInt(mesesSelecionados[0]);
-       const addP = getPeriod(d.adicionado_em) || 0;
-       const remP = getPeriod(d.removido_em) || Infinity;
-       active = (curP >= addP && curP < remP);
-    } else {
-       const remP = getPeriod(d.removido_em) || Infinity;
-       active = remP === Infinity; 
-    }
-    return active;
-  }).length;
+  const saidasFixasCalculadas = configuracoesGlobais
+    .filter(c => c.categoria === "Saída")
+    .map(c => ({ ...c, valorCalculado: calcularValorConfiguracao(c) }));
+
+  const entradasFixasCalculadas = configuracoesGlobais
+    .filter(c => c.categoria === "Entrada")
+    .map(c => ({ ...c, valorCalculado: calcularValorConfiguracao(c) }));
+
+  const totalRepassesFixos = saidasFixasCalculadas.reduce((acc, s) => acc + s.valorCalculado, 0);
+  const totalEntradasFixas = entradasFixasCalculadas.reduce((acc, e) => acc + e.valorCalculado, 0);
+  
+  const saldoLiquidoParcial = totalEntradasBrutas + totalEntradasFixas - totalSaidasGerais - totalRepassesFixos;
 
   const formatarMoeda = (valor: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(valor || 0);
   const formatarMoedaExcel = (valor: number) => (valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -520,12 +536,20 @@ export default function TesourariaPage() {
     });
     
     csv += `\nRESUMO FINANCEIRO\n`;
-    csv += `Entradas Brutas;;;;;;${formatarMoedaExcel(totalEntradasBrutas)}\n`;
-    csv += `Saídas Lançamentos;;;;;;${formatarMoedaExcel(totalSaidasGerais)}\n`;
+    csv += `Entradas Brutas (Lançamentos);;;;;;${formatarMoedaExcel(totalEntradasBrutas)}\n`;
+    
+    entradasFixasCalculadas.forEach(e => {
+      const isPercent = e.tipo_valor === "percentual" || e.percentual !== null;
+      const tag = isPercent ? `${e.percentual}%` : (e.frequencia || 'Culto');
+      csv += `Entrada Fixa - ${e.tipo} (${tag});;;;;;${formatarMoedaExcel(e.valorCalculado)}\n`;
+    });
+
+    csv += `Saídas Lançamentos Manuais;;;;;;${formatarMoedaExcel(totalSaidasGerais)}\n`;
+    
     saidasFixasCalculadas.forEach(s => {
       const isPercent = s.tipo_valor === "percentual" || s.percentual !== null;
-      const tag = isPercent ? `${s.percentual}%` : 'Fixo por Culto';
-      csv += `Repasse - ${s.tipo} (${tag});;;;;;${formatarMoedaExcel(s.valorCalculado)}\n`;
+      const tag = isPercent ? `${s.percentual}%` : (s.frequencia || 'Culto');
+      csv += `Repasse/Saída Fixa - ${s.tipo} (${tag});;;;;;${formatarMoedaExcel(s.valorCalculado)}\n`;
     });
     csv += `SALDO LÍQUIDO PARCIAL;;;;;;${formatarMoedaExcel(saldoLiquidoParcial)}\n`;
 
@@ -752,14 +776,35 @@ export default function TesourariaPage() {
                 <span className="text-sm font-medium text-gray-600">Total de Entradas Brutas</span>
                 <span className="text-base font-bold text-teal-700">{formatarMoeda(totalEntradasBrutas)}</span>
               </div>
-              <div className="flex justify-between items-center text-red-600">
+              
+              {entradasFixasCalculadas.length > 0 && (
+                <div className="pt-3 mt-3 border-t border-gray-100 space-y-2">
+                  <span className="text-xs font-bold text-gray-500 uppercase">Entradas Fixas</span>
+                  {entradasFixasCalculadas.map((entrada) => {
+                    const isPercent = entrada.tipo_valor === "percentual" || entrada.percentual !== null;
+                    return (
+                      <div key={entrada.id} className="flex justify-between items-center text-blue-600">
+                        <span className="text-sm font-medium">
+                          (+) {entrada.tipo} 
+                          <span className="text-xs ml-1 font-normal">
+                            {isPercent ? `(${entrada.percentual}%)` : `(${entrada.frequencia || 'Culto'})`}
+                          </span>
+                        </span>
+                        <span className="text-sm font-bold">{formatarMoeda(entrada.valorCalculado)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div className="flex justify-between items-center text-red-600 pt-3 mt-3 border-t border-gray-100">
                 <span className="text-sm font-medium">(-) Saídas Lançamentos Manuais</span>
                 <span className="text-base font-bold">{formatarMoeda(totalSaidasGerais)}</span>
               </div>
             </div>
 
             <div className="space-y-4">
-              <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-2">Repasses Fixos Calculados</h4>
+              <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-2">Repasses e Saídas Fixas</h4>
               {saidasFixasCalculadas.length === 0 ? (
                 <p className="text-sm text-gray-400 italic">Nenhuma saída fixa configurada.</p>
               ) : (
@@ -770,7 +815,7 @@ export default function TesourariaPage() {
                       <span className="text-sm font-medium">
                         (-) {saida.tipo} 
                         <span className="text-xs ml-1 font-normal">
-                          {isPercent ? `(${saida.percentual}%)` : `(Fixo por Culto)`}
+                          {isPercent ? `(${saida.percentual}%)` : `(${saida.frequencia || 'Culto'})`}
                         </span>
                       </span>
                       <span className="text-sm font-bold">{formatarMoeda(saida.valorCalculado)}</span>
@@ -790,7 +835,7 @@ export default function TesourariaPage() {
           <div className="bg-gray-50 p-6 border-t border-gray-200 flex flex-col sm:flex-row justify-between items-center gap-4">
             <div>
               <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Saldo Líquido Parcial</h3>
-              <p className="text-xs text-gray-400 mt-1">Disponível em caixa após todas as deduções.</p>
+              <p className="text-xs text-gray-400 mt-1">Disponível em caixa após todas as deduções e entradas fixas.</p>
             </div>
             <div className={`text-3xl font-black tracking-tight ${saldoLiquidoParcial >= 0 ? 'text-teal-700' : 'text-red-600'}`}>
               {formatarMoeda(saldoLiquidoParcial)}

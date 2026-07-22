@@ -19,7 +19,7 @@ export default function PatrimonioPage() {
   const [ehSede, setEhSede] = useState(false);
   const [nomeSedeOficial, setNomeSedeOficial] = useState("Sede");
   const [congregacaoUsuario, setCongregacaoUsuario] = useState("");
-  const [filtroCongregacao, setFiltroCongregacao] = useState("Sede"); // Padrão Sede
+  const [filtroCongregacao, setFiltroCongregacao] = useState(""); 
   const [congregacoesDisponiveis, setCongregacoesDisponiveis] = useState<string[]>([]);
   const [congregacaoForm, setCongregacaoForm] = useState("");
 
@@ -34,8 +34,11 @@ export default function PatrimonioPage() {
   // Campos de Cadastro / Edição
   const [itemSelecionado, setItemSelecionado] = useState<any>(null);
   const [itemNome, setItemNome] = useState("");
+  const [itemMarca, setItemMarca] = useState("");
+  const [itemModelo, setItemModelo] = useState("");
   const [dataEntrada, setDataEntrada] = useState("");
   const [valorEstimado, setValorEstimado] = useState("");
+  const [quantidade, setQuantidade] = useState<number>(1);
 
   // Campos de Movimentação e Histórico
   const [tipoMovimentacao, setTipoMovimentacao] = useState("");
@@ -142,15 +145,21 @@ export default function PatrimonioPage() {
     return cong;
   };
 
-  // 3. FILTRO LOCAL EM TEMPO REAL
+  // 3. FILTRO LOCAL EM TEMPO REAL (CORRIGIDO E BLINDADO)
   useEffect(() => {
     if (!patrimoniosRaw) return;
 
-    const filtrados = filtroCongregacao === "Todas"
-      ? patrimoniosRaw
-      : patrimoniosRaw.filter(p => normalizarSede(p.congregacao) === filtroCongregacao);
-
-    setPatrimonios(filtrados);
+    if (filtroCongregacao === "Todas") {
+      setPatrimonios(patrimoniosRaw);
+    } else {
+      const filtrados = patrimoniosRaw.filter(p => {
+        // Blindagem contra espaços extras e letras maiúsculas/minúsculas
+        const congDoItem = normalizarSede(p.congregacao).toLowerCase().trim();
+        const congDoFiltro = filtroCongregacao.toLowerCase().trim();
+        return congDoItem === congDoFiltro;
+      });
+      setPatrimonios(filtrados);
+    }
   }, [filtroCongregacao, patrimoniosRaw, nomeSedeOficial]);
 
 
@@ -221,23 +230,25 @@ export default function PatrimonioPage() {
     }
 
     let conteudoCSV = "\uFEFF";
-    conteudoCSV += "ID;Item;Data de Entrada;Valor (R$);Status;Congregação\n";
+    conteudoCSV += "ID;Item;Marca;Modelo;Data de Entrada;Valor (R$);Status;Congregação\n";
 
     patrimoniosOrdenados.forEach((item) => {
       const idFmt = `#${item.id}`;
       const itemFmt = item.item.replace(/"/g, '""'); 
+      const marcaFmt = (item.marca || "").replace(/"/g, '""'); 
+      const modeloFmt = (item.modelo || "").replace(/"/g, '""'); 
       const dataFmt = formatarData(item.data_entrada);
       const valorFmt = (item.valor || 0).toFixed(2).replace(".", ",");
       const statusFmt = item.status || "Disponível";
       const congFmt = normalizarSede(item.congregacao);
 
-      conteudoCSV += `${idFmt};"${itemFmt}";${dataFmt};${valorFmt};${statusFmt};${congFmt}\n`;
+      conteudoCSV += `${idFmt};"${itemFmt}";"${marcaFmt}";"${modeloFmt}";${dataFmt};${valorFmt};${statusFmt};${congFmt}\n`;
     });
 
     // Adiciona o Resumo no final
     const valorResumoFmt = (valorTotalAtivo || 0).toFixed(2).replace(".", ",");
     conteudoCSV += `\nRESUMO\n`;
-    conteudoCSV += `Patrimônio Ativo Total;;;${valorResumoFmt}\n`;
+    conteudoCSV += `Patrimônio Ativo Total;;;;;;${valorResumoFmt}\n`;
 
     const blob = new Blob([conteudoCSV], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -267,17 +278,22 @@ export default function PatrimonioPage() {
 
     const congregacaoFinal = ehSede ? congregacaoForm : congregacaoUsuario;
     const valorTratado = parseFloat(valorEstimado.toString().replace(",", "."));
-    
-    const { error } = await supabase.from("patrimonio").insert([
-      {
-        igreja_id: igrejaId,
-        congregacao: congregacaoFinal, // Injeta Hierarquia de forma Segura
-        item: itemNome,
-        data_entrada: dataEntrada,
-        valor: isNaN(valorTratado) ? 0 : valorTratado,
-        status: "Disponível"
-      },
-    ]);
+    const valorFinal = isNaN(valorTratado) ? 0 : valorTratado;
+    const qtd = quantidade > 0 ? quantidade : 1;
+
+    // Gera um array com a quantidade de itens solicitada
+    const novasLinhas = Array.from({ length: qtd }).map(() => ({
+      igreja_id: igrejaId,
+      congregacao: congregacaoFinal,
+      item: itemNome,
+      marca: itemMarca,
+      modelo: itemModelo,
+      data_entrada: dataEntrada,
+      valor: valorFinal,
+      status: "Disponível"
+    }));
+
+    const { error } = await supabase.from("patrimonio").insert(novasLinhas);
 
     if (!error) {
       setModalCadastroAberto(false);
@@ -291,10 +307,25 @@ export default function PatrimonioPage() {
   const abrirEditar = (item: any) => {
     setItemSelecionado(item);
     setItemNome(item.item);
+    setItemMarca(item.marca || "");
+    setItemModelo(item.modelo || "");
     setDataEntrada(item.data_entrada);
     setValorEstimado(item.valor.toString());
+    setQuantidade(1); // Sempre abre com 1 na edição
     setCongregacaoForm(normalizarSede(item.congregacao));
     setModalEditarAberto(true);
+  };
+
+  const handleDuplicar = (item: any) => {
+    limparCampos();
+    setItemNome(item.item);
+    setItemMarca(item.marca || "");
+    setItemModelo(item.modelo || "");
+    setDataEntrada(item.data_entrada);
+    setValorEstimado(item.valor ? item.valor.toString() : "");
+    setQuantidade(1);
+    setCongregacaoForm(normalizarSede(item.congregacao));
+    setModalCadastroAberto(true); // Abre o modal de CADASTRO, não de edição
   };
 
   const handleEditar = async (e: React.FormEvent) => {
@@ -303,25 +334,46 @@ export default function PatrimonioPage() {
 
     const congregacaoFinal = ehSede ? congregacaoForm : congregacaoUsuario;
     const valorTratado = parseFloat(valorEstimado.toString().replace(",", "."));
-    
+    const valorFinal = isNaN(valorTratado) ? 0 : valorTratado;
+    const qtd = quantidade > 0 ? quantidade : 1;
+
+    // 1. Atualiza o item atual que foi selecionado
     const { error } = await supabase
       .from("patrimonio")
       .update({
         item: itemNome,
-        congregacao: congregacaoFinal, // Atualiza Hierarquia
+        marca: itemMarca,
+        modelo: itemModelo,
+        congregacao: congregacaoFinal,
         data_entrada: dataEntrada,
-        valor: isNaN(valorTratado) ? 0 : valorTratado,
+        valor: valorFinal,
       })
       .eq("id", itemSelecionado.id)
-      .eq("igreja_id", igrejaId); // Trava de update
+      .eq("igreja_id", igrejaId);
 
-    if (!error) {
-      setModalEditarAberto(false);
-      limparCampos();
-      recarregarDados();
-    } else {
+    if (error) {
       alert("Erro ao editar: " + error.message);
+      return;
     }
+
+    // 2. Se a quantidade for maior que 1, insere cópias adicionais
+    if (qtd > 1) {
+      const clones = Array.from({ length: qtd - 1 }).map(() => ({
+        igreja_id: igrejaId,
+        congregacao: congregacaoFinal,
+        item: itemNome,
+        marca: itemMarca,
+        modelo: itemModelo,
+        data_entrada: dataEntrada,
+        valor: valorFinal,
+        status: itemSelecionado.status || "Disponível" // Herda o status do item editado
+      }));
+      await supabase.from("patrimonio").insert(clones);
+    }
+
+    setModalEditarAberto(false);
+    limparCampos();
+    recarregarDados();
   };
 
   const handleExcluir = async (id: number) => {
@@ -387,8 +439,11 @@ export default function PatrimonioPage() {
   const limparCampos = () => {
     setItemSelecionado(null);
     setItemNome("");
+    setItemMarca("");
+    setItemModelo("");
     setDataEntrada("");
     setValorEstimado("");
+    setQuantidade(1);
     setTipoMovimentacao("");
     setDescricaoMovimentacao("");
     setHistoricoItem([]);
@@ -432,7 +487,7 @@ export default function PatrimonioPage() {
               onChange={(e) => setFiltroCongregacao(e.target.value)}
               className="w-full sm:w-auto max-w-full truncate px-4 py-3 bg-indigo-50 border border-indigo-100 text-indigo-800 font-bold text-sm rounded-lg hover:border-indigo-300 focus:border-indigo-500 outline-none transition-all shadow-sm cursor-pointer"
             >
-              <option value="Sede">🏢 {nomeSedeOficial} (Sede)</option>
+              <option value={nomeSedeOficial}>🏢 {nomeSedeOficial} (Sede)</option>
               <option value="Todas">🌍 Todas as Congregações</option>
               {congregacoesDisponiveis.filter(c => c !== nomeSedeOficial).map(c => (
                 <option key={c} value={c}>📍 {c}</option>
@@ -503,7 +558,6 @@ export default function PatrimonioPage() {
               >
                 Item {renderIconeOrdenacao("item")}
               </th>
-              {/* Coluna da Congregação visível apenas se houverem várias na lista */}
               {filtroCongregacao === "Todas" && (
                 <th className="p-4 font-bold select-none text-gray-500">
                   Congregação
@@ -539,7 +593,17 @@ export default function PatrimonioPage() {
               patrimoniosOrdenados.map((item) => (
                 <tr key={item.id} className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors">
                   <td className="p-4 text-gray-600 dark:text-gray-300 font-medium">#{item.id}</td>
-                  <td className="p-4 text-gray-800 dark:text-gray-100 font-semibold">{item.item}</td>
+                  <td className="p-4 text-gray-800 dark:text-gray-100 font-semibold">
+                    {item.item}
+                    {/* Exibe Marca e Modelo subtitulados se existirem */}
+                    {(item.marca || item.modelo) && (
+                      <div className="text-xs text-gray-500 dark:text-gray-400 font-normal mt-0.5">
+                        {item.marca && <span>Marca: {item.marca}</span>}
+                        {item.marca && item.modelo && <span> | </span>}
+                        {item.modelo && <span>Modelo: {item.modelo}</span>}
+                      </div>
+                    )}
+                  </td>
                   
                   {filtroCongregacao === "Todas" && (
                     <td className="p-4 text-gray-500 text-sm font-medium">
@@ -563,19 +627,27 @@ export default function PatrimonioPage() {
                       <div className="flex justify-center items-center gap-2">
                         <button
                           onClick={() => abrirModalMovimentacao(item)}
-                          className="bg-blue-100 text-blue-700 hover:bg-blue-200 px-4 py-2 rounded-lg text-sm font-semibold transition-colors focus:ring-2 focus:ring-blue-300 outline-none"
+                          className="bg-blue-100 text-blue-700 hover:bg-blue-200 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors focus:ring-2 focus:ring-blue-300 outline-none"
+                          title="Movimentar Item"
                         >
                           Movimentar
                         </button>
                         <button
+                          onClick={() => handleDuplicar(item)}
+                          className="bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-400 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors focus:ring-2 focus:ring-indigo-300 outline-none"
+                          title="Duplicar como novo Cadastro"
+                        >
+                          Duplicar
+                        </button>
+                        <button
                           onClick={() => abrirEditar(item)}
-                          className="bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500 px-4 py-2 rounded-lg text-sm font-semibold transition-colors focus:ring-2 focus:ring-gray-300 outline-none"
+                          className="bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors focus:ring-2 focus:ring-gray-300 outline-none"
                         >
                           Editar
                         </button>
                         <button
                           onClick={() => handleExcluir(item.id)}
-                          className="bg-red-100 text-red-700 hover:bg-red-200 px-4 py-2 rounded-lg text-sm font-semibold transition-colors focus:ring-2 focus:ring-red-300 outline-none"
+                          className="bg-red-100 text-red-700 hover:bg-red-200 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors focus:ring-2 focus:ring-red-300 outline-none"
                         >
                           Excluir
                         </button>
@@ -592,7 +664,7 @@ export default function PatrimonioPage() {
       {/* MODAL: CADASTRO */}
       {modalCadastroAberto && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md p-6">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-lg p-6">
             <h2 className="text-xl font-bold mb-4 text-gray-800 dark:text-white">Cadastrar Novo Item</h2>
             <form onSubmit={handleCadastrar} className="space-y-4">
               
@@ -618,26 +690,42 @@ export default function PatrimonioPage() {
                 )}
               </div>
 
-              <div className="hidden">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">ID</label>
-                <input type="text" disabled value="Gerado automaticamente" className="w-full border dark:border-gray-600 rounded-lg p-3 bg-gray-100 dark:bg-gray-700 text-gray-500 cursor-not-allowed" />
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Item *</label>
+                <input type="text" required value={itemNome} onChange={(e) => setItemNome(e.target.value)} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 bg-white dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all" placeholder="Ex: Cadeira, Microfone, Projetor..." />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Item</label>
-                <input type="text" required value={itemNome} onChange={(e) => setItemNome(e.target.value)} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 bg-white dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all" placeholder="Ex: Mesa de Som, Projetor..." />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Marca (Opcional)</label>
+                  <input type="text" value={itemMarca} onChange={(e) => setItemMarca(e.target.value)} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 bg-white dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all" placeholder="Ex: Yamaha" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Modelo (Opcional)</label>
+                  <input type="text" value={itemModelo} onChange={(e) => setItemModelo(e.target.value)} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 bg-white dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all" placeholder="Ex: MG16XU" />
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Data de Entrada</label>
-                <input type="date" required value={dataEntrada} onChange={(e) => setDataEntrada(e.target.value)} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 bg-white dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all" />
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="sm:col-span-1">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Data *</label>
+                  <input type="date" required value={dataEntrada} onChange={(e) => setDataEntrada(e.target.value)} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 bg-white dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all" />
+                </div>
+                <div className="sm:col-span-1">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Valor Unitário *</label>
+                  <input type="number" step="0.01" required value={valorEstimado} onChange={(e) => setValorEstimado(e.target.value)} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 bg-white dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all" placeholder="0.00" />
+                </div>
+                <div className="sm:col-span-1">
+                  <label className="block text-sm font-black text-blue-700 dark:text-blue-400 mb-1">Quantidade *</label>
+                  <input type="number" min="1" required value={quantidade} onChange={(e) => setQuantidade(parseInt(e.target.value) || 1)} className="w-full border border-blue-300 dark:border-blue-600 rounded-lg p-3 bg-blue-50 dark:bg-blue-900/20 text-blue-900 dark:text-blue-100 outline-none focus:ring-2 focus:ring-blue-500 transition-all font-bold" />
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Valor Estimado (R$)</label>
-                <input type="number" step="0.01" required value={valorEstimado} onChange={(e) => setValorEstimado(e.target.value)} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 bg-white dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all" placeholder="0.00" />
-              </div>
-              <div className="flex justify-end gap-3 mt-8">
+
+              <div className="flex justify-end gap-3 mt-8 pt-4">
                 <button type="button" onClick={() => setModalCadastroAberto(false)} className="px-5 py-2.5 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 font-medium rounded-lg transition-colors">Cancelar</button>
-                <button type="submit" className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg shadow-sm transition-colors">Criar Item</button>
+                <button type="submit" className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg shadow-sm transition-colors">
+                  {quantidade > 1 ? `Salvar ${quantidade} Itens` : 'Criar Item'}
+                </button>
               </div>
             </form>
           </div>
@@ -647,7 +735,7 @@ export default function PatrimonioPage() {
       {/* MODAL: EDITAR */}
       {modalEditarAberto && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md p-6">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-lg p-6">
             <h2 className="text-xl font-bold mb-4 text-gray-800 dark:text-white">Editar Item</h2>
             <form onSubmit={handleEditar} className="space-y-4">
 
@@ -678,20 +766,44 @@ export default function PatrimonioPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Item</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Item *</label>
                 <input type="text" required value={itemNome} onChange={(e) => setItemNome(e.target.value)} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 bg-white dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all" />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Data de Entrada</label>
-                <input type="date" required value={dataEntrada} onChange={(e) => setDataEntrada(e.target.value)} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 bg-white dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all" />
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Marca (Opcional)</label>
+                  <input type="text" value={itemMarca} onChange={(e) => setItemMarca(e.target.value)} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 bg-white dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Modelo (Opcional)</label>
+                  <input type="text" value={itemModelo} onChange={(e) => setItemModelo(e.target.value)} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 bg-white dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all" />
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Valor Estimado (R$)</label>
-                <input type="number" step="0.01" required value={valorEstimado} onChange={(e) => setValorEstimado(e.target.value)} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 bg-white dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all" />
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="sm:col-span-1">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Data Entrada</label>
+                  <input type="date" required value={dataEntrada} onChange={(e) => setDataEntrada(e.target.value)} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 bg-white dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all" />
+                </div>
+                <div className="sm:col-span-1">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Valor (R$)</label>
+                  <input type="number" step="0.01" required value={valorEstimado} onChange={(e) => setValorEstimado(e.target.value)} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 bg-white dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all" />
+                </div>
+                <div className="sm:col-span-1 relative group">
+                  <label className="block text-sm font-black text-indigo-700 dark:text-indigo-400 mb-1 cursor-help">Replicar? ⓘ</label>
+                  <input type="number" min="1" required value={quantidade} onChange={(e) => setQuantidade(parseInt(e.target.value) || 1)} className="w-full border border-indigo-300 dark:border-indigo-600 rounded-lg p-3 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-900 dark:text-indigo-100 outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-bold" />
+                  <div className="absolute z-10 bottom-full mb-2 hidden group-hover:block w-48 p-2 text-xs bg-gray-800 text-white rounded shadow-lg text-center">
+                    Se for maior que 1, o sistema atualizará este item e criará cópias idênticas a ele.
+                  </div>
+                </div>
               </div>
-              <div className="flex justify-end gap-3 mt-8">
+
+              <div className="flex justify-end gap-3 mt-8 pt-4">
                 <button type="button" onClick={() => setModalEditarAberto(false)} className="px-5 py-2.5 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 font-medium rounded-lg transition-colors">Cancelar</button>
-                <button type="submit" className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg shadow-sm transition-colors">Salvar Alterações</button>
+                <button type="submit" className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg shadow-sm transition-colors">
+                  {quantidade > 1 ? `Salvar e Gerar Cópias` : 'Salvar Alterações'}
+                </button>
               </div>
             </form>
           </div>
