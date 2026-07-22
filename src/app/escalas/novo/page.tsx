@@ -44,6 +44,9 @@ export default function NovaEscala() {
   const [dadosPorData, setDadosPorData] = useState<Record<string, any[]>>({});
   const [descricoesPorData, setDescricoesPorData] = useState<Record<string, string>>({}); 
 
+  // (Evitando erro de sintaxe) Estado simulado para data de hoje
+  const [dataLancamento, setDataLancamento] = useState("");
+
   // 2. EFFECT PRINCIPAL COM A TRAVA DE SEGURANÇA E HIERARQUIA
   useEffect(() => {
     const hoje = new Date().toISOString().split("T")[0];
@@ -129,9 +132,6 @@ export default function NovaEscala() {
     start: startOfWeek(inicioMes),
     end: endOfWeek(fimMes)
   });
-
-  // (Evitando erro de sintaxe) Estado simulado para data de hoje, caso precise ser setado
-  const [dataLancamento, setDataLancamento] = useState("");
 
   const toggleDataStr = (dataStr: string) => {
     if (datasSelecionadas.includes(dataStr)) {
@@ -444,7 +444,7 @@ export default function NovaEscala() {
                   {isExpandida && (
                     <div className="p-6 space-y-6 border-t border-gray-100 animate-fade-in">
                       
-                      {/* CAIXA DE DESCRIÇÃO / TEMA */}
+                      {/* CAIXA DE DESCRIÇÃO / TEMA COM AS MELHORIAS */}
                       <div className="mb-6 bg-gray-50 p-4 rounded-xl border border-gray-100">
                         <label className="block text-[11px] font-black text-gray-500 uppercase tracking-wider mb-2">
                           Tema / Descrição / Observação (Opcional)
@@ -452,9 +452,9 @@ export default function NovaEscala() {
                         <textarea 
                           value={descricoesPorData[data] || ""}
                           onChange={(e) => setDescricoesPorData({ ...descricoesPorData, [data]: e.target.value })}
-                          placeholder="Ex: Tema do culto, assunto da lição da EBD ou um aviso geral..."
-                          className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none resize-none bg-white text-sm"
-                          rows={2}
+                          placeholder={"Ex: Tema do culto, assunto da lição da EBD ou um aviso geral...\n(Você pode dar 'Enter' para pular linhas e colar links aqui)"}
+                          className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none resize-y bg-white text-sm min-h-[80px]"
+                          rows={3}
                         ></textarea>
                       </div>
 

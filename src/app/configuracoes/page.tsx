@@ -5,6 +5,22 @@ import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase"; 
 import { podeEditar, formatarPerfis } from "../../lib/permissoes";
 
+// Interface para estruturar as assinaturas
+interface Assinatura {
+  id: string;
+  titulo: string;
+  url: string;
+  arquivo?: File;
+  isPadrao?: boolean; // NOVO: Flag para travar as assinaturas oficiais
+}
+
+// Configuração fixa das 3 assinaturas que nunca podem ser apagadas ou renomeadas
+const ASSINATURAS_PADRAO: Assinatura[] = [
+  { id: 'default-1', titulo: 'Pastor Presidente', url: '', isPadrao: true },
+  { id: 'default-2', titulo: 'Secretário(a)', url: '', isPadrao: true },
+  { id: 'default-3', titulo: 'Tesoureiro(a)', url: '', isPadrao: true }
+];
+
 export default function ConfiguracoesIgreja() {
   const router = useRouter();
   
@@ -17,11 +33,15 @@ export default function ConfiguracoesIgreja() {
   const [configId, setConfigId] = useState<number | null>(null);
   const [igrejaIdLogada, setIgrejaIdLogada] = useState<string | null>(null);
 
-  // Estados novos para o gerenciamento das Igrejas Filhas
+  // Estados do gerenciamento das Igrejas Filhas
   const [igrejasFilhas, setIgrejasFilhas] = useState<any[]>([]);
   const [modalFilhaAberto, setModalFilhaAberto] = useState(false);
   const [nomeFilha, setNomeFilha] = useState("");
   const [salvandoFilha, setSalvandoFilha] = useState(false);
+
+  // Estados para o gerenciamento de Assinaturas
+  const [assinaturas, setAssinaturas] = useState<Assinatura[]>(ASSINATURAS_PADRAO);
+  const [assinaturasRemovidas, setAssinaturasRemovidas] = useState<string[]>([]); 
 
   const [dadosIgreja, setDadosIgreja] = useState({
     nome_igreja: "",
@@ -46,10 +66,7 @@ export default function ConfiguracoesIgreja() {
     const usuario = JSON.parse(usuarioLocal);
     const perfisLogado = formatarPerfis(usuario.perfis || usuario.nivel_acesso);
 
-    // ==================================================
     // TRAVA 1: PERFIL DE ACESSO
-    // Se o usuário não puder editar membros, também não pode editar as configs.
-    // ==================================================
     if (!podeEditar(perfisLogado, 'membros')) {
       router.push("/");
       return; 
@@ -59,24 +76,20 @@ export default function ConfiguracoesIgreja() {
     setIgrejaIdLogada(igrejaId);
 
     async function buscarConfiguracoes(idIgreja: string) {
-      // BUSCA AS CONFIGURAÇÕES APENAS DESTA IGREJA
       const { data, error } = await supabase
         .from("configuracao_igreja")
         .select("*")
         .eq("igreja_id", idIgreja) 
         .maybeSingle();
 
-      // ==================================================
       // TRAVA 2: ANTI-URL BYPASS (BLOQUEIA FILIAIS)
-      // Verifica se o usuário pertence à Sede. Se for de filial, é expulso para a Home.
-      // ==================================================
       const nomeOficial = data?.nome_igreja?.trim() || "Sede";
       const congUsuario = usuario.congregacao?.trim() || "";
       const congLow = congUsuario.toLowerCase();
       const isUserSede = !congLow || congLow === "sede" || congLow === "matriz" || congLow === "geral" || congLow === nomeOficial.toLowerCase();
 
       if (!isUserSede) {
-        router.push("/"); // Expulsa o invasor
+        router.push("/"); 
         return;
       }
 
@@ -93,9 +106,24 @@ export default function ConfiguracoesIgreja() {
           endereco_cep: data.endereco_cep || "",
           logo_url: data.logo_url || "",
         });
+
+        // NOVO: Lógica blindada para carregar as assinaturas mantendo as padrões travadas
+        if (data.assinaturas && data.assinaturas.length > 0) {
+          // 1. Força a existência e os títulos das 3 padrões pegando apenas a URL salva no banco
+          const assinaturasMescladas = ASSINATURAS_PADRAO.map(def => {
+            const achouNoBanco = data.assinaturas.find((a: any) => a.id === def.id);
+            return achouNoBanco ? { ...def, url: achouNoBanco.url } : def;
+          });
+
+          // 2. Busca todas as outras assinaturas "extras" que o usuário cadastrou livremente
+          const assinaturasExtras = data.assinaturas
+            .filter((a: any) => !a.id.startsWith('default-'))
+            .map((a: any) => ({ ...a, isPadrao: false })); // Garante que as extras são livres
+
+          setAssinaturas([...assinaturasMescladas, ...assinaturasExtras]);
+        }
       }
 
-      // Carrega também as igrejas filhas vinculadas de forma assíncrona
       await carregarIgrejasFilhas(idIgreja);
       setCarregando(false);
     }
@@ -105,18 +133,15 @@ export default function ConfiguracoesIgreja() {
 
   // Função para buscar as igrejas filhas do banco
   const carregarIgrejasFilhas = async (idIgreja: string) => {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("igrejas_filhas")
       .select("*")
       .eq("igreja_id", idIgreja)
       .order("nome", { ascending: true });
 
-    if (data) {
-      setIgrejasFilhas(data);
-    }
+    if (data) setIgrejasFilhas(data);
   };
 
-  // Função para cadastrar uma nova igreja filha
   const handleCadastrarFilha = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!nomeFilha.trim() || !igrejaIdLogada) return;
@@ -125,12 +150,7 @@ export default function ConfiguracoesIgreja() {
     try {
       const { error } = await supabase
         .from("igrejas_filhas")
-        .insert([
-          {
-            nome: nomeFilha.trim(),
-            igreja_id: igrejaIdLogada
-          }
-        ]);
+        .insert([{ nome: nomeFilha.trim(), igreja_id: igrejaIdLogada }]);
 
       if (error) throw error;
 
@@ -144,25 +164,61 @@ export default function ConfiguracoesIgreja() {
     }
   };
 
-  // Função para excluir uma igreja filha cadastrada
   const handleDeletarFilha = async (id: number) => {
     if (!confirm("Tem certeza que deseja remover esta igreja filha / congregação?")) return;
-
     try {
       const { error } = await supabase
         .from("igrejas_filhas")
         .delete()
         .eq("id", id)
         .eq("igreja_id", igrejaIdLogada);
-
       if (error) throw error;
-
-      if (igrejaIdLogada) {
-        await carregarIgrejasFilhas(igrejaIdLogada);
-      }
+      if (igrejaIdLogada) await carregarIgrejasFilhas(igrejaIdLogada);
     } catch (error: any) {
       alert("Erro ao remover igreja filha: " + error.message);
     }
+  };
+
+  // ==================================================
+  // FUNÇÕES DE GERENCIAMENTO DE ASSINATURAS
+  // ==================================================
+  const adicionarAssinatura = () => {
+    setAssinaturas(prev => [...prev, { id: Date.now().toString(), titulo: '', url: '', isPadrao: false }]);
+  };
+
+  const atualizarTituloAssinatura = (id: string, novoTitulo: string) => {
+    // Apenas atualiza se a assinatura não for padrão
+    setAssinaturas(prev => prev.map(a => (a.id === id && !a.isPadrao) ? { ...a, titulo: novoTitulo } : a));
+  };
+
+  const removerAssinatura = (id: string) => {
+    const ass = assinaturas.find(a => a.id === id);
+    // Bloqueia a exclusão se for padrão
+    if (!ass || ass.isPadrao) return;
+    
+    if (ass.url) {
+      setAssinaturasRemovidas(prev => [...prev, ass.url]);
+    }
+    setAssinaturas(prev => prev.filter(a => a.id !== id));
+  };
+
+  const handleAssinaturaUpload = (id: string, file: File | undefined) => {
+    if (!file) return;
+    
+    if (file.size > 102400) {
+      alert("A imagem excede o limite de 100KB. Por favor, escolha um arquivo mais leve e otimizado.");
+      return;
+    }
+    
+    setAssinaturas(prev => prev.map(a => {
+      if (a.id === id) {
+        if (a.url && !a.arquivo) {
+          setAssinaturasRemovidas(r => [...r, a.url]);
+        }
+        return { ...a, arquivo: file };
+      }
+      return a;
+    }));
   };
 
   // 3. FUNÇÕES COMUNS
@@ -182,7 +238,6 @@ export default function ConfiguracoesIgreja() {
       setDadosIgreja({ ...dadosIgreja, [name]: valorLimpo });
       return;
     }
-
     setDadosIgreja({ ...dadosIgreja, [name]: value });
   };
 
@@ -201,35 +256,68 @@ export default function ConfiguracoesIgreja() {
     let novaLogoUrl = dadosIgreja.logo_url;
 
     try {
+      // 1. Upload da Logo
       if (logoArquivo) {
-        const nomeArquivo = `logo-${igrejaIdLogada}-${Date.now()}-${logoArquivo.name}`;
+        const nomeArquivo = `logo-${igrejaIdLogada}-${Date.now()}-${logoArquivo.name.replace(/[^a-zA-Z0-9.]/g, '')}`;
         const { error: erroUpload } = await supabase.storage.from("fotos").upload(nomeArquivo, logoArquivo);
         if (erroUpload) throw erroUpload;
         const { data: dataUrl } = supabase.storage.from("fotos").getPublicUrl(nomeArquivo);
         novaLogoUrl = dataUrl.publicUrl;
       }
 
+      // 2. Upload das Assinaturas Individuais
+      const assinaturasFinais = [];
+      for (const ass of assinaturas) {
+        let urlFinal = ass.url;
+        
+        if (ass.arquivo) {
+          const nomeArq = `assinatura-${igrejaIdLogada}-${Date.now()}-${ass.arquivo.name.replace(/[^a-zA-Z0-9.]/g, '')}`;
+          const { error: erroUpload } = await supabase.storage.from("fotos").upload(nomeArq, ass.arquivo);
+          if (erroUpload) throw erroUpload;
+          
+          const { data: dataUrl } = supabase.storage.from("fotos").getPublicUrl(nomeArq);
+          urlFinal = dataUrl.publicUrl;
+        }
+
+        // Salvamos no banco incluindo a flag de padrão, garantindo que o sistema identifique no futuro
+        assinaturasFinais.push({ 
+          id: ass.id, 
+          titulo: ass.titulo, 
+          url: urlFinal,
+          isPadrao: ass.isPadrao 
+        });
+      }
+
+      // 3. Limpeza do Lixo (Deleta imagens antigas)
+      for (const url of assinaturasRemovidas) {
+        if (url) {
+          const pathParts = url.split('/fotos/');
+          if (pathParts.length > 1) {
+            await supabase.storage.from("fotos").remove([pathParts[1]]);
+          }
+        }
+      }
+
       const dadosParaSalvar = {
         ...dadosIgreja,
         igreja_id: igrejaIdLogada, 
         logo_url: novaLogoUrl,
+        assinaturas: assinaturasFinais, 
       };
 
+      // 4. Salvar tudo no banco
       if (configId) {
-        const { error } = await supabase
-          .from("configuracao_igreja")
-          .update(dadosParaSalvar)
-          .eq("id", configId)
-          .eq("igreja_id", igrejaIdLogada); 
+        const { error } = await supabase.from("configuracao_igreja").update(dadosParaSalvar).eq("id", configId).eq("igreja_id", igrejaIdLogada); 
         if (error) throw error;
       } else {
-        const { error } = await supabase
-          .from("configuracao_igreja")
-          .insert([dadosParaSalvar]);
+        const { error } = await supabase.from("configuracao_igreja").insert([dadosParaSalvar]);
         if (error) throw error;
       }
 
       setMostrarModalSucesso(true);
+      setAssinaturasRemovidas([]);
+      // Atualizamos o state com os objetos novos (removendo os files pendentes de upload da tela)
+      setAssinaturas(assinaturasFinais.map(a => ({ id: a.id, titulo: a.titulo, url: a.url, isPadrao: a.isPadrao })));
     } catch (error: any) {
       alert("Erro ao salvar configurações: " + error.message);
     } finally {
@@ -320,7 +408,83 @@ export default function ConfiguracoesIgreja() {
             </div>
           </div>
 
-          {/* NOVO BLOCO PREMIUM: GERENCIAMENTO DE IGREJAS FILHAS */}
+          {/* BLOCO PREMIUM: ASSINATURAS OFICIAIS */}
+          <div className="bg-white p-6 rounded-xl border border-gray-200 mt-8 space-y-4 shadow-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-gray-100 pb-4">
+              <div>
+                <h2 className="text-lg font-bold text-gray-800">Assinaturas Oficiais</h2>
+                <p className="text-xs text-gray-500">Configure as assinaturas digitais que serão emitidas em certificados e recibos oficiais.<br/>Use imagens <span className="font-bold text-blue-600">.PNG (com fundo transparente)</span> de até <span className="font-bold text-red-500">100KB</span>.</p>
+              </div>
+              <button
+                type="button"
+                onClick={adicionarAssinatura}
+                className="inline-flex items-center justify-center px-4 py-2.5 bg-gray-800 hover:bg-gray-900 text-white font-semibold rounded-lg text-sm shadow-sm transition-all transform active:scale-95 shrink-0"
+              >
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+                </svg>
+                Adicionar Outro
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 pt-2">
+              {assinaturas.map((ass) => {
+                const previewImg = ass.arquivo ? URL.createObjectURL(ass.arquivo) : ass.url;
+                return (
+                  <div key={ass.id} className="bg-gray-50 border border-gray-200 p-4 rounded-lg relative group transition-all hover:border-blue-300">
+                    
+                    {/* Botão de exclusão (SÓ APARECE SE NÃO FOR PADRÃO) */}
+                    {!ass.isPadrao && (
+                      <button 
+                        onClick={() => removerAssinatura(ass.id)} 
+                        type="button" 
+                        className="absolute top-2 right-2 text-red-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded-md transition-colors"
+                        title="Remover Assinatura"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                      </button>
+                    )}
+                    
+                    <label className="block text-xs font-semibold text-gray-700 mb-1 pr-6 truncate">
+                      {ass.isPadrao ? "Título Oficial (Fixo)" : "Título / Cargo"}
+                    </label>
+                    <input 
+                      type="text" 
+                      value={ass.titulo} 
+                      onChange={(e) => atualizarTituloAssinatura(ass.id, e.target.value)} 
+                      readOnly={ass.isPadrao} // Trava o campo para as padrões
+                      className={`w-full p-2 text-sm border rounded-md mb-3 outline-none transition-colors ${
+                        ass.isPadrao 
+                          ? "bg-gray-200 cursor-not-allowed text-gray-600 font-medium border-gray-300" // Visual travado
+                          : "bg-white focus:ring-2 focus:ring-blue-400" // Visual livre
+                      }`} 
+                      placeholder="Ex: Pastor Auxiliar" 
+                    />
+                    
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">Imagem da Assinatura</label>
+                    <div className={`relative flex flex-col items-center justify-center w-full h-24 border-2 border-dashed rounded-lg transition-colors overflow-hidden ${previewImg ? 'border-blue-300 bg-white' : 'border-gray-300 bg-gray-100 hover:bg-gray-200'}`}>
+                      <input 
+                        type="file" 
+                        accept="image/png, image/jpeg" 
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" 
+                        onChange={(e) => handleAssinaturaUpload(ass.id, e.target.files?.[0])} 
+                      />
+                      {previewImg ? (
+                        <img src={previewImg} alt="Preview Assinatura" className="h-full object-contain p-2" />
+                      ) : (
+                        <div className="text-center p-2">
+                          <span className="text-sm text-blue-600 font-semibold block">Anexar</span>
+                          <span className="text-[10px] text-gray-500 uppercase tracking-wide">Fundo Transp.</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* BLOCO DE IGREJAS FILHAS */}
           <div className="bg-gray-50 p-6 rounded-xl border border-gray-200 mt-8 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div>

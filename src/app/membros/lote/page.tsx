@@ -44,7 +44,7 @@ function LoteDeCarteirinhas() {
         setMembros(membrosData);
       }
 
-      // 3. BUSCA AS CONFIGURAÇÕES DA IGREJA ESPECÍFICA (Logo e Pastor e CNPJ)
+      // 3. BUSCA AS CONFIGURAÇÕES DA IGREJA ESPECÍFICA
       const { data: configData } = await supabase
         .from("configuracao_igreja")
         .select("*")
@@ -81,6 +81,11 @@ function LoteDeCarteirinhas() {
 
   const nomeIgreja = configIgreja?.nome_igreja || "NOME DA SUA IGREJA";
   const ehNomeLongo = nomeIgreja.length > 28;
+
+  // Lógica inteligente para buscar a assinatura do Pastor (default-1)
+  const assinaturaPastor = configIgreja?.assinaturas?.find((a: any) => a.id === 'default-1');
+  const urlAssinatura = assinaturaPastor?.url;
+  const tituloAssinatura = assinaturaPastor?.titulo || "PASTOR PRESIDENTE";
 
   const estiloCartao = {
     width: "324px", minWidth: "324px", height: "204px", minHeight: "204px",
@@ -188,7 +193,7 @@ function LoteDeCarteirinhas() {
                 }}>
                   {nomeIgreja}
                 </h2>
-                {/* Validação do CNPJ aqui, idêntica à tela individual */}
+                
                 <p style={{ margin: 0, fontSize: '8px', opacity: 0.9, textTransform: 'uppercase', letterSpacing: '1px' }}>
                   {configIgreja?.cnpj && configIgreja.cnpj.trim() !== "" ? `CNPJ: ${configIgreja.cnpj}` : "Ministério / Congregação"}
                 </p>
@@ -233,16 +238,30 @@ function LoteDeCarteirinhas() {
               <Campo top={105} left={110} w={94} h={30} label="Nascimento" valor={formatarData(membro.data_nascimento)} center={true} />
               <Campo top={105} left={211} w={99} h={30} label="Status" valor={membro.status} center={true} color={membro.status === 'Ativo' ? '#16a34a' : '#dc2626'} />
 
-              <div style={{ position: 'absolute', top: '160px', left: 0, width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                <p style={{ margin: 0, fontSize: '8px', fontWeight: 'bold', color: '#111827', textTransform: 'uppercase' }}>
-                  {configIgreja?.nome_pastor ? `${configIgreja.nome_pastor} - PASTOR PRESIDENTE` : "NOME DO PASTOR - PASTOR PRESIDENTE"}
-                </p>
-                <p style={{ margin: '6px 20px 0 20px', fontSize: '7px', color: '#115e59', textAlign: 'center', lineHeight: '1.2', fontWeight: '600' }}>
+              {/* BLOCO DA ASSINATURA TOTALMENTE ADAPTÁVEL E INQUEBRÁVEL (APLICADO AO MAP) */}
+              <div style={{ position: 'absolute', top: '142px', left: 0, width: '100%', height: '62px' }}>
+                
+                <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '32px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end' }}>
+                  
+                  {urlAssinatura ? (
+                    <img src={urlAssinatura} alt="Assinatura" style={{ maxHeight: '18px', maxWidth: '150px', objectFit: 'contain' }} crossOrigin="anonymous" />
+                  ) : (
+                    <div style={{ height: '18px', width: '100%' }}></div> 
+                  )}
+
+                  <div style={{ width: '160px', borderTop: '1px solid #000000', marginTop: '2px', marginBottom: '2px' }}></div>
+
+                  <p style={{ margin: 0, fontSize: '6px', fontWeight: 'bold', color: '#000000', textTransform: 'uppercase' }}>
+                    {configIgreja?.nome_pastor ? `${configIgreja.nome_pastor} - ${tituloAssinatura}` : `NOME DO PASTOR - ${tituloAssinatura}`}
+                  </p>
+                </div>
+
+                <p style={{ position: 'absolute', top: '34px', left: '20px', right: '20px', margin: 0, fontSize: '7px', color: '#115e59', textAlign: 'center', lineHeight: '1.2', fontWeight: '600' }}>
                   O presente cartão é pessoal e intransferível. Válido em todo território nacional acompanhado de documento oficial com foto.
                 </p>
               </div>
-            </div>
 
+            </div>
           </div>
         ))}
 
