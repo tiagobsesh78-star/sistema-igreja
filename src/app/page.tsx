@@ -542,37 +542,45 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-5 flex-1 divide-y md:divide-y-0 md:divide-x divide-gray-100">
+          <div className="grid grid-cols-1 md:grid-cols-5 flex-1 divide-y md:divide-y-0 md:divide-x divide-gray-100 w-full">
             
-            <div className="md:col-span-2 p-5 bg-gray-50/30">
+            {/* Atividades Semanais com Proteção de Tela Menor */}
+            <div className="md:col-span-2 p-5 bg-gray-50/30 w-full overflow-hidden">
               <h3 className="text-xs font-bold uppercase text-gray-400 tracking-wider mb-4 border-b border-gray-100 pb-2">
                 Atividades Semanais
               </h3>
               {programacoesFixas.length === 0 ? (
                 <p className="text-sm text-gray-400 italic text-center py-6">Nenhuma atividade fixa configurada.</p>
               ) : (
-                <div className="space-y-3">
-                  {programacoesFixas.map(p => (
-                    <div key={p.id} className="flex gap-3 items-start bg-white p-3 rounded-lg border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
-                      <div className="flex flex-col items-center justify-center min-w-[50px] bg-indigo-50 rounded text-indigo-700 py-1 border border-indigo-100">
-                        <span className="text-[10px] font-bold uppercase leading-none">
-                          {p.dia_semana ? p.dia_semana.substring(0, 3) : '---'}
-                        </span>
-                        <span className="text-sm font-black">
-                          {p.horario ? p.horario.substring(0, 5) : '--:--'}
-                        </span>
+                <div className="w-full overflow-x-auto pb-2">
+                  <div className="min-w-[260px] space-y-3">
+                    {programacoesFixas.map(p => (
+                      <div key={p.id} className="flex gap-3 items-start bg-white p-3 rounded-lg border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
+                        <div className="flex flex-col items-center justify-center shrink-0 min-w-[50px] bg-indigo-50 rounded text-indigo-700 py-1 border border-indigo-100">
+                          <span className="text-[10px] font-bold uppercase leading-none">
+                            {p.dia_semana ? p.dia_semana.substring(0, 3) : '---'}
+                          </span>
+                          <span className="text-sm font-black">
+                            {p.horario ? p.horario.substring(0, 5) : '--:--'}
+                          </span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold text-gray-800 leading-tight break-words">{p.titulo}</p>
+                          {p.descricao && (
+                            <div className="text-xs text-gray-500 break-words whitespace-normal line-clamp-2 mt-0.5">
+                              {renderComLinks(p.descricao)}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-sm font-bold text-gray-800 leading-tight">{p.titulo}</p>
-                        {p.descricao && <p className="text-xs text-gray-500 line-clamp-1 mt-0.5">{renderComLinks(p.descricao)}</p>}
-                      </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
 
-            <div className="md:col-span-3 p-5">
+            {/* Agenda do Mês com Proteção de Texto e Scroll Opcional */}
+            <div className="md:col-span-3 p-5 w-full overflow-hidden">
               <h3 className="text-xs font-bold uppercase text-gray-400 tracking-wider mb-4 border-b border-gray-100 pb-2">
                 Agenda do Mês
               </h3>
@@ -582,43 +590,51 @@ export default function Dashboard() {
                   <p className="text-sm text-gray-500">Sem agendamentos para este mês.</p>
                 </div>
               ) : (
-                <div className="relative border-l-2 border-gray-100 ml-3 space-y-6 pb-2">
-                  {programacoesDoMes.map((p) => {
-                    const dataObj = new Date(p.data + "T00:00:00");
-                    const dia = dataObj.getDate().toString().padStart(2, '0');
-                    const diaSemana = dataObj.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '');
-                    
-                    return (
-                      <div key={p.id} className="relative pl-6 group">
-                        <div className={`absolute -left-[9px] top-1 w-4 h-4 rounded-full border-2 border-white ${p.tipo === 'Reunião' ? 'bg-blue-500' : 'bg-emerald-500'} group-hover:scale-125 transition-transform`} />
-                        
-                        <div className="flex items-start gap-4">
-                          <div className="flex flex-col items-center pt-0.5">
-                            <span className="text-lg font-black text-gray-800 leading-none">{dia}</span>
-                            <span className="text-[10px] uppercase font-bold text-gray-500">{diaSemana}</span>
-                          </div>
+                <div className="w-full overflow-x-auto pb-4">
+                  <div className="relative border-l-2 border-gray-100 ml-3 space-y-6 pb-2 min-w-[280px] pr-2">
+                    {programacoesDoMes.map((p) => {
+                      const dataObj = new Date(p.data + "T00:00:00");
+                      const dia = dataObj.getDate().toString().padStart(2, '0');
+                      const diaSemana = dataObj.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '');
+                      
+                      return (
+                        <div key={p.id} className="relative pl-5 sm:pl-6 group">
+                          <div className={`absolute -left-[9px] top-1 w-4 h-4 rounded-full border-2 border-white shrink-0 ${p.tipo === 'Reunião' ? 'bg-blue-500' : 'bg-emerald-500'} group-hover:scale-125 transition-transform`} />
                           
-                          <div className="flex-1 bg-gray-50 group-hover:bg-gray-100 transition-colors p-3 rounded-lg border border-gray-100">
-                            <div className="flex justify-between items-start gap-2">
-                              <h4 className="text-sm font-bold text-gray-800 leading-tight">{p.titulo}</h4>
-                              <span className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded tracking-wide ${p.tipo === 'Reunião' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                                {p.tipo}
-                              </span>
+                          <div className="flex items-start gap-3 sm:gap-4">
+                            <div className="flex flex-col items-center pt-0.5 shrink-0">
+                              <span className="text-lg font-black text-gray-800 leading-none">{dia}</span>
+                              <span className="text-[10px] uppercase font-bold text-gray-500">{diaSemana}</span>
                             </div>
-                            <div className="flex items-center gap-2 mt-1.5">
-                              <span className="flex items-center text-xs text-gray-500 font-medium bg-white px-1.5 py-0.5 rounded border border-gray-200">
-                                <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                {p.horario ? p.horario.substring(0, 5) : '--:--'}
-                              </span>
-                              {p.descricao && (
-                                <span className="text-xs text-gray-500 truncate w-full">{renderComLinks(p.descricao)}</span>
-                              )}
+                            
+                            <div className="flex-1 min-w-0 bg-gray-50 group-hover:bg-gray-100 transition-colors p-3 rounded-lg border border-gray-100">
+                              
+                              <div className="flex justify-between items-start gap-2">
+                                <h4 className="text-sm font-bold text-gray-800 leading-tight break-words">{p.titulo}</h4>
+                                <span className={`shrink-0 text-[9px] font-bold uppercase px-2 py-0.5 rounded tracking-wide ${p.tipo === 'Reunião' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                  {p.tipo}
+                                </span>
+                              </div>
+                              
+                              <div className="flex flex-col sm:flex-row sm:items-center gap-2 mt-2 min-w-0">
+                                <span className="inline-flex w-fit shrink-0 items-center text-xs text-gray-500 font-medium bg-white px-1.5 py-0.5 rounded border border-gray-200">
+                                  <svg className="w-3 h-3 mr-1 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                  {p.horario ? p.horario.substring(0, 5) : '--:--'}
+                                </span>
+                                
+                                {p.descricao && (
+                                  <div className="text-xs text-gray-500 break-words whitespace-normal line-clamp-2 flex-1">
+                                    {renderComLinks(p.descricao)}
+                                  </div>
+                                )}
+                              </div>
+
                             </div>
                           </div>
                         </div>
-                      </div>
-                    )
-                  })}
+                      )
+                    })}
+                  </div>
                 </div>
               )}
             </div>
