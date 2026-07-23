@@ -226,7 +226,8 @@ export default function Pastoral() {
 
   // Função utilitária para renderizar Nomes Múltiplos
   const obterNomesEnvolvidosTexto = (reg: any) => {
-    let nomes = [];
+    // CORREÇÃO: Tipagem estrita adicionada aqui para evitar o erro de deploy na Vercel (implicitly any[])
+    let nomes: string[] = [];
     if (reg.membro_id) {
         reg.membro_id.split(",").forEach((id: string) => {
            const m = membros.find(x => x.id === id.trim());
