@@ -46,25 +46,37 @@ export default function LandingPageConheca() {
   const tourModulos = {
     dashboard: {
       titulo: "Painel Geral Inteligente",
-      descricao: "Uma visão panorâmica e em tempo real da saúde da sua igreja. Gráficos financeiros de receitas e despesas, quadro de avisos automáticos e lembretes cruciais unificados em uma única tela.",
+      descricao: "Tenha uma visão panorâmica e em tempo real da saúde da sua igreja. Visualize gráficos financeiros interativos, quadro de avisos automáticos e os lembretes mais cruciais unificados em uma única tela de tirar o fôlego.",
       printDesktop: "/print-desktop.png",
       printMobile: "/print-mobile.png"
     },
     tesouraria: {
       titulo: "Tesouraria Blindada e Auditoria",
-      descricao: "Controle absoluto de entradas, saídas manuais e dízimos. Conta com sistema de exclusão lógica (com justificativa obrigatória) que protege o caixa e gera relatórios automáticos em PDF e Excel livres de erros.",
+      descricao: "Assuma o controle absoluto de entradas, dízimos e saídas. Nosso sistema de exclusão lógica exige justificativa para qualquer alteração, protegendo o caixa e gerando relatórios impecáveis em PDF e Excel, totalmente livres de erros.",
       printDesktop: "/print-tesouraria-desktop.png",
       printMobile: "/print-tesouraria-mobile.png"
     },
+    departamentos: {
+      titulo: "Gestão de Departamentos",
+      descricao: "Organize grupos, lideranças e ministérios com facilidade. Distribua membros, defina faixas etárias e deixe o sistema cuidar da organização estrutural, facilitando a comunicação com recursos inovadores como anotações e links dinâmicos.",
+      printDesktop: "/print-departamentos-desktop.png",
+      printMobile: "/print-departamentos-mobile.png"
+    },
+    pastoral: {
+      titulo: "Gabinete Pastoral",
+      descricao: "Acompanhe de perto o rebanho com registros de aconselhamentos, visitas e discipulados. Um ambiente seguro e confidencial exclusivo para a liderança cuidar das ovelhas com excelência e organização incomparável.",
+      printDesktop: "/print-pastoral-desktop.png",
+      printMobile: "/print-pastoral-mobile.png"
+    },
     escalas: {
       titulo: "Escalas e Programação Mensal",
-      descricao: "Chega de conflitos de horários ou voluntários esquecendo o dia do serviço. Monte painéis de escalas mensais intuitivos organizados por departamentos e congregações.",
+      descricao: "Chega de conflitos de horários! Monte painéis de escalas visuais incrivelmente intuitivos para louvor, portaria e ensino, e garanta que todos os voluntários saibam exatamente seus dias de serviço.",
       printDesktop: "/print-escalas-desktop.png",
       printMobile: "/print-escalas-mobile.png"
     },
     reunioes: {
       titulo: "Gestão de Reuniões e Livro de Atas",
-      descricao: "Cadastre pautas, controle presenças e digite atas com formatação rica em um editor profissional. Permite também anexar documentos escaneados e conecta-se automaticamente com a agenda da igreja.",
+      descricao: "Evolua a forma de conduzir reuniões. Cadastre pautas, registre presenças e redija atas em um editor profissional com formatação rica. Anexe documentos e conecte tudo à agenda da igreja com um clique.",
       printDesktop: "/print-reunioes-desktop.png",
       printMobile: "/print-reunioes-mobile.png"
     }
@@ -75,56 +87,68 @@ export default function LandingPageConheca() {
     {
       titulo: "Tela Inicial (Dashboard)",
       icone: "🏠",
-      descricao: "O coração do sistema. Resumo completo do que está acontecendo na sua igreja em tempo real.",
+      descricao: "O coração do sistema. Obtenha um resumo completo e interativo de tudo o que está acontecendo na sua igreja em tempo real.",
       subitens: ["Métricas Gerais", "Quadro de Programação", "Escalas Ativas", "Aniversariantes do Mês"]
     },
     {
       titulo: "Membros e Carteirinhas",
       icone: "👥",
-      descricao: "Gestão inteligente do rebanho com emissão de credenciais de identificação automáticas.",
+      descricao: "Gestão inteligente do rebanho com emissão de credenciais automáticas e busca ultrarrápida de informações.",
       subitens: ["Listagem e Cargos", "Carteirinha de Membro", "Impressão Individual ou em Lote"]
+    },
+    {
+      titulo: "Gestão de Departamentos",
+      icone: "🧩",
+      descricao: "Organize grupos, lideranças e ministérios com facilidade, integrando comunicação através de anotações e links dinâmicos.",
+      subitens: ["Organização de Membros", "Gestão de Líderes", "Anotações e Links Rápidos", "Filtros Avançados"]
+    },
+    {
+      titulo: "Gabinete Pastoral",
+      icone: "📖",
+      descricao: "Ambiente seguro e totalmente confidencial para o registro de aconselhamentos, visitas e histórico de cuidado espiritual.",
+      subitens: ["Aconselhamentos e Discipulado", "Controle de Visitas", "Histórico Espiritual", "Privacidade Garantida"]
     },
     {
       titulo: "Tesouraria e Financeiro",
       icone: "📊",
-      descricao: "Controle seguro de caixa, prestação de contas transparente e relatórios à prova de erros.",
+      descricao: "Controle seguro de caixa, prestação de contas transparente e relatórios à prova de erros para uma gestão exemplar.",
       subitens: ["Lançamentos por Trabalho", "Controle de Dizimistas", "Chave PIX de Ofertas", "Relatórios Mensais/Anuais"]
     },
     {
       titulo: "Escalas de Voluntários",
       icone: "📅",
-      descricao: "Escale ministérios de louvor, portaria, ensino e outros departamentos sem choques de horário.",
+      descricao: "Escale ministérios de louvor, portaria e ensino de forma visual e elimine de vez os choques de horário.",
       subitens: ["Cadastro de Escalas", "Atribuição de Membros", "Avisos na Tela Inicial"]
     },
     {
       titulo: "Programação e Eventos",
       icone: "🗓️",
-      descricao: "O calendário oficial da igreja atualizado. Todos sabem os dias e horários de cada culto.",
+      descricao: "O calendário oficial da igreja sempre atualizado. Garanta que todos saibam os dias e horários de cada culto ou evento.",
       subitens: ["Programação Fixa Mensal", "Eventos Avulsos"]
     },
     {
       titulo: "Reuniões e Atas",
       icone: "✍️",
-      descricao: "Digitalize o histórico de decisões da liderança com segurança e facilidade de busca.",
+      descricao: "Digitalize o histórico de decisões da liderança com máxima segurança, editor profissional e facilidade de busca.",
       subitens: ["Cadastro de Reuniões", "Editor de Ata Digital", "Anexo de Atas Manuscritas"]
     },
     {
       titulo: "Controle de Patrimônio",
       icone: "🏢",
-      descricao: "Zele pelos bens da igreja registrando tudo o que entra e seu respectivo valor estimado.",
+      descricao: "Zele pelos bens da igreja registrando de forma meticulosa tudo o que entra, seu valor estimado e responsáveis.",
       subitens: ["Cadastro de Bens", "Histórico de Entradas", "Valoração do Patrimônio"]
     },
     {
       titulo: "Visitantes",
       icone: "👋",
-      descricao: "Acolhimento perfeito. Registre os visitantes de cada culto para contatos e orações.",
+      descricao: "Acolhimento perfeito. Registre os visitantes de cada culto de forma ágil para estreitar os laços com orações e contatos.",
       subitens: ["Ficha do Visitante", "Registro para Contato Posterior"]
     },
     {
       titulo: "Configurações Globais",
       icone: "⚙️",
-      descricao: "A identidade visual e institucional da sua igreja refletida em todos os relatórios.",
-      subitens: ["Cadastro de CNPJ e Logo", "Dados do Pastor Presidente", "Configurações de Acesso"]
+      descricao: "A identidade visual e institucional da sua igreja refletida em todos os relatórios, com controle fino de acessos.",
+      subitens: ["Cadastro de CNPJ e Logo", "Dados do Pastor", "Configurações de Acesso"]
     }
   ];
 
@@ -218,9 +242,11 @@ export default function LandingPageConheca() {
           <div className="flex flex-wrap justify-center gap-2 mb-12">
             {[
               { id: "dashboard", label: "Painel Geral" },
-              { id: "tesouraria", label: "Tesouraria Financeira" },
-              { id: "escalas", label: "Escalas de Culto" },
-              { id: "reunioes", label: "Atas & Reuniões" }
+              { id: "tesouraria", label: "Tesouraria" },
+              { id: "departamentos", label: "Departamentos" },
+              { id: "pastoral", label: "Gabinete Pastoral" },
+              { id: "escalas", label: "Escalas" },
+              { id: "reunioes", label: "Reuniões & Atas" }
             ].map((tab) => (
               <button
                 key={tab.id}

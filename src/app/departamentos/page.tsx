@@ -25,6 +25,7 @@ interface Departamento {
   genero: string;
   estado_civil: string;
   congregacao: string;
+  anotacoes?: string | null;
 }
 
 interface DepartamentoMembro {
@@ -45,6 +46,47 @@ const paletasDeCores = [
   { bg: 'bg-indigo-600', border: 'border-indigo-700', titulo: 'text-white', sub: 'text-indigo-100', anel: 'ring-indigo-500', textoForte: 'text-indigo-700' },
   { bg: 'bg-emerald-600', border: 'border-emerald-700', titulo: 'text-white', sub: 'text-emerald-100', anel: 'ring-emerald-500', textoForte: 'text-emerald-700' },
 ];
+
+// Função utilitária para converter links no texto em elementos <a> clicáveis
+function formatarTextoComLinks(texto: string, linkClassName?: string) {
+  if (!texto) return null;
+
+  // Regex para identificar URLs que começam com http://, https:// ou www.
+  const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
+  const partes = texto.split(urlRegex);
+
+  if (partes.length === 1) return texto;
+
+  return partes.map((parte, index) => {
+    if (parte.match(/^https?:\/\//i) || parte.match(/^www\./i)) {
+      let cleanUrl = parte;
+      let trailingPunct = "";
+      const matchPunct = parte.match(/([.,!?;:]+)$/);
+      if (matchPunct) {
+        trailingPunct = matchPunct[1];
+        cleanUrl = parte.slice(0, -trailingPunct.length);
+      }
+
+      const href = cleanUrl.startsWith("www.") ? `https://${cleanUrl}` : cleanUrl;
+      return (
+        <span key={index}>
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className={linkClassName || "text-blue-600 underline hover:text-blue-800 font-semibold"}
+            title={href}
+          >
+            {cleanUrl}
+          </a>
+          {trailingPunct}
+        </span>
+      );
+    }
+    return parte;
+  });
+}
 
 export default function DepartamentosPage() {
   const router = useRouter();
@@ -81,6 +123,10 @@ export default function DepartamentosPage() {
   // Estados para edição inteligente da Descrição
   const [editandoFuncaoId, setEditandoFuncaoId] = useState<number | null>(null);
   const [funcaoTexto, setFuncaoTexto] = useState("");
+
+  // Estados para anotações do departamento
+  const [editandoAnotacaoId, setEditandoAnotacaoId] = useState<number | null>(null);
+  const [anotacaoTexto, setAnotacaoTexto] = useState("");
 
   useEffect(() => {
     carregarContexto();
@@ -292,6 +338,12 @@ export default function DepartamentosPage() {
     setEditandoFuncaoId(null);
   };
 
+  const salvarAnotacaoDept = async (deptId: number) => {
+    setDepartamentos(departamentos.map(d => d.id === deptId ? { ...d, anotacoes: anotacaoTexto } : d));
+    await supabase.from("departamentos").update({ anotacoes: anotacaoTexto }).eq("id", deptId);
+    setEditandoAnotacaoId(null);
+  };
+
   const confirmarAcao = async () => {
     if (!vinculoAcao || !deptDestinoId || !igrejaIdLogada) return;
 
@@ -412,21 +464,78 @@ export default function DepartamentosPage() {
           return (
             <div key={dept.id} className="bg-white rounded-2xl shadow-md border border-gray-100 overflow-hidden flex flex-col transition-all hover:shadow-lg">
               
-              <div className={`${paleta.bg} border-b ${paleta.border} p-5 flex justify-between items-start`}>
-                <div>
-                  <h3 className={`text-xl font-black ${paleta.titulo}`}>{dept.nome}</h3>
-                  <div className={`text-xs ${paleta.sub} mt-1.5 space-y-0.5 font-medium`}>
-                    {dept.faixa_etaria_min && dept.faixa_etaria_max && <p>Idade: {dept.faixa_etaria_min} a {dept.faixa_etaria_max} anos</p>}
-                    {dept.faixa_etaria_min && !dept.faixa_etaria_max && <p>A partir de {dept.faixa_etaria_min} anos</p>}
-                    {dept.genero && <p>Gênero: {dept.genero}</p>}
-                    {dept.estado_civil && <p>Estado Civil: {dept.estado_civil}</p>}
-                    {!dept.faixa_etaria_min && !dept.genero && !dept.estado_civil && <p>Aberto para todos.</p>}
+              <div className={`${paleta.bg} border-b ${paleta.border} p-5 flex flex-col gap-4`}>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h3 className={`text-xl font-black ${paleta.titulo}`}>{dept.nome}</h3>
+                    <div className={`text-xs ${paleta.sub} mt-1.5 space-y-0.5 font-medium`}>
+                      {dept.faixa_etaria_min && dept.faixa_etaria_max && <p>Idade: {dept.faixa_etaria_min} a {dept.faixa_etaria_max} anos</p>}
+                      {dept.faixa_etaria_min && !dept.faixa_etaria_max && <p>A partir de {dept.faixa_etaria_min} anos</p>}
+                      {dept.genero && <p>Gênero: {dept.genero}</p>}
+                      {dept.estado_civil && <p>Estado Civil: {dept.estado_civil}</p>}
+                      {!dept.faixa_etaria_min && !dept.genero && !dept.estado_civil && <p>Aberto para todos.</p>}
+                    </div>
+                  </div>
+                  
+                  <div className="flex gap-1.5 bg-black/10 p-1 rounded-lg backdrop-blur-sm shadow-inner border border-black/10 shrink-0 ml-2">
+                    <button onClick={() => { setFormDept({ ...dept, faixa_etaria_min: dept.faixa_etaria_min ?? "", faixa_etaria_max: dept.faixa_etaria_max ?? "", genero: dept.genero ?? "", estado_civil: dept.estado_civil ?? "" }); setModalDeptAberto(true); }} className="text-white/80 hover:text-white px-1.5 py-0.5 rounded hover:bg-white/20 transition-all" title="Editar Filtros">✎</button>
+                    <button onClick={() => excluirDepartamento(dept.id)} className="text-white/80 hover:text-red-200 px-1.5 py-0.5 rounded hover:bg-white/20 transition-all" title="Excluir">✕</button>
                   </div>
                 </div>
-                
-                <div className="flex gap-1.5 bg-black/10 p-1 rounded-lg backdrop-blur-sm shadow-inner border border-black/10">
-                  <button onClick={() => { setFormDept({ ...dept, faixa_etaria_min: dept.faixa_etaria_min ?? "", faixa_etaria_max: dept.faixa_etaria_max ?? "", genero: dept.genero ?? "", estado_civil: dept.estado_civil ?? "" }); setModalDeptAberto(true); }} className="text-white/80 hover:text-white px-1.5 py-0.5 rounded hover:bg-white/20 transition-all" title="Editar Filtros">✎</button>
-                  <button onClick={() => excluirDepartamento(dept.id)} className="text-white/80 hover:text-red-200 px-1.5 py-0.5 rounded hover:bg-white/20 transition-all" title="Excluir">✕</button>
+
+                <div className="mt-1">
+                  {editandoAnotacaoId === dept.id ? (
+                    <div className="flex flex-col gap-2">
+                      <textarea
+                        value={anotacaoTexto || ""}
+                        onChange={(e) => setAnotacaoTexto(e.target.value)}
+                        placeholder="Escreva anotações importantes sobre o departamento (links são suportados)..."
+                        autoFocus
+                        rows={3}
+                        className={`w-full text-xs px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 bg-white/10 border-white/20 focus:border-white/50 focus:ring-white/50 text-white placeholder:text-white/50 resize-none transition-all`}
+                      />
+                      <div className="flex justify-end gap-2">
+                        <button onClick={() => setEditandoAnotacaoId(null)} className="text-xs font-semibold px-3 py-1.5 rounded-md bg-black/10 text-white hover:bg-black/20 transition-all">Cancelar</button>
+                        <button onClick={() => salvarAnotacaoDept(dept.id)} className="text-xs font-semibold px-3 py-1.5 rounded-md bg-white text-gray-800 hover:bg-gray-100 transition-all shadow-sm">Salvar</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div 
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => { setEditandoAnotacaoId(dept.id); setAnotacaoTexto(dept.anotacoes || ""); }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          setEditandoAnotacaoId(dept.id);
+                          setAnotacaoTexto(dept.anotacoes || "");
+                        }
+                      }}
+                      className={`w-full text-xs p-3 rounded-lg border transition-all cursor-pointer select-none group relative
+                        ${dept.anotacoes 
+                          ? `bg-black/10 border-black/10 hover:bg-black/20 text-white` 
+                          : `bg-transparent border-dashed border-white/30 text-white/60 hover:text-white/90 hover:bg-white/5 hover:border-white/50`
+                        }
+                      `}
+                      title={dept.anotacoes ? "Clique para editar as anotações" : "Clique para adicionar anotações ao departamento"}
+                    >
+                      {dept.anotacoes ? (
+                        <div className="whitespace-pre-wrap leading-relaxed pr-6">
+                          {formatarTextoComLinks(dept.anotacoes, "text-white underline hover:text-white/80 font-bold decoration-2")}
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 italic">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                          Adicionar anotações (links suportados)...
+                        </div>
+                      )}
+                      
+                      {dept.anotacoes && (
+                        <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <svg className="w-3.5 h-3.5 text-white/70" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -524,17 +633,26 @@ export default function DepartamentosPage() {
                                 </button>
                               </div>
                             ) : (
-                              <button 
+                              <div 
+                                role="button"
+                                tabIndex={0}
                                 onClick={() => { setEditandoFuncaoId(vinculo.id); setFuncaoTexto(vinculo.funcao || ""); }}
-                                className={`flex items-center gap-1.5 text-[11px] px-2 py-1 rounded transition-colors border max-w-full truncate
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    setEditandoFuncaoId(vinculo.id);
+                                    setFuncaoTexto(vinculo.funcao || "");
+                                  }
+                                }}
+                                className={`flex items-center gap-1.5 text-[11px] px-2 py-1 rounded transition-colors border max-w-full truncate cursor-pointer select-none
                                   ${vinculo.funcao ? 'bg-gray-100 border-gray-200 text-gray-700 hover:bg-gray-200' : 'bg-transparent border-dashed border-gray-300 text-gray-400 hover:text-gray-600 hover:bg-gray-50 hover:border-gray-400'}
                                 `}
+                                title={vinculo.funcao ? "Clique para editar a descrição" : "Clique para adicionar descrição"}
                               >
                                 <span className="truncate max-w-[150px]">
-                                  {vinculo.funcao || "+ Adicionar descrição"}
+                                  {vinculo.funcao ? formatarTextoComLinks(vinculo.funcao) : "+ Adicionar descrição"}
                                 </span>
                                 <svg className={`w-3 h-3 shrink-0 ${vinculo.funcao ? 'text-gray-400' : 'text-gray-300'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                              </button>
+                              </div>
                             )}
                           </div>
                         </div>
