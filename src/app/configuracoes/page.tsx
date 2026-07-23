@@ -32,6 +32,7 @@ export default function ConfiguracoesIgreja() {
   const [isDragging, setIsDragging] = useState(false);
   const [configId, setConfigId] = useState<number | null>(null);
   const [igrejaIdLogada, setIgrejaIdLogada] = useState<string | null>(null);
+  const [nomeIgrejaOriginal, setNomeIgrejaOriginal] = useState("");
 
   // Estados do gerenciamento das Igrejas Filhas
   const [igrejasFilhas, setIgrejasFilhas] = useState<any[]>([]);
@@ -95,6 +96,7 @@ export default function ConfiguracoesIgreja() {
 
       if (data) {
         setConfigId(data.id);
+        setNomeIgrejaOriginal(data.nome_igreja?.trim() || "");
         setDadosIgreja({
           nome_igreja: data.nome_igreja || "",
           cnpj: data.cnpj || "", 
@@ -305,10 +307,43 @@ export default function ConfiguracoesIgreja() {
         assinaturas: assinaturasFinais, 
       };
 
+      const novoNomeOficial = dadosIgreja.nome_igreja?.trim();
+      const mudouNome = nomeIgrejaOriginal && novoNomeOficial && nomeIgrejaOriginal.toLowerCase() !== novoNomeOficial.toLowerCase();
+
       // 4. Salvar tudo no banco
       if (configId) {
         const { error } = await supabase.from("configuracao_igreja").update(dadosParaSalvar).eq("id", configId).eq("igreja_id", igrejaIdLogada); 
         if (error) throw error;
+
+        // Se o nome oficial da igreja foi alterado, atualiza as tabelas para não perderem vínculo
+        if (mudouNome) {
+          // 1. Atualiza Usuários (evita perda de permissões)
+          await supabase.from("usuarios")
+            .update({ congregacao: novoNomeOficial })
+            .eq("igreja_id", igrejaIdLogada)
+            .ilike("congregacao", nomeIgrejaOriginal);
+            
+          // 2. Atualiza Membros (garante consistência nos relatórios/carteirinhas)
+          await supabase.from("membros").update({ congregacao: novoNomeOficial }).eq("igreja_id", igrejaIdLogada).ilike("congregacao", nomeIgrejaOriginal);
+          
+          // 3. Histórico e Outros Módulos
+          await supabase.from("tesouraria_lancamentos").update({ congregacao: novoNomeOficial }).eq("igreja_id", igrejaIdLogada).ilike("congregacao", nomeIgrejaOriginal);
+          await supabase.from("reunioes").update({ congregacao: novoNomeOficial }).eq("igreja_id", igrejaIdLogada).ilike("congregacao", nomeIgrejaOriginal);
+          await supabase.from("escalas").update({ congregacao: novoNomeOficial }).eq("igreja_id", igrejaIdLogada).ilike("congregacao", nomeIgrejaOriginal);
+          await supabase.from("patrimonio_itens").update({ congregacao: novoNomeOficial }).eq("igreja_id", igrejaIdLogada).ilike("congregacao", nomeIgrejaOriginal);
+          await supabase.from("visitantes").update({ congregacao: novoNomeOficial }).eq("igreja_id", igrejaIdLogada).ilike("congregacao", nomeIgrejaOriginal);
+            
+          // 4. Atualiza Sessão Local
+          const usuarioLocal = localStorage.getItem("usuarioLogado");
+          if (usuarioLocal) {
+            const usuarioObj = JSON.parse(usuarioLocal);
+            const congAtual = usuarioObj.congregacao?.trim().toLowerCase();
+            if (!congAtual || congAtual === "sede" || congAtual === "matriz" || congAtual === "geral" || congAtual === nomeIgrejaOriginal.toLowerCase()) {
+              usuarioObj.congregacao = novoNomeOficial;
+              localStorage.setItem("usuarioLogado", JSON.stringify(usuarioObj));
+            }
+          }
+        }
       } else {
         const { error } = await supabase.from("configuracao_igreja").insert([dadosParaSalvar]);
         if (error) throw error;

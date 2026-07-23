@@ -118,6 +118,7 @@ export default function NovoLancamento() {
   
   const [dataLancamento, setDataLancamento] = useState("");
   const [tipoTrabalho, setTipoTrabalho] = useState("Culto");
+  const [tipoTrabalhoPersonalizado, setTipoTrabalhoPersonalizado] = useState("");
   const [congregacao, setCongregacao] = useState("");
   
   const [ofertas, setOfertas] = useState<number | "">("");
@@ -278,7 +279,8 @@ export default function NovoLancamento() {
     const congregacaoFinal = ehSede ? congregacao : congregacaoUsuario;
 
     if (!congregacaoFinal) {
-      alert("Por favor, selecione a congregação deste trabalho.");
+      alert("Por favor, selecione a congregação desta reunião.");
+      setSalvando(false);
       return;
     }
     if (!igrejaIdLogada) {
@@ -304,7 +306,7 @@ export default function NovoLancamento() {
     const dadosLancamento = {
       igreja_id: igrejaIdLogada,
       data: dataLancamento,
-      tipo_trabalho: tipoTrabalho,
+      tipo_trabalho: tipoTrabalho === "Outros" ? (tipoTrabalhoPersonalizado || "Outros") : tipoTrabalho,
       congregacao: congregacaoFinal,
       ofertas: valorOfertas,
       dizimos: totalDizimos,
@@ -320,29 +322,23 @@ export default function NovoLancamento() {
       const { error } = await supabase.from("tesouraria_lancamentos").insert([dadosLancamento]);
       if (error) throw error;
 
-      // ========================================================
-      // AUTO-CADASTRO BLINDADO C/ DATA (Compatível com nova regra)
-      // ========================================================
       try {
         const dizimistasCadastrados = listaDizimos.filter(d => d.is_avulso === false && d.membro_id);
         
         if (dizimistasCadastrados.length > 0) {
-          const periodoStr = dataLancamento.substring(0, 7); // Ex: "2026-07"
+          const periodoStr = dataLancamento.substring(0, 7);
           
           const { data: dizimistasBanco } = await supabase
             .from('tesouraria_dizimistas')
             .select('membro_id, adicionado_em, removido_em')
             .eq('igreja_id', igrejaIdLogada);
           
-          // Precisamos saber se o membro não está lá, OU se está, mas com um "removido_em" antigo e precisa entrar de novo
           const unicosParaInserir = Array.from(new Set(dizimistasCadastrados.map(d => String(d.membro_id))));
           
           const insercoesFinais: any[] = [];
           
           unicosParaInserir.forEach(membroIdStr => {
               const registrosDoMembro = dizimistasBanco?.filter(x => String(x.membro_id) === membroIdStr) || [];
-              
-              // Verifica se ele já está ativo NO MÊS ATUAL do lançamento
               const curPeriod = parseInt(periodoStr.split('-')[0]) * 12 + parseInt(periodoStr.split('-')[1]);
               
               const isAtivo = registrosDoMembro.some(row => {
@@ -368,7 +364,6 @@ export default function NovoLancamento() {
       } catch (errAuto) {
         console.error("Erro interno ao auto-cadastrar dizimista na lista ativa:", errAuto);
       }
-      // ========================================================
 
       setMostrarModalSucesso(true);
     } catch (error: any) {
@@ -395,8 +390,8 @@ export default function NovoLancamento() {
       
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Novo Lançamento</h1>
-          <p className="text-sm text-gray-500 mt-1">Registre as entradas e saídas do trabalho realizado.</p>
+          <h2 className="text-3xl font-extrabold text-gray-900 tracking-tight">Novo Lançamento</h2>
+          <p className="text-sm text-gray-500 mt-1">Registre as entradas e saídas da reunião realizada.</p>
         </div>
         <button 
           type="button" 
@@ -410,8 +405,8 @@ export default function NovoLancamento() {
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
         <form onSubmit={salvarLancamento} className="p-6 md:p-8 space-y-10">
           
-          <div>
-            <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider border-b border-gray-100 pb-2 mb-4">Informações do Trabalho</h3>
+          <div className="mb-10">
+            <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider border-b border-gray-100 pb-2 mb-4">Informações da Reunião</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-1">Data do Lançamento</label>
@@ -454,7 +449,7 @@ export default function NovoLancamento() {
               </div>
               
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1">Tipo de Trabalho</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">Tipo de Reunião</label>
                 <select 
                   required
                   value={tipoTrabalho}
@@ -467,6 +462,17 @@ export default function NovoLancamento() {
                   <option value="Círculo de oração">Círculo de oração</option>
                   <option value="Outros">Outros</option>
                 </select>
+                
+                {tipoTrabalho === "Outros" && (
+                  <input
+                    type="text"
+                    required
+                    placeholder="Especifique o tipo..."
+                    value={tipoTrabalhoPersonalizado}
+                    onChange={(e) => setTipoTrabalhoPersonalizado(e.target.value)}
+                    className="w-full mt-2 px-4 py-2.5 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm text-gray-700 shadow-inner"
+                  />
+                )}
               </div>
             </div>
           </div>
@@ -474,7 +480,7 @@ export default function NovoLancamento() {
           <div>
             <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider border-b border-gray-100 pb-2 mb-4">Ofertas Avulsas (R$)</h3>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1">Ofertas Gerais do Culto</label>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">Ofertas Gerais da Reunião</label>
               <input 
                 type="number" step="0.01" min="0" placeholder="0,00"
                 value={ofertas}
@@ -502,7 +508,7 @@ export default function NovoLancamento() {
             <div className="space-y-3">
               {listaDizimos.length === 0 && (
                 <div className="text-center py-6 border-2 border-dashed border-gray-200 rounded-xl text-gray-400 text-sm font-medium">
-                  Nenhum dízimo lançado neste trabalho.
+                  Nenhum dízimo lançado nesta reunião.
                 </div>
               )}
               
@@ -638,8 +644,8 @@ export default function NovoLancamento() {
           <div className="bg-red-50/30 border border-red-100 rounded-xl p-5">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h3 className="text-base font-bold text-gray-900">Saídas e Despesas</h3>
-                <p className="text-xs text-gray-500">Descreva os pagamentos e gastos do trabalho.</p>
+                <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider">Saídas Diversas</h3>
+                <p className="text-xs text-gray-500">Descreva os pagamentos e gastos da reunião.</p>
               </div>
               <button 
                 type="button" 
@@ -700,7 +706,7 @@ export default function NovoLancamento() {
 
           <div className={`p-6 rounded-xl flex flex-col md:flex-row items-center justify-between border ${totalCalculado >= 0 ? 'bg-teal-50 border-teal-100' : 'bg-red-50 border-red-100'}`}>
             <span className={`text-sm font-bold uppercase tracking-wider ${totalCalculado >= 0 ? 'text-teal-800' : 'text-red-800'}`}>
-              Saldo Líquido do Trabalho
+              Saldo Líquido da Reunião
             </span>
             <span className={`text-3xl font-black tracking-tight ${totalCalculado >= 0 ? 'text-teal-700' : 'text-red-700'}`}>
               {formatarMoedaVisual(totalCalculado)}
@@ -711,9 +717,11 @@ export default function NovoLancamento() {
             <button 
               type="submit" 
               disabled={salvando || carregandoDados}
-              className="w-full py-4 bg-teal-600 hover:bg-teal-700 text-white font-black rounded-xl shadow-md hover:shadow-lg transition disabled:bg-teal-400 flex items-center justify-center gap-2 text-lg"
+              className={`w-full md:w-auto px-8 py-3 rounded-xl font-bold text-white shadow-lg transition-all ${
+                salvando ? "bg-gray-400 cursor-not-allowed" : "bg-gradient-to-r from-blue-600 to-indigo-600 hover:scale-105 hover:shadow-indigo-500/30"
+              }`}
             >
-              {salvando ? "Processando e Salvando..." : "Gravar Trabalho na Tesouraria"}
+              {salvando ? "Processando e Salvando..." : "Gravar Lançamento"}
             </button>
           </div>
 
@@ -729,7 +737,7 @@ export default function NovoLancamento() {
             <h3 className="text-xl font-black text-gray-900 mb-2">Lançamento Salvo!</h3>
             <p className="text-gray-500 text-sm mb-6">Todos os valores detalhados foram registrados com sucesso no cofre digital.</p>
             <div className="flex flex-col gap-3">
-              <button onClick={fecharModalELimpar} className="w-full py-3 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl transition">Gravar Outro Trabalho</button>
+              <button onClick={fecharModalELimpar} className="w-full py-3 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl transition">Gravar Outra Reunião</button>
               <button onClick={() => router.push("/tesouraria")} className="w-full py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition">Voltar ao Painel</button>
             </div>
           </div>

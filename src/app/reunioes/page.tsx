@@ -664,7 +664,7 @@ export default function ReunioesPage() {
                     </div>
 
                     <div>
-                      <label className="block text-xs font-bold uppercase text-gray-600 mb-2">Status do Trabalho</label>
+                      <label className="block text-xs font-bold uppercase text-gray-600 mb-2">Status da Reunião</label>
                       <select
                         value={formData.status}
                         disabled={bloqueioAta}

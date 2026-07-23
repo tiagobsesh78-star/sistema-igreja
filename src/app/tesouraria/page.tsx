@@ -160,6 +160,7 @@ export default function TesourariaPage() {
   
   const [editData, setEditData] = useState("");
   const [editTipoTrabalho, setEditTipoTrabalho] = useState("");
+  const [editTipoTrabalhoPersonalizado, setEditTipoTrabalhoPersonalizado] = useState("");
   const [editOfertas, setEditOfertas] = useState<number | "">("");
   const [editJustificativa, setEditJustificativa] = useState("");
   
@@ -349,7 +350,13 @@ export default function TesourariaPage() {
   const abrirModalEditar = (lanc: any) => {
     setLancamentoParaEditar(lanc);
     setEditData(lanc.data || "");
-    setEditTipoTrabalho(lanc.tipo_trabalho || "Culto");
+    if (lanc.tipo_trabalho && !opcoesTipos.includes(lanc.tipo_trabalho)) {
+      setEditTipoTrabalho("Outros");
+      setEditTipoTrabalhoPersonalizado(lanc.tipo_trabalho);
+    } else {
+      setEditTipoTrabalho(lanc.tipo_trabalho || "Culto");
+      setEditTipoTrabalhoPersonalizado("");
+    }
     setEditOfertas(lanc.ofertas || "");
     setEditJustificativa("");
 
@@ -396,7 +403,7 @@ export default function TesourariaPage() {
 
     const payload = {
       data: editData,
-      tipo_trabalho: editTipoTrabalho,
+      tipo_trabalho: editTipoTrabalho === "Outros" ? (editTipoTrabalhoPersonalizado || "Outros") : editTipoTrabalho,
       ofertas: editTotalOfertas,
       dizimos: editTotalDizimos,
       oferta_especial: editTotalOfertaEspecial,
@@ -537,7 +544,7 @@ export default function TesourariaPage() {
 
   const exportarExcel = () => {
     let csv = `Relatório Financeiro - ${nomeIgrejaPrincipal}\nCongregação: ${nomeCongregacao}\nData de Geração: ${new Date().toLocaleDateString('pt-BR')}\n\n`;
-    csv += "Data;Congregação;Trabalho;Ofertas;Dízimos;Oferta Especial;Saídas;Total\n";
+    csv += "Data;Congregação;Reunião;Ofertas;Dízimos;Oferta Especial;Saídas;Total\n";
     
     lancamentosAtivos.forEach((lanc) => {
       csv += `${formatarData(lanc.data)};${normalizarSede(lanc.congregacao)};${lanc.tipo_trabalho};${formatarMoedaExcel(lanc.ofertas)};${formatarMoedaExcel(lanc.dizimos)};${formatarMoedaExcel(lanc.oferta_especial)};${formatarMoedaExcel(lanc.saidas)};${formatarMoedaExcel(lanc.total)}\n`;
@@ -680,7 +687,7 @@ export default function TesourariaPage() {
 
             <div className="relative">
               <button type="button" onClick={() => setDropdownAberto(dropdownAberto === 'tipos' ? null : 'tipos')} className="px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 font-medium w-full md:w-48 text-left flex justify-between items-center hover:bg-gray-100 transition">
-                {tiposSelecionados.length === 0 ? "Trabalhos" : `Trabalhos (${tiposSelecionados.length})`}
+                {tiposSelecionados.length === 0 ? "Reuniões" : `Reuniões (${tiposSelecionados.length})`}
               </button>
               {dropdownAberto === 'tipos' && (
                 <div className="absolute top-full left-0 mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-xl overflow-hidden z-30 max-h-64 overflow-y-auto">
@@ -705,7 +712,7 @@ export default function TesourariaPage() {
               <tr className="bg-gray-50 border-b border-gray-100">
                 <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Data</th>
                 <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Congregação</th>
-                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Trabalho</th>
+                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Reunião</th>
                 <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Ofertas</th>
                 <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Dízimos</th>
                 <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Especial</th>
@@ -987,10 +994,20 @@ export default function TesourariaPage() {
                   <input type="date" value={editData} onChange={e => setEditData(e.target.value)} className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500" required />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Trabalho</label>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Reunião</label>
                   <select value={editTipoTrabalho} onChange={e => setEditTipoTrabalho(e.target.value)} className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer" required>
                     {opcoesTipos.map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
+                  {editTipoTrabalho === "Outros" && (
+                    <input
+                      type="text"
+                      required
+                      placeholder="Especifique o tipo..."
+                      value={editTipoTrabalhoPersonalizado}
+                      onChange={(e) => setEditTipoTrabalhoPersonalizado(e.target.value)}
+                      className="w-full mt-2 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  )}
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Ofertas Gerais Culto</label>

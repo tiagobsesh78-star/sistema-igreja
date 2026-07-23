@@ -112,7 +112,7 @@ export default function LandingPageConheca() {
       titulo: "Tesouraria e Financeiro",
       icone: "📊",
       descricao: "Controle seguro de caixa, prestação de contas transparente e relatórios à prova de erros para uma gestão exemplar.",
-      subitens: ["Lançamentos por Trabalho", "Controle de Dizimistas", "Chave PIX de Ofertas", "Relatórios Mensais/Anuais"]
+      subitens: ["Lançamentos por Reunião", "Controle de Dizimistas", "Chave PIX de Ofertas", "Relatórios Mensais/Anuais"]
     },
     {
       titulo: "Escalas de Voluntários",
