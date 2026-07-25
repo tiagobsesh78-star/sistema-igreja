@@ -11,10 +11,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const router = useRouter();
   const pathname = usePathname();
   
-  // REGRA DE ISOLAMENTO: Se for a página comercial (/conheca), login ou festival, renderiza o conteúdo liso ("puro")
+  // REGRA DE ISOLAMENTO: Se for a página comercial (/conheca), login, festival ou onboarding, renderiza o conteúdo liso ("puro")
   const ehPaginaLogin = pathname === "/login";
   const ehPaginaComercial = pathname === "/conheca";
   const ehPaginaFestival = pathname === "/festival";
+  const ehPaginaOnboarding = pathname === "/onboarding";
 
   // Estados do Menu Lateral
   const [menuAberto, setMenuAberto] = useState(false);
@@ -37,12 +38,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
   // Carrega o nome da igreja salvo em cache imediatamente para evitar "pulos" visuais
   useEffect(() => {
-    if (ehPaginaLogin || ehPaginaComercial || ehPaginaFestival) return;
+    if (ehPaginaLogin || ehPaginaComercial || ehPaginaFestival || ehPaginaOnboarding) return;
     const nomeSalvo = localStorage.getItem("nomeIgrejaCadastrada");
     if (nomeSalvo) {
       setNomeIgreja(nomeSalvo);
     }
-  }, [ehPaginaLogin, ehPaginaComercial, ehPaginaFestival]);
+  }, [ehPaginaLogin, ehPaginaComercial, ehPaginaFestival, ehPaginaOnboarding]);
 
   // ---------------------------------------------------------
   // Controle Dinâmico do Título da Aba (Sempre Doxo Hub / Festival)
@@ -82,7 +83,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
   // Carrega os dados do utilizador, a foto e as configurações da Igreja
   useEffect(() => {
-    if (ehPaginaLogin || ehPaginaComercial || ehPaginaFestival) return;
+    if (ehPaginaLogin || ehPaginaComercial || ehPaginaFestival || ehPaginaOnboarding) return;
 
     const userLocal = localStorage.getItem("usuarioLogado");
     if (userLocal) {
@@ -143,11 +144,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         console.error("Erro ao carregar sessão do utilizador.");
       }
     }
-  }, [pathname, ehPaginaLogin, ehPaginaComercial, ehPaginaFestival]);
+  }, [pathname, ehPaginaLogin, ehPaginaComercial, ehPaginaFestival, ehPaginaOnboarding]);
 
   // Fecha o menu flutuante se clicar fora dele
   useEffect(() => {
-    if (ehPaginaLogin || ehPaginaComercial || ehPaginaFestival) return;
+    if (ehPaginaLogin || ehPaginaComercial || ehPaginaFestival || ehPaginaOnboarding) return;
     const handleClickFora = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
       if (!target.closest(".user-menu-container")) {
@@ -156,7 +157,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     };
     document.addEventListener("mousedown", handleClickFora);
     return () => document.removeEventListener("mousedown", handleClickFora);
-  }, [ehPaginaLogin, ehPaginaComercial, ehPaginaFestival]);
+  }, [ehPaginaLogin, ehPaginaComercial, ehPaginaFestival, ehPaginaOnboarding]);
 
   const handleSair = () => {
     localStorage.removeItem("usuarioLogado");
@@ -214,7 +215,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     congregacaoUsuario === nomeIgreja?.trim()?.toLowerCase();
 
   // Retorno simplificado para rotas isoladas (Landing Page, Login e Festival)
-  if (ehPaginaLogin || ehPaginaComercial || ehPaginaFestival) {
+  if (ehPaginaLogin || ehPaginaComercial || ehPaginaFestival || ehPaginaOnboarding) {
     return (
       <html lang="pt-BR">
         <body className="bg-gray-100 text-gray-900 overflow-x-hidden antialiased">

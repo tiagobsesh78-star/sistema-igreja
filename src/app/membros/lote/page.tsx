@@ -12,6 +12,7 @@ function LoteDeCarteirinhas() {
   
   const [membros, setMembros] = useState<any[]>([]);
   const [configIgreja, setConfigIgreja] = useState<any>(null);
+  const [igrejasFilhas, setIgrejasFilhas] = useState<any[]>([]);
   const [carregando, setCarregando] = useState(true);
 
   useEffect(() => {
@@ -55,6 +56,16 @@ function LoteDeCarteirinhas() {
         setConfigIgreja(configData);
       }
 
+      // 4. BUSCA AS FILIAIS PARA CHECAR A SIGLA
+      const { data: filiaisData } = await supabase
+        .from("igrejas_filhas")
+        .select("*")
+        .eq("igreja_id", igrejaId);
+      
+      if (filiaisData) {
+        setIgrejasFilhas(filiaisData);
+      }
+
       setCarregando(false);
     }
     
@@ -81,6 +92,19 @@ function LoteDeCarteirinhas() {
 
   const nomeIgreja = configIgreja?.nome_igreja || "NOME DA SUA IGREJA";
   const ehNomeLongo = nomeIgreja.length > 28;
+
+  // Lógica para aplicar a sigla (se existir) na Congregação (Verso)
+  const obterNomeCongregacaoParaVerso = (membro: any) => {
+    const congre = membro.congregacao?.trim() || "Sede";
+    if (congre.toLowerCase() === "sede" || congre.toLowerCase() === "matriz" || congre.toLowerCase() === nomeIgreja.toLowerCase()) {
+      return configIgreja?.sigla || congre;
+    }
+    const filialEncontrada = igrejasFilhas.find(f => f.nome.toLowerCase() === congre.toLowerCase());
+    if (filialEncontrada && filialEncontrada.sigla) {
+      return filialEncontrada.sigla;
+    }
+    return congre;
+  };
 
   // Lógica inteligente para buscar a assinatura do Pastor (default-1)
   const assinaturaPastor = configIgreja?.assinaturas?.find((a: any) => a.id === 'default-1');
@@ -228,7 +252,7 @@ function LoteDeCarteirinhas() {
             </div>
 
             <div style={estiloCartao}>
-              <Campo top={15} left={10} w={145} h={30} label="Congregação" valor={membro.congregacao || "Sede"} center={true} />
+              <Campo top={15} left={10} w={145} h={30} label="Congregação" valor={obterNomeCongregacaoParaVerso(membro)} center={true} />
               <Campo top={15} left={165} w={145} h={30} label="Naturalidade" valor="Brasil" center={true} />
 
               <Campo top={60} left={10} w={145} h={30} label="CPF" valor={membro.cpf} center={true} />

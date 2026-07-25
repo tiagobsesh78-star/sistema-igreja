@@ -5,34 +5,28 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "../lib/supabase"; 
 import { podeEditar, formatarPerfis } from "../lib/permissoes";
+import { 
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, Legend
+} from 'recharts';
 
-// Função auxiliar que identifica links no texto e os torna clicáveis
+// Função auxiliar que identifica links no texto
 const renderComLinks = (texto: string) => {
   if (!texto) return null;
-  
-  // Regex para encontrar URLs (http, https ou www)
   const urlRegex = /((?:https?:\/\/|www\.)[^\s]+)/g;
   const partes = texto.split(urlRegex);
-
   return partes.map((parte, index) => {
     if (parte.match(urlRegex)) {
       const href = parte.startsWith("www.") ? `https://${parte}` : parte;
       return (
-        <a
-          key={index}
-          href={href}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-blue-500 hover:text-blue-700 underline hover:no-underline transition-colors break-all"
-          onClick={(e) => e.stopPropagation()} 
-        >
-          {parte}
-        </a>
+        <a key={index} href={href} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline break-all" onClick={(e) => e.stopPropagation()}>{parte}</a>
       );
     }
     return <span key={index}>{parte}</span>;
   });
 };
+
+const CORES_PIE = ['#0ea5e9', '#8b5cf6', '#ec4899', '#14b8a6', '#f59e0b'];
 
 export default function Dashboard() {
   const router = useRouter();
@@ -45,24 +39,27 @@ export default function Dashboard() {
   // ==========================================
   // ESTADOS DO MULTI-TENANCY HIERÁRQUICO
   // ==========================================
-  const [filtroCongregacao, setFiltroCongregacao] = useState("Sede"); // DEFAULT AGORA É SEMPRE A SEDE
+  const [filtroCongregacao, setFiltroCongregacao] = useState("Sede"); 
   const [congregacoesDisponiveis, setCongregacoesDisponiveis] = useState<string[]>([]);
   const [dadosMembrosRaw, setDadosMembrosRaw] = useState<any[]>([]);
   const [programacoesRaw, setProgramacoesRaw] = useState<any[]>([]);
+  const [financeiroRaw, setFinanceiroRaw] = useState<any[]>([]);
+  const [visitantesRaw, setVisitantesRaw] = useState<any[]>([]);
 
-  // Estados de Membros (Atualizados com os novos indicadores)
+  // Filtros de Gráficos
+  const [periodoFinanceiro, setPeriodoFinanceiro] = useState(6); // 3, 6, 12
+
+  // Estados de Membros
   const [stats, setStats] = useState({
-    membros: 0,
-    cadastrados: 0,
-    criancas: 0,
-    jovens: 0,
-    ativos: 0,
-    adultos: 0,
-    homens12Mais: 0,
-    mulheres12Mais: 0
+    membros: 0, cadastrados: 0, criancas: 0, jovens: 0, ativos: 0, 
+    adultos: 0, homens12Mais: 0, mulheres12Mais: 0, visitantesRecentes: 0
   });
   const [recentes, setRecentes] = useState<any[]>([]);
   const [aniversariantes, setAniversariantes] = useState<any[]>([]); 
+
+  // Estados de Gráficos (Processados)
+  const [dadosFinanceiros, setDadosFinanceiros] = useState<any[]>([]);
+  const [dadosDemograficos, setDadosDemograficos] = useState<any[]>([]);
 
   // Estados de Programação
   const dataAtual = new Date();
@@ -70,7 +67,7 @@ export default function Dashboard() {
   const [anoSelecionado, setAnoSelecionado] = useState(dataAtual.getFullYear());
   const [programacoes, setProgramacoes] = useState<any[]>([]);
 
-  // Estados de Dízimos e Ofertas (PIX Dinâmico)
+  // Estados PIX
   const [modalPixAberto, setModalPixAberto] = useState(false);
   const [pixSede, setPixSede] = useState({ chave: "", qrCode: "" });
   const [pixFilhas, setPixFilhas] = useState<any[]>([]);
@@ -88,21 +85,15 @@ export default function Dashboard() {
   // 1. BUSCA INTELIGENTE DE DADOS
   useEffect(() => {
     const userLocal = localStorage.getItem("usuarioLogado");
-    
-    if (!userLocal) {
-      router.push("/login");
-      return; 
-    }
+    if (!userLocal) { router.push("/login"); return; }
 
     const usuario = JSON.parse(userLocal);
-    const igrejaId = usuario.igreja_id || usuario.id_igreja || usuario.idIgreja;
-    
+    const igrejaId = usuario.igreja_id;
     setUsuarioInfo(usuario);
     setPerfisUsuario(formatarPerfis(usuario.perfis || usuario.nivel_acesso));
 
     async function carregarDadosDashboard() {
       try {
-        // Passo 1: Busca o nome real da Igreja e o PIX da Sede
         const { data: resConfig } = await supabase
           .from("configuracao_igreja")
           .select("chave_pix, qr_code_pix, nome_igreja")
@@ -111,69 +102,56 @@ export default function Dashboard() {
 
         const nomeOficial = resConfig?.nome_igreja?.trim() || "Sede";
         setNomeSedeOficial(nomeOficial);
+        if (resConfig) setPixSede({ chave: resConfig.chave_pix || "", qrCode: resConfig.qr_code_pix || "" });
 
-        if (resConfig) {
-          setPixSede({ chave: resConfig.chave_pix || "", qrCode: resConfig.qr_code_pix || "" });
-        }
-
-        // Passo 2: Analisa quem é o usuário com base no nome oficial
         const congUsuario = usuario.congregacao?.trim() || "";
         const congLow = congUsuario.toLowerCase();
-        
         const isUserSede = !congLow || congLow === "sede" || congLow === "matriz" || congLow === "geral" || congLow === nomeOficial.toLowerCase();
         
         setEhSede(isUserSede);
+        setFiltroCongregacao(isUserSede ? "Sede" : congUsuario);
 
-        const filtroInicial = isUserSede ? "Sede" : congUsuario;
-        setFiltroCongregacao(filtroInicial);
+        // Data limite para histórico financeiro e visitantes (12 meses atrás)
+        const dataAnoPassado = new Date();
+        dataAnoPassado.setMonth(dataAnoPassado.getMonth() - 12);
+        const dataCorteISO = dataAnoPassado.toISOString().split('T')[0];
 
-        // Passo 3: Busca os dados travados na hierarquia + O PIX de TODAS as Filhas
         let queryMembros = supabase.from("membros").select("*").eq("igreja_id", igrejaId).order("id", { ascending: false });
         let queryProg = supabase.from("programacao").select("*").eq("igreja_id", igrejaId).order("horario", { ascending: true });
         let queryFilhas = supabase.from("igrejas_filhas").select("nome, chave_pix, qr_code_pix").eq("igreja_id", igrejaId);
+        let queryFin = supabase.from("tesouraria_lancamentos").select("data, ofertas, dizimos, oferta_especial, saidas, congregacao").eq("igreja_id", igrejaId).eq("excluido", false).gte("data", dataCorteISO);
+        let queryVis = supabase.from("visitantes").select("data_visita, congregacao").eq("igreja_id", igrejaId).gte("data_visita", dataCorteISO);
 
         if (!isUserSede) {
           queryMembros = queryMembros.eq("congregacao", congUsuario);
           queryProg = queryProg.eq("congregacao", congUsuario);
-          queryFilhas = queryFilhas.eq("nome", congUsuario); // Busca apenas a filha atual
+          queryFilhas = queryFilhas.eq("nome", congUsuario);
+          queryFin = queryFin.eq("congregacao", congUsuario);
+          queryVis = queryVis.eq("congregacao", congUsuario);
         }
 
-        const [resMembros, resProg, resFilhas] = await Promise.all([queryMembros, queryProg, queryFilhas]);
+        const [resMembros, resProg, resFilhas, resFin, resVis] = await Promise.all([queryMembros, queryProg, queryFilhas, queryFin, queryVis]);
 
-        if (resFilhas.data) {
-          setPixFilhas(resFilhas.data);
-        }
+        if (resFilhas.data) setPixFilhas(resFilhas.data);
+        if (resProg.data) setProgramacoesRaw(resProg.data);
+        if (resFin.data) setFinanceiroRaw(resFin.data);
+        if (resVis.data) setVisitantesRaw(resVis.data);
 
-        // Passo 4: Salva e mapeia as Filiais (Apenas se for Sede)
         if (resMembros.data) {
           setDadosMembrosRaw(resMembros.data);
-          
           if (isUserSede) {
             const filiais = new Set<string>();
-            // Puxa as filiais tanto dos membros quanto da tabela de igrejas filhas
             resMembros.data.forEach(m => {
               const c = m.congregacao?.trim();
-              const cLow = c?.toLowerCase() || "";
-              if (c && cLow !== "sede" && cLow !== "matriz" && cLow !== "geral" && cLow !== nomeOficial.toLowerCase()) {
-                filiais.add(c);
-              }
+              if (c && c.toLowerCase() !== "sede" && c.toLowerCase() !== nomeOficial.toLowerCase()) filiais.add(c);
             });
             resFilhas.data?.forEach(f => {
               const c = f.nome?.trim();
-              const cLow = c?.toLowerCase() || "";
-              if (c && cLow !== "sede" && cLow !== "matriz" && cLow !== "geral" && cLow !== nomeOficial.toLowerCase()) {
-                filiais.add(c);
-              }
+              if (c && c.toLowerCase() !== "sede" && c.toLowerCase() !== nomeOficial.toLowerCase()) filiais.add(c);
             });
-
             setCongregacoesDisponiveis(Array.from(filiais).sort());
           }
         }
-
-        if (resProg.data) {
-          setProgramacoesRaw(resProg.data);
-        }
-
       } catch (error) {
         console.error("Erro ao carregar dashboard:", error);
       } finally {
@@ -181,15 +159,12 @@ export default function Dashboard() {
       }
     }
     
-    if (igrejaId) {
-      carregarDadosDashboard();
-    } else {
-      setCarregando(false);
-    }
+    if (igrejaId) carregarDadosDashboard();
+    else setCarregando(false);
   }, [router]);
 
 
-  // 2. PROCESSAMENTO LOCAL (Aplica o Filtro na Tela)
+  // 2. PROCESSAMENTO LOCAL (Aplica Filtros na Tela)
   useEffect(() => {
     if (!dadosMembrosRaw) return;
 
@@ -200,127 +175,126 @@ export default function Dashboard() {
 
     const membrosFiltrados = filtroCongregacao === "Todas"
       ? dadosMembrosRaw
-      : dadosMembrosRaw.filter(m => {
-          if (filtroCongregacao === "Sede") return isSedeItem(m.congregacao);
-          return m.congregacao?.trim() === filtroCongregacao;
-        });
+      : dadosMembrosRaw.filter(m => filtroCongregacao === "Sede" ? isSedeItem(m.congregacao) : m.congregacao?.trim() === filtroCongregacao);
 
-    // Função interna para calcular idade com precisão milimétrica
+    const financeiroFiltrado = filtroCongregacao === "Todas"
+      ? financeiroRaw
+      : financeiroRaw.filter(f => filtroCongregacao === "Sede" ? isSedeItem(f.congregacao) : f.congregacao?.trim() === filtroCongregacao);
+
+    const visitantesFiltrados = filtroCongregacao === "Todas"
+      ? visitantesRaw
+      : visitantesRaw.filter(v => filtroCongregacao === "Sede" ? isSedeItem(v.congregacao) : v.congregacao?.trim() === filtroCongregacao);
+
     const calcularIdade = (dataNasc: string) => {
       if (!dataNasc) return -1;
-      const partes = dataNasc.split("-");
-      if (partes.length !== 3) return -1;
-      
-      const anoNasc = parseInt(partes[0], 10);
-      const mesNasc = parseInt(partes[1], 10);
-      const diaNasc = parseInt(partes[2], 10);
-      
+      const [ano, mes, dia] = dataNasc.split("-").map(Number);
       const hoje = new Date();
-      let idade = hoje.getFullYear() - anoNasc;
-      const mesAtual = hoje.getMonth() + 1;
-      const diaAtual = hoje.getDate();
-      
-      if (mesAtual < mesNasc || (mesAtual === mesNasc && diaAtual < diaNasc)) {
-        idade--;
-      }
+      let idade = hoje.getFullYear() - ano;
+      if (hoje.getMonth() + 1 < mes || (hoje.getMonth() + 1 === mes && hoje.getDate() < dia)) idade--;
       return idade;
     };
 
-    // Novas métricas calculadas em tempo de execução
-    let totalMembros = 0;
-    const totalCadastrados = membrosFiltrados.length; // Pega todo mundo que está cadastrado
-    
-    let totalCriancas = 0;
-    let totalJovens = 0;
-    let totalAdultos = 0;
-    let totalHomens12Mais = 0;
-    let totalMulheres12Mais = 0;
+    let totalMembros = 0, totalCriancas = 0, totalJovens = 0, totalAdultos = 0;
+    let totalHomens12Mais = 0, totalMulheres12Mais = 0;
 
     membrosFiltrados.forEach(m => {
-      // 1. Membros (Menos os Congregados baseados no Perfil de Acesso)
-      const perfisDesteMembro = formatarPerfis(m.perfis || m.nivel_acesso);
-      if (!perfisDesteMembro.includes("Congregado")) {
-        totalMembros++; // Se não tem o perfil congregado, entra na contagem de Membros
-      }
+      const perfis = formatarPerfis(m.perfis || m.nivel_acesso);
+      if (!perfis.includes("Congregado")) totalMembros++;
 
-      // 2. Cálculo de Idade e Gênero
       const idade = calcularIdade(m.data_nascimento);
+      if (idade >= 0 && idade <= 11) totalCriancas++;
+      else if (idade >= 12 && idade <= 18) totalJovens++;
+      if (idade > 18) totalAdultos++;
       
-      if (idade >= 0 && idade <= 11) {
-        totalCriancas++;
-      } else if (idade >= 12 && idade <= 18) {
-        totalJovens++;
-      }
-      
-      // Adultos (> 18)
-      if (idade > 18) {
-        totalAdultos++;
-      }
-
-      // Homens e Mulheres a partir de 12 anos
       if (idade >= 12) {
         if (m.genero === "Masculino") totalHomens12Mais++;
         if (m.genero === "Feminino") totalMulheres12Mais++;
       }
     });
 
-    const totalAtivos = membrosFiltrados.filter((m) => m.status === "Ativo").length;
+    const hojeData = new Date();
+    const data30DiasAtras = new Date();
+    data30DiasAtras.setDate(data30DiasAtras.getDate() - 30);
+    
+    const visRecentesCount = visitantesFiltrados.filter(v => {
+      if (!v.data_visita) return false;
+      const d = new Date(v.data_visita);
+      // Considerando que data_visita pode não ter timezone, vamos comparar usando a data local truncada
+      const dCortada = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      const hojeCortada = new Date(hojeData.getFullYear(), hojeData.getMonth(), hojeData.getDate());
+      const atrasCortada = new Date(data30DiasAtras.getFullYear(), data30DiasAtras.getMonth(), data30DiasAtras.getDate());
+      return dCortada >= atrasCortada && dCortada <= hojeCortada;
+    }).length;
 
     setStats({ 
       membros: totalMembros, 
-      cadastrados: totalCadastrados, 
+      cadastrados: membrosFiltrados.length, 
       criancas: totalCriancas, 
       jovens: totalJovens, 
-      ativos: totalAtivos,
+      ativos: membrosFiltrados.filter((m) => m.status === "Ativo").length,
       adultos: totalAdultos,
       homens12Mais: totalHomens12Mais,
-      mulheres12Mais: totalMulheres12Mais
+      mulheres12Mais: totalMulheres12Mais,
+      visitantesRecentes: visRecentesCount
     });
+
+    // Gráfico Demográfico
+    setDadosDemograficos([
+      { name: 'Crianças (0-11)', value: totalCriancas },
+      { name: 'Jovens (12-18)', value: totalJovens },
+      { name: 'Adultos (18+)', value: totalAdultos }
+    ].filter(d => d.value > 0));
+
+    // Gráfico Financeiro
+    const mesesGrafico = [];
+    for (let i = periodoFinanceiro - 1; i >= 0; i--) {
+      const d = new Date(hojeData.getFullYear(), hojeData.getMonth() - i, 1);
+      mesesGrafico.push({
+        ano: d.getFullYear(),
+        mes: d.getMonth() + 1,
+        label: `${d.toLocaleString('pt-BR', { month: 'short' })}/${d.getFullYear().toString().slice(2)}`,
+        entradas: 0,
+        saidas: 0
+      });
+    }
+
+    financeiroFiltrado.forEach(lanc => {
+      if (!lanc.data) return;
+      const [anoL, mesL] = lanc.data.split('-');
+      const item = mesesGrafico.find(m => m.ano === Number(anoL) && m.mes === Number(mesL));
+      if (item) {
+        item.entradas += Number(lanc.ofertas || 0) + Number(lanc.dizimos || 0) + Number(lanc.oferta_especial || 0);
+        item.saidas += Number(lanc.saidas || 0);
+      }
+    });
+
+    setDadosFinanceiros(mesesGrafico.map(m => ({
+      name: m.label,
+      "Entradas": m.entradas,
+      "Saídas": m.saidas
+    })));
 
     setRecentes(membrosFiltrados.slice(0, 5));
 
-    const hoje = new Date();
-    const mesAtual = hoje.getMonth() + 1;
-    const diaAtual = hoje.getDate();
+    const mesAtual = hojeData.getMonth() + 1;
+    const diaAtual = hojeData.getDate();
 
-    const aniversariantesFiltrados = membrosFiltrados.filter((m) => {
+    setAniversariantes(membrosFiltrados.filter((m) => {
       if (!m.data_nascimento) return false;
-      const partesData = m.data_nascimento.split('-');
-      if (partesData.length !== 3) return false;
-      const mesNascimento = parseInt(partesData[1], 10);
-      const diaNascimento = parseInt(partesData[2], 10);
-      return mesNascimento === mesAtual && diaNascimento >= diaAtual;
-    }).sort((a, b) => {
-      const diaA = parseInt(a.data_nascimento.split('-')[2], 10);
-      const diaB = parseInt(b.data_nascimento.split('-')[2], 10);
-      return diaA - diaB;
-    });
+      const partes = m.data_nascimento.split('-');
+      return parseInt(partes[1], 10) === mesAtual && parseInt(partes[2], 10) >= diaAtual;
+    }).sort((a, b) => parseInt(a.data_nascimento.split('-')[2], 10) - parseInt(b.data_nascimento.split('-')[2], 10)));
 
-    setAniversariantes(aniversariantesFiltrados);
+    setProgramacoes(filtroCongregacao === "Todas" ? programacoesRaw : programacoesRaw.filter(p => filtroCongregacao === "Sede" ? isSedeItem(p.congregacao) : p.congregacao?.trim() === filtroCongregacao));
 
-    const progFiltradas = filtroCongregacao === "Todas"
-      ? programacoesRaw
-      : programacoesRaw.filter(p => {
-          if (filtroCongregacao === "Sede") return isSedeItem(p.congregacao);
-          return p.congregacao?.trim() === filtroCongregacao;
-        });
+  }, [filtroCongregacao, dadosMembrosRaw, programacoesRaw, financeiroRaw, visitantesRaw, nomeSedeOficial, periodoFinanceiro]);
 
-    setProgramacoes(progFiltradas);
-
-  }, [filtroCongregacao, dadosMembrosRaw, programacoesRaw, nomeSedeOficial]);
-
-
-  // ==========================================
-  // LÓGICA DO PIX DINÂMICO BASEADO NO FILTRO
-  // ==========================================
+  // PIX Dinâmico
   let pixAtual = pixSede;
   if (filtroCongregacao !== "Sede" && filtroCongregacao !== "Todas") {
-    const filhaConfigurada = pixFilhas.find(f => f.nome === filtroCongregacao);
-    if (filhaConfigurada) {
-      pixAtual = { chave: filhaConfigurada.chave_pix || "", qrCode: filhaConfigurada.qr_code_pix || "" };
-    } else {
-      pixAtual = { chave: "", qrCode: "" };
-    }
+    const filha = pixFilhas.find(f => f.nome === filtroCongregacao);
+    if (filha) pixAtual = { chave: filha.chave_pix || "", qrCode: filha.qr_code_pix || "" };
+    else pixAtual = { chave: "", qrCode: "" };
   }
 
   const copiarChavePix = () => {
@@ -332,209 +306,193 @@ export default function Dashboard() {
 
   const programacoesFixas = programacoes.filter((p) => p.tipo === "Fixa");
   const programacoesDoMes = programacoes.filter((p) => {
-    if (p.tipo === "Fixa") return false;
-    if (!p.data) return false;
-    const dataItem = new Date(p.data + "T00:00:00");
-    return (
-      dataItem.getMonth() + 1 === mesSelecionado &&
-      dataItem.getFullYear() === anoSelecionado
-    );
+    if (p.tipo === "Fixa" || !p.data) return false;
+    const d = new Date(p.data + "T00:00:00");
+    return d.getMonth() + 1 === mesSelecionado && d.getFullYear() === anoSelecionado;
   }).sort((a, b) => new Date(a.data + "T00:00:00").getTime() - new Date(b.data + "T00:00:00").getTime());
 
-  // ==========================================
-  // REGRAS DE PERMISSÃO DE VISUALIZAÇÃO
-  // ==========================================
+  // Permissões
   const podeAdicionarMembro = podeEditar(perfisUsuario, 'membros');
-  
-  const podeVerEstatisticas = perfisUsuario.includes("Secretário") || 
-                              perfisUsuario.includes("Pastor/Presbítero") || 
-                              perfisUsuario.includes("Líder") ||
-                              perfisUsuario.includes("Administrador");
+  const ehLideranca = perfisUsuario.some(p => ["Secretário", "Pastor/Presbítero", "Líder", "Administrador"].includes(p));
+  const ehPastor = perfisUsuario.some(p => ["Pastor/Presbítero", "Administrador"].includes(p));
 
-  const podeVerUltimosMembros = perfisUsuario.includes("Secretário") || 
-                                perfisUsuario.includes("Pastor/Presbítero") || 
-                                perfisUsuario.includes("Líder") ||
-                                perfisUsuario.includes("Administrador");
-
-  const podeVerTodosMembros = perfisUsuario.includes("Secretário") || 
-                              perfisUsuario.includes("Pastor/Presbítero") || 
-                              perfisUsuario.includes("Administrador");
-
-  if (carregando) return <div className="flex h-screen items-center justify-center"><div className="text-xl text-gray-500 font-medium animate-pulse">A carregar painel administrativo...</div></div>;
+  if (carregando) return <div className="flex h-screen items-center justify-center"><div className="text-xl text-blue-500 font-medium animate-pulse">Carregando painel de visão estratégica...</div></div>;
 
   return (
     <div className="max-w-7xl mx-auto space-y-8 animate-fade-in pb-10 relative">
       
-      {/* 1. CABEÇALHO DE AÇÕES */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+      {/* 1. CABEÇALHO */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white/60 backdrop-blur-md p-6 rounded-2xl shadow-sm border border-gray-100">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">Visão Geral</h1>
-          <p className="text-gray-500 text-sm mt-1">Bem-vindo ao painel administrativo da sua Igreja.</p>
+          <h1 className="text-3xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-blue-500">Visão Estratégica</h1>
+          <p className="text-gray-500 text-sm mt-1 font-medium">Acompanhe a saúde da sua igreja em tempo real.</p>
         </div>
         
-        <div className="mt-4 md:mt-0 flex flex-wrap gap-3">
-          
-          {/* SELETOR HIERÁRQUICO */}
+        <div className="mt-4 md:mt-0 flex flex-wrap items-center gap-3 w-full md:w-auto">
           {ehSede && congregacoesDisponiveis.length > 0 && (
             <select
               value={filtroCongregacao}
               onChange={(e) => setFiltroCongregacao(e.target.value)}
-              className="px-4 py-2.5 bg-indigo-50 border border-indigo-100 text-indigo-800 font-bold text-sm rounded-lg hover:border-indigo-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all shadow-sm cursor-pointer max-w-[200px] sm:max-w-[250px] truncate"
+              className="px-4 py-2.5 bg-white border border-gray-200 text-gray-800 font-bold text-sm rounded-xl hover:border-indigo-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all shadow-sm cursor-pointer min-w-[200px]"
             >
               <option value="Sede">🏢 {nomeSedeOficial}</option>
-              <option value="Todas">🌍 Congregações</option>
-              {congregacoesDisponiveis.map(c => (
-                <option key={c} value={c}>📍 {c}</option>
-              ))}
+              <option value="Todas">🌍 Todas Congregações</option>
+              {congregacoesDisponiveis.map(c => <option key={c} value={c}>📍 {c}</option>)}
             </select>
           )}
 
-          {/* BOTÕES DE AÇÃO */}
-          <Link href="/programacao" className="px-5 py-2.5 bg-indigo-600 text-white font-medium text-sm rounded-lg hover:bg-indigo-700 transition shadow-sm">
-            Programação
-          </Link>
-          <Link href="/escalas" className="px-5 py-2.5 bg-teal-600 text-white font-medium text-sm rounded-lg hover:bg-teal-700 transition shadow-sm">
-            Escalas
-          </Link>
-          <Link href="/visitantes" className="px-5 py-2.5 bg-rose-600 text-white font-medium text-sm rounded-lg hover:bg-rose-700 transition shadow-sm">
-            Visitantes
-          </Link>
-
-          <button 
-            onClick={() => setModalPixAberto(true)}
-            className="px-5 py-2.5 bg-emerald-600 text-white font-medium text-sm rounded-lg hover:bg-emerald-700 transition shadow-sm"
-          >
-            Ofertar
-          </button>
+          <Link href="/programacao" className="px-5 py-2.5 bg-indigo-50 text-indigo-700 font-bold text-sm rounded-xl hover:bg-indigo-100 transition shadow-sm border border-indigo-100">Agenda</Link>
+          <Link href="/visitantes" className="px-5 py-2.5 bg-rose-50 text-rose-700 font-bold text-sm rounded-xl hover:bg-rose-100 transition shadow-sm border border-rose-100">Visitantes</Link>
+          <button onClick={() => setModalPixAberto(true)} className="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold text-sm rounded-xl hover:from-emerald-600 hover:to-teal-600 transition shadow-md">Ofertar</button>
           
           {podeAdicionarMembro && (
-            <Link href="/membros/novo" className="px-5 py-2.5 bg-blue-600 text-white font-medium text-sm rounded-lg hover:bg-blue-700 transition shadow-sm">
-              + Novo Membro
-            </Link>
+            <Link href="/membros/novo" className="px-5 py-2.5 bg-blue-600 text-white font-bold text-sm rounded-xl hover:bg-blue-700 transition shadow-md">+ Novo Membro</Link>
           )}
         </div>
       </div>
 
-      {/* 2. ESTATÍSTICAS RÁPIDAS - OCULTO PARA QUEM NÃO É LIDERANÇA */}
-      {podeVerEstatisticas && (
+      {/* 2. KPIs MODERNOS */}
+      {ehLideranca && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
-          
-          {/* CARD 1: TOTAL DE MEMBROS (MENOS CONGREGADOS) */}
-          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center gap-2 hover:border-blue-200 transition-colors">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-600">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
-              </div>
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Membros</p>
+          <div className="bg-white/70 backdrop-blur-md p-5 rounded-2xl shadow-sm border border-indigo-50 flex flex-col justify-center relative overflow-hidden group hover:shadow-md transition-all">
+            <div className="absolute top-0 right-0 -mr-4 -mt-4 w-16 h-16 rounded-full bg-indigo-100/50 group-hover:scale-150 transition-transform duration-500"></div>
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider relative z-10">Membros Ativos</p>
+            <div className="flex items-end gap-2 mt-1 relative z-10">
+              <h3 className="text-4xl font-black text-gray-800">{stats.ativos}</h3>
+              <span className="text-xs font-semibold text-emerald-500 mb-1.5">/ {stats.membros} Total</span>
             </div>
-            <h3 className="text-3xl font-bold text-gray-900 ml-1">{stats.membros}</h3>
           </div>
 
-          {/* CARD 2: TOTAL DE CADASTRADOS (TODOS NO SISTEMA) */}
-          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center gap-2 hover:border-purple-200 transition-colors">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-purple-50 flex items-center justify-center text-purple-600">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-              </div>
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Cadastrados</p>
-            </div>
-            <h3 className="text-3xl font-bold text-gray-900 ml-1">{stats.cadastrados}</h3>
+          <div className="bg-white/70 backdrop-blur-md p-5 rounded-2xl shadow-sm border border-blue-50 flex flex-col justify-center relative overflow-hidden group hover:shadow-md transition-all">
+            <div className="absolute top-0 right-0 -mr-4 -mt-4 w-16 h-16 rounded-full bg-blue-100/50 group-hover:scale-150 transition-transform duration-500"></div>
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider relative z-10">Pessoas Cadastradas</p>
+            <h3 className="text-4xl font-black text-gray-800 mt-1 relative z-10">{stats.cadastrados}</h3>
           </div>
 
-          {/* CARD 3: CRIANÇAS (0 A 11 ANOS) */}
-          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center gap-2 hover:border-amber-200 transition-colors">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-amber-50 flex items-center justify-center text-amber-500">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-              </div>
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Crianças (0-11)</p>
-            </div>
-            <h3 className="text-3xl font-bold text-gray-900 ml-1">{stats.criancas}</h3>
+          <div className="bg-white/70 backdrop-blur-md p-5 rounded-2xl shadow-sm border border-rose-50 flex flex-col justify-center relative overflow-hidden group hover:shadow-md transition-all">
+            <div className="absolute top-0 right-0 -mr-4 -mt-4 w-16 h-16 rounded-full bg-rose-100/50 group-hover:scale-150 transition-transform duration-500"></div>
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider relative z-10">Crianças e Jovens</p>
+            <h3 className="text-4xl font-black text-gray-800 mt-1 relative z-10">{stats.criancas + stats.jovens}</h3>
           </div>
 
-          {/* CARD 4: JOVENS E ADOLESCENTES (12 A 18 ANOS) */}
-          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center gap-2 hover:border-indigo-200 transition-colors">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-              </div>
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Jovens (12-18)</p>
+          <div className="bg-white/70 backdrop-blur-md p-5 rounded-2xl shadow-sm border border-amber-50 flex flex-col justify-center relative overflow-hidden group hover:shadow-md transition-all">
+            <div className="absolute top-0 right-0 -mr-4 -mt-4 w-16 h-16 rounded-full bg-amber-100/50 group-hover:scale-150 transition-transform duration-500"></div>
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider relative z-10">Visitantes (30 Dias)</p>
+            <div className="flex items-end gap-2 mt-1 relative z-10">
+              <h3 className="text-4xl font-black text-gray-800">{stats.visitantesRecentes}</h3>
+              <span className="text-xs font-semibold text-amber-500 mb-1.5">Recentes</span>
             </div>
-            <h3 className="text-3xl font-bold text-gray-900 ml-1">{stats.jovens}</h3>
           </div>
-
-          {/* CARD 5: ADULTOS (> 18 ANOS) */}
-          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center gap-2 hover:border-rose-200 transition-colors">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-rose-50 flex items-center justify-center text-rose-600">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
-              </div>
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Adultos (&gt; 18)</p>
-            </div>
-            <h3 className="text-3xl font-bold text-gray-900 ml-1">{stats.adultos}</h3>
-          </div>
-
-          {/* CARD 6: HOMENS (A PARTIR DE 12 ANOS) */}
-          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center gap-2 hover:border-cyan-200 transition-colors">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-cyan-50 flex items-center justify-center text-cyan-600">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
-              </div>
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Homens (12+)</p>
-            </div>
-            <h3 className="text-3xl font-bold text-gray-900 ml-1">{stats.homens12Mais}</h3>
-          </div>
-
-          {/* CARD 7: MULHERES (A PARTIR DE 12 ANOS) */}
-          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center gap-2 hover:border-pink-200 transition-colors">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-pink-50 flex items-center justify-center text-pink-600">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
-              </div>
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Mulheres (12+)</p>
-            </div>
-            <h3 className="text-3xl font-bold text-gray-900 ml-1">{stats.mulheres12Mais}</h3>
-          </div>
-
-          {/* CARD 8: TOTAL DE ATIVOS */}
-          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center gap-2 hover:border-emerald-200 transition-colors">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-600">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-              </div>
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Total Ativos</p>
-            </div>
-            <h3 className="text-3xl font-bold text-gray-900 ml-1">{stats.ativos}</h3>
-          </div>
-
         </div>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-        
-        {/* 3. QUADRO DE PROGRAMAÇÃO MODERNO */}
-        <div className={`${podeVerUltimosMembros ? "xl:col-span-2" : "xl:col-span-3"} bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col`}>
-          <div className="p-5 md:p-6 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-gray-50/50">
-            <div className="flex items-center gap-3">
-              <div className="bg-indigo-600 p-2 rounded-lg shadow-sm text-white">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+      {/* 3. GRÁFICOS (DATA VIZ) */}
+      {ehLideranca && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          
+          {/* GRÁFICO FINANCEIRO MACRO */}
+          <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex flex-col">
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h2 className="text-lg font-bold text-gray-800">Saúde Financeira</h2>
+                <p className="text-xs text-gray-400">Entradas e saídas agrupadas por mês</p>
               </div>
-              <h2 className="text-lg font-bold text-gray-800 tracking-tight">Quadro de Programação</h2>
+              <select 
+                value={periodoFinanceiro} 
+                onChange={(e) => setPeriodoFinanceiro(Number(e.target.value))}
+                className="bg-gray-50 border border-gray-200 text-sm rounded-lg px-3 py-1.5 outline-none focus:ring-2 focus:ring-blue-100 font-medium text-gray-600"
+              >
+                <option value={3}>Últimos 3 meses</option>
+                <option value={6}>Últimos 6 meses</option>
+                <option value={12}>Últimos 12 meses</option>
+              </select>
             </div>
             
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              <select
-                value={mesSelecionado}
-                onChange={(e) => setMesSelecionado(Number(e.target.value))}
-                className="w-full sm:w-auto border border-gray-200 bg-white rounded-lg p-2 text-sm text-gray-700 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none font-medium"
-              >
-                {meses.map((m) => <option key={m.valor} value={m.valor}>{m.nome}</option>)}
+            <div className="w-full h-64 relative z-0">
+              {dadosFinanceiros.length > 0 && dadosFinanceiros.some(d => d.Entradas > 0 || d.Saídas > 0) ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={dadosFinanceiros} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="colorEntradas" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                      </linearGradient>
+                      <linearGradient id="colorSaidas" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
+                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#9ca3af' }} dy={10} />
+                    <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#9ca3af' }} tickFormatter={(value) => `R$${value/1000}k`} />
+                    <Tooltip 
+                      formatter={(value: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)}
+                      contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                    />
+                    <Legend iconType="circle" wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
+                    <Area type="monotone" dataKey="Entradas" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorEntradas)" />
+                    <Area type="monotone" dataKey="Saídas" stroke="#ef4444" strokeWidth={3} fillOpacity={1} fill="url(#colorSaidas)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="w-full h-full flex flex-col items-center justify-center text-gray-400">
+                  <svg className="w-12 h-12 mb-2 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  <span className="text-sm">Sem movimentações no período.</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* GRÁFICO DEMOGRÁFICO */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex flex-col">
+            <div className="mb-2">
+              <h2 className="text-lg font-bold text-gray-800">Perfil Demográfico</h2>
+              <p className="text-xs text-gray-400">Distribuição por faixa etária</p>
+            </div>
+            <div className="w-full h-64 relative z-0">
+              {dadosDemograficos.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={dadosDemograficos}
+                      cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value"
+                    >
+                      {dadosDemograficos.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={CORES_PIE[index % CORES_PIE.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip 
+                      formatter={(value: number) => [`${value} almas`, '']}
+                      contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                    />
+                    <Legend verticalAlign="bottom" iconType="circle" wrapperStyle={{ fontSize: '12px' }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="w-full h-full flex flex-col items-center justify-center text-gray-400">
+                  <span className="text-sm">Dados insuficientes.</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4. PAINEIS INFERIORES: AGENDA E RECENTES */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        {/* AGENDA */}
+        <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col overflow-hidden">
+          <div className="p-5 border-b border-gray-50 flex justify-between items-center bg-gray-50/30">
+            <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+              <svg className="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+              Agenda do Mês
+            </h2>
+            <div className="flex items-center gap-2">
+              <select value={mesSelecionado} onChange={(e) => setMesSelecionado(Number(e.target.value))} className="border border-gray-200 bg-white rounded-lg p-1.5 text-xs text-gray-700 outline-none font-medium">
+                {meses.map(m => <option key={m.valor} value={m.valor}>{m.nome}</option>)}
               </select>
-              <select
-                value={anoSelecionado}
-                onChange={(e) => setAnoSelecionado(Number(e.target.value))}
-                className="border border-gray-200 bg-white rounded-lg p-2 text-sm text-gray-700 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none font-medium"
-              >
+              <select value={anoSelecionado} onChange={(e) => setAnoSelecionado(Number(e.target.value))} className="border border-gray-200 bg-white rounded-lg p-1.5 text-xs text-gray-700 outline-none font-medium">
                 <option value={anoSelecionado - 1}>{anoSelecionado - 1}</option>
                 <option value={anoSelecionado}>{anoSelecionado}</option>
                 <option value={anoSelecionado + 1}>{anoSelecionado + 1}</option>
@@ -542,140 +500,76 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-5 flex-1 divide-y md:divide-y-0 md:divide-x divide-gray-100 w-full">
-            
-            {/* Atividades Semanais com Proteção de Tela Menor */}
-            <div className="md:col-span-2 p-5 bg-gray-50/30 w-full overflow-hidden">
-              <h3 className="text-xs font-bold uppercase text-gray-400 tracking-wider mb-4 border-b border-gray-100 pb-2">
-                Atividades Semanais
-              </h3>
-              {programacoesFixas.length === 0 ? (
-                <p className="text-sm text-gray-400 italic text-center py-6">Nenhuma atividade fixa configurada.</p>
-              ) : (
-                <div className="w-full overflow-x-auto pb-2">
-                  <div className="min-w-[260px] space-y-3">
-                    {programacoesFixas.map(p => (
-                      <div key={p.id} className="flex gap-3 items-start bg-white p-3 rounded-lg border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
-                        <div className="flex flex-col items-center justify-center shrink-0 min-w-[50px] bg-indigo-50 rounded text-indigo-700 py-1 border border-indigo-100">
-                          <span className="text-[10px] font-bold uppercase leading-none">
-                            {p.dia_semana ? p.dia_semana.substring(0, 3) : '---'}
-                          </span>
-                          <span className="text-sm font-black">
-                            {p.horario ? p.horario.substring(0, 5) : '--:--'}
-                          </span>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-bold text-gray-800 leading-tight break-words">{p.titulo}</p>
-                          {p.descricao && (
-                            <div className="text-xs text-gray-500 break-words whitespace-normal line-clamp-2 mt-0.5">
-                              {renderComLinks(p.descricao)}
-                            </div>
-                          )}
-                        </div>
+          <div className="p-5 flex-1 overflow-y-auto max-h-80 custom-scrollbar">
+            {programacoesDoMes.length === 0 && programacoesFixas.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-10">Nenhuma atividade programada.</p>
+            ) : (
+              <div className="space-y-4">
+                {programacoesFixas.map(p => (
+                  <div key={p.id} className="flex gap-4 items-start p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors">
+                    <div className="flex flex-col items-center justify-center w-12 h-12 bg-white rounded-lg shadow-sm text-indigo-600 shrink-0 border border-gray-100">
+                      <span className="text-[9px] font-bold uppercase">{p.dia_semana?.substring(0,3)}</span>
+                      <span className="text-sm font-black leading-none">{p.horario?.substring(0,5)}</span>
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-gray-800">{p.titulo} <span className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded ml-1">Fixo</span></h4>
+                      {p.descricao && <p className="text-xs text-gray-500 mt-1 line-clamp-2">{renderComLinks(p.descricao)}</p>}
+                    </div>
+                  </div>
+                ))}
+
+                {programacoesDoMes.map(p => {
+                  const dObj = new Date(p.data + "T00:00:00");
+                  return (
+                    <div key={p.id} className="flex gap-4 items-start p-3 bg-white border border-gray-100 rounded-xl hover:border-emerald-200 transition-colors shadow-sm">
+                      <div className="flex flex-col items-center justify-center w-12 h-12 bg-emerald-50 rounded-lg text-emerald-600 shrink-0">
+                        <span className="text-lg font-black leading-none">{dObj.getDate().toString().padStart(2,'0')}</span>
+                        <span className="text-[9px] font-bold uppercase">{dObj.toLocaleDateString('pt-BR', { weekday:'short' }).replace('.','')}</span>
                       </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Agenda do Mês com Proteção de Texto e Scroll Opcional */}
-            <div className="md:col-span-3 p-5 w-full overflow-hidden">
-              <h3 className="text-xs font-bold uppercase text-gray-400 tracking-wider mb-4 border-b border-gray-100 pb-2">
-                Agenda do Mês
-              </h3>
-              {programacoesDoMes.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-40 text-center space-y-2">
-                  <svg className="w-10 h-10 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                  <p className="text-sm text-gray-500">Sem agendamentos para este mês.</p>
-                </div>
-              ) : (
-                <div className="w-full overflow-x-auto pb-4">
-                  <div className="relative border-l-2 border-gray-100 ml-3 space-y-6 pb-2 min-w-[280px] pr-2">
-                    {programacoesDoMes.map((p) => {
-                      const dataObj = new Date(p.data + "T00:00:00");
-                      const dia = dataObj.getDate().toString().padStart(2, '0');
-                      const diaSemana = dataObj.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '');
-                      
-                      return (
-                        <div key={p.id} className="relative pl-5 sm:pl-6 group">
-                          <div className={`absolute -left-[9px] top-1 w-4 h-4 rounded-full border-2 border-white shrink-0 ${p.tipo === 'Reunião' ? 'bg-blue-500' : 'bg-emerald-500'} group-hover:scale-125 transition-transform`} />
-                          
-                          <div className="flex items-start gap-3 sm:gap-4">
-                            <div className="flex flex-col items-center pt-0.5 shrink-0">
-                              <span className="text-lg font-black text-gray-800 leading-none">{dia}</span>
-                              <span className="text-[10px] uppercase font-bold text-gray-500">{diaSemana}</span>
-                            </div>
-                            
-                            <div className="flex-1 min-w-0 bg-gray-50 group-hover:bg-gray-100 transition-colors p-3 rounded-lg border border-gray-100">
-                              
-                              <div className="flex justify-between items-start gap-2">
-                                <h4 className="text-sm font-bold text-gray-800 leading-tight break-words">{p.titulo}</h4>
-                                <span className={`shrink-0 text-[9px] font-bold uppercase px-2 py-0.5 rounded tracking-wide ${p.tipo === 'Reunião' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                                  {p.tipo}
-                                </span>
-                              </div>
-                              
-                              <div className="flex flex-col sm:flex-row sm:items-center gap-2 mt-2 min-w-0">
-                                <span className="inline-flex w-fit shrink-0 items-center text-xs text-gray-500 font-medium bg-white px-1.5 py-0.5 rounded border border-gray-200">
-                                  <svg className="w-3 h-3 mr-1 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                  {p.horario ? p.horario.substring(0, 5) : '--:--'}
-                                </span>
-                                
-                                {p.descricao && (
-                                  <div className="text-xs text-gray-500 break-words whitespace-normal line-clamp-2 flex-1">
-                                    {renderComLinks(p.descricao)}
-                                  </div>
-                                )}
-                              </div>
-
-                            </div>
-                          </div>
+                      <div className="flex-1">
+                        <div className="flex justify-between">
+                          <h4 className="text-sm font-bold text-gray-800">{p.titulo}</h4>
+                          <span className="text-xs font-bold text-gray-400">{p.horario?.substring(0,5)}</span>
                         </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
+                        {p.descricao && <p className="text-xs text-gray-500 mt-1 line-clamp-2">{renderComLinks(p.descricao)}</p>}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         </div>
 
-        {/* 4. TABELA ÚLTIMOS CADASTRADOS */}
-        {podeVerUltimosMembros && (
-          <div className="xl:col-span-1 bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
-            <div className="p-5 md:p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-              <h2 className="text-lg font-bold text-gray-800">Últimos Membros</h2>
-              
-              {podeVerTodosMembros && (
-                <Link href="/membros" className="text-blue-600 hover:text-blue-800 text-sm font-semibold">Ver Todos</Link>
-              )}
+        {/* ÚLTIMOS MEMBROS */}
+        {ehLideranca && (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col overflow-hidden">
+            <div className="p-5 border-b border-gray-50 flex justify-between items-center bg-gray-50/30">
+              <h2 className="text-lg font-bold text-gray-800">Recentes</h2>
+              <Link href="/membros" className="text-blue-600 hover:text-blue-800 text-xs font-bold uppercase tracking-wider">Ver Todos</Link>
             </div>
-            
-            <div className="overflow-x-auto flex-1">
-              <table className="w-full text-left border-collapse">
-                <tbody className="divide-y divide-gray-100">
+            <div className="p-0 overflow-y-auto max-h-80">
+              <table className="w-full text-left">
+                <tbody className="divide-y divide-gray-50">
                   {recentes.length === 0 ? (
-                    <tr><td className="p-8 text-center text-gray-400 text-sm">Nenhum membro registrado.</td></tr>
+                    <tr><td className="p-8 text-center text-gray-400 text-sm">Nenhum registro.</td></tr>
                   ) : (
-                    recentes.map((membro) => (
-                      <tr key={membro.id} className="hover:bg-gray-50 transition-colors">
-                        <td className="p-4">
-                          <Link href={`/membros/${membro.id}`} className="flex items-center gap-3 w-full">
-                            {membro.foto_url ? (
-                              <img src={membro.foto_url} alt="Foto" className="w-10 h-10 rounded-full object-cover border border-gray-200 shadow-sm" />
+                    recentes.map((m) => (
+                      <tr key={m.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="p-3">
+                          <Link href={`/membros/${m.id}`} className="flex items-center gap-3 w-full">
+                            {m.foto_url ? (
+                              <img src={m.foto_url} alt="Foto" className="w-10 h-10 rounded-full object-cover shadow-sm" />
                             ) : (
-                              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 border border-gray-200 flex items-center justify-center shadow-sm">
-                                <span className="text-xs font-bold text-gray-500 uppercase">
-                                  {membro.nome_completo.charAt(0)}
-                                </span>
+                              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center shadow-sm">
+                                <span className="text-xs font-bold text-gray-500 uppercase">{m.nome_completo.charAt(0)}</span>
                               </div>
                             )}
                             <div className="overflow-hidden">
-                              <p className="font-bold text-gray-900 text-sm truncate">{membro.nome_completo}</p>
+                              <p className="font-bold text-gray-800 text-sm truncate">{m.nome_completo}</p>
                               <div className="flex items-center gap-2 mt-0.5">
-                                <span className="text-xs text-gray-500 truncate">{membro.cargo || "Membro"}</span>
-                                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${membro.status === 'Ativo' ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                                <span className="text-[10px] text-gray-400 font-semibold uppercase">{m.cargo || "Membro"}</span>
+                                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${m.status === 'Ativo' ? 'bg-emerald-400' : 'bg-rose-400'}`}></span>
                               </div>
                             </div>
                           </Link>
@@ -688,63 +582,45 @@ export default function Dashboard() {
             </div>
           </div>
         )}
-
       </div>
 
-      {/* 5. QUADRO DE ANIVERSARIANTES DO MÊS */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
-        <div className="p-5 md:p-6 border-b border-gray-100 flex items-center gap-4 bg-gradient-to-r from-pink-50/50 to-white">
-          <div className="bg-pink-500 p-2.5 rounded-lg shadow-sm text-white transform -rotate-6">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 15.546c-.523 0-1.046.151-1.5.454a2.704 2.704 0 01-3 0 2.704 2.704 0 00-3 0 2.704 2.704 0 01-3 0 2.704 2.704 0 00-3 0 2.704 2.704 0 01-3 0 2.701 2.701 0 00-1.5-.454M9 6v2m3-2v2m3-2v2M9 3h.01M12 3h.01M15 3h.01M21 21v-7a2 2 0 00-2-2H5a2 2 0 00-2 2v7h18zm-3-9v-2a2 2 0 00-2-2H8a2 2 0 00-2 2v2h12z"></path></svg>
-          </div>
+      {/* 5. ANIVERSARIANTES DO MÊS */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
+        <div className="p-5 border-b border-gray-50 flex items-center gap-3 bg-gradient-to-r from-pink-50/50 to-white">
+          <span className="text-2xl">🎉</span>
           <div>
             <h2 className="text-lg font-bold text-gray-800 tracking-tight">Aniversariantes do Mês</h2>
-            <p className="text-xs font-medium text-pink-600 mt-0.5">Celebre a vida dos seus membros!</p>
+            <p className="text-xs font-medium text-pink-500">Próximos aniversários</p>
           </div>
         </div>
 
-        <div className="p-5 md:p-6">
+        <div className="p-6">
           {aniversariantes.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-8 text-center space-y-2">
-              <span className="text-4xl">🎂</span>
-              <p className="text-sm text-gray-400 font-medium">Nenhum membro a completar anos nos próximos dias deste mês.</p>
-            </div>
+            <p className="text-sm text-gray-400 text-center py-4">Sem aniversariantes próximos neste mês.</p>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-4">
+            <div className="flex flex-wrap gap-4">
               {aniversariantes.map((membro) => {
                 const partes = membro.data_nascimento.split('-');
-                const diaAniversario = parseInt(partes[2], 10);
-                const mesAniversario = parseInt(partes[1], 10);
-                const ehHoje = diaAniversario === new Date().getDate() && mesAniversario === (new Date().getMonth() + 1);
-
+                const ehHoje = parseInt(partes[2], 10) === dataAtual.getDate() && parseInt(partes[1], 10) === (dataAtual.getMonth() + 1);
                 const primeiroNome = membro.nome_completo.split(' ')[0];
 
                 return (
-                  <div key={membro.id} className={`flex flex-col items-center p-3 rounded-xl border transition-all ${ehHoje ? 'border-pink-300 bg-pink-50/40 shadow-sm scale-105' : 'border-gray-100 bg-white hover:border-pink-200'}`}>
-                    <div className="relative">
-                      {membro.foto_url ? (
-                        <img src={membro.foto_url} alt={membro.nome_completo} className={`w-14 h-14 rounded-full object-cover shadow-sm ${ehHoje ? 'ring-4 ring-pink-300 ring-offset-1' : 'border border-gray-200'}`} />
-                      ) : (
-                        <div className={`w-14 h-14 rounded-full flex items-center justify-center shadow-sm ${ehHoje ? 'bg-gradient-to-br from-pink-400 to-pink-500 text-white ring-4 ring-pink-300 ring-offset-1' : 'bg-gradient-to-br from-gray-100 to-gray-200 text-gray-400 border border-gray-200'}`}>
-                          <span className="text-lg font-black uppercase">{primeiroNome.charAt(0)}</span>
-                        </div>
-                      )}
-                      {ehHoje && <div className="absolute -top-3 -right-2 text-xl animate-bounce">👑</div>}
-                    </div>
-
-                    <h3 className="text-sm font-bold text-gray-800 mt-3 text-center truncate w-full" title={membro.nome_completo}>
-                      {primeiroNome}
-                    </h3>
-
-                    {ehHoje ? (
-                      <span className="mt-1 px-2.5 py-0.5 bg-pink-500 text-white text-[10px] font-black uppercase tracking-wider rounded-full shadow-sm animate-pulse">
-                        Hoje!
-                      </span>
+                  <div key={membro.id} className={`flex items-center gap-3 p-3 min-w-[200px] rounded-xl border transition-all ${ehHoje ? 'border-pink-200 bg-pink-50/50' : 'border-gray-100 bg-white hover:shadow-sm'}`}>
+                    {membro.foto_url ? (
+                      <img src={membro.foto_url} alt="Foto" className="w-12 h-12 rounded-full object-cover" />
                     ) : (
-                      <span className="mt-1 text-xs font-semibold text-gray-500 bg-gray-50 px-2 py-0.5 rounded-md border border-gray-100">
-                        {diaAniversario.toString().padStart(2, '0')}/{mesAniversario.toString().padStart(2, '0')}
-                      </span>
+                      <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
+                        <span className="text-sm font-bold text-gray-400 uppercase">{primeiroNome.charAt(0)}</span>
+                      </div>
                     )}
+                    <div>
+                      <h3 className="text-sm font-bold text-gray-800">{primeiroNome}</h3>
+                      {ehHoje ? (
+                        <span className="text-[10px] bg-pink-500 text-white font-bold px-2 py-0.5 rounded-full mt-1 inline-block">HOJE!</span>
+                      ) : (
+                        <span className="text-xs text-gray-500">{partes[2]}/{partes[1]}</span>
+                      )}
+                    </div>
                   </div>
                 )
               })}
@@ -753,87 +629,40 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* 6. MODAL DE DÍZIMOS E OFERTAS (PIX) */}
+      {/* 6. MODAL PIX (Mantido) */}
       {modalPixAberto && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white rounded-2xl w-full max-w-md max-h-[95vh] shadow-2xl flex flex-col relative transform scale-100 transition-all">
-            <div className="bg-emerald-600 p-5 md:p-6 text-center relative shrink-0 rounded-t-2xl">
-              <button 
-                onClick={() => setModalPixAberto(false)}
-                className="absolute top-4 right-4 p-1 text-emerald-200 hover:text-white transition-colors"
-                title="Fechar"
-              >
+          <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl flex flex-col relative overflow-hidden">
+            <div className="bg-gradient-to-r from-emerald-500 to-teal-500 p-6 text-center relative">
+              <button onClick={() => setModalPixAberto(false)} className="absolute top-4 right-4 text-white/80 hover:text-white">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
               </button>
-              
-              <div className="w-12 h-12 md:w-14 md:h-14 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-2 md:mb-3">
-                <svg className="w-6 h-6 md:w-7 md:h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"></path></svg>
-              </div>
-              <h3 className="text-lg md:text-xl font-bold text-white tracking-tight">Dízimos e Ofertas</h3>
-              <p className="text-emerald-100 text-xs md:text-sm mt-1">
-                {filtroCongregacao === "Todas" || filtroCongregacao === "Sede" ? nomeSedeOficial : filtroCongregacao}
-              </p>
+              <h3 className="text-xl font-bold text-white tracking-tight">Dízimos e Ofertas</h3>
+              <p className="text-emerald-100 text-sm mt-1">{filtroCongregacao === "Todas" ? nomeSedeOficial : filtroCongregacao}</p>
             </div>
-
-            <div className="p-5 md:p-8 overflow-y-auto">
+            <div className="p-6 flex flex-col items-center">
               {pixAtual.chave || pixAtual.qrCode ? (
-                <div className="flex flex-col items-center">
-                  
-                  {pixAtual.qrCode && (
-                    <div className="bg-white p-3 rounded-2xl border-2 border-gray-100 shadow-sm mb-6">
-                      <img src={pixAtual.qrCode} alt="QR Code PIX" className="w-40 h-40 md:w-48 md:h-48 object-contain rounded-xl" />
-                    </div>
-                  )}
-                  
+                <>
+                  {pixAtual.qrCode && <img src={pixAtual.qrCode} alt="QR Code" className="w-48 h-48 mb-6 rounded-xl shadow-sm border border-gray-100" />}
                   {pixAtual.chave && (
-                    <div className="w-full text-center">
-                      <p className="text-xs text-gray-500 font-bold uppercase tracking-wider mb-2">Chave PIX da Igreja</p>
-                      <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 flex flex-col items-center gap-3">
-                        <span className="font-mono text-sm md:text-base font-bold text-gray-800 break-all text-center px-2">
-                          {pixAtual.chave}
-                        </span>
-                        
-                        <button
-                          onClick={copiarChavePix}
-                          className={`w-full md:w-auto px-5 py-2.5 text-sm font-bold rounded-lg transition-colors flex items-center justify-center gap-2 shadow-sm ${
-                            chaveCopiada 
-                              ? 'bg-green-100 text-green-700 ring-2 ring-green-500 ring-offset-1' 
-                              : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
-                          }`}
-                        >
-                          {chaveCopiada ? (
-                            <>
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"></path></svg>
-                              Chave Copiada!
-                            </>
-                          ) : (
-                            <>
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>
-                              Copiar Chave
-                            </>
-                          )}
+                    <div className="w-full">
+                      <p className="text-[10px] text-gray-400 font-bold uppercase mb-1 text-center">Chave PIX</p>
+                      <div className="bg-gray-50 rounded-xl p-3 flex flex-col items-center gap-3">
+                        <span className="font-mono text-sm font-bold text-gray-700 break-all text-center">{pixAtual.chave}</span>
+                        <button onClick={copiarChavePix} className={`w-full py-2.5 text-sm font-bold rounded-lg transition-colors ${chaveCopiada ? 'bg-green-100 text-green-700' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}>
+                          {chaveCopiada ? "Copiado!" : "Copiar Chave"}
                         </button>
                       </div>
                     </div>
                   )}
-                </div>
+                </>
               ) : (
-                <div className="text-center py-6">
-                  <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-gray-200">
-                    <svg className="w-8 h-8 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
-                  </div>
-                  <h4 className="text-lg font-bold text-gray-800 mb-2">Chave não configurada</h4>
-                  <p className="text-sm text-gray-500 leading-relaxed px-4">
-                    As informações de recebimento via PIX para esta congregação ainda não foram cadastradas.
-                  </p>
+                <div className="text-center py-8">
+                  <span className="text-4xl block mb-2">💸</span>
+                  <p className="text-gray-500 font-medium">PIX não configurado.</p>
                 </div>
               )}
-              
-              <div className="mt-6 md:mt-8 pt-4 md:pt-5 border-t border-gray-100 text-center">
-                <p className="text-xs text-gray-400 font-medium italic">"Cada um contribua segundo propôs no seu coração..."<br/>— 2 Coríntios 9:7</p>
-              </div>
             </div>
-            
           </div>
         </div>
       )}
