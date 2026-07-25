@@ -246,7 +246,7 @@ export default function Dashboard() {
     ].filter(d => d.value > 0));
 
     // Gráfico Financeiro
-    const mesesGrafico = [];
+    const mesesGrafico: {ano: number, mes: number, label: string, entradas: number, saidas: number}[] = [];
     for (let i = periodoFinanceiro - 1; i >= 0; i--) {
       const d = new Date(hojeData.getFullYear(), hojeData.getMonth() - i, 1);
       mesesGrafico.push({
@@ -426,7 +426,7 @@ export default function Dashboard() {
                     <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#9ca3af' }} dy={10} />
                     <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#9ca3af' }} tickFormatter={(value) => `R$${value/1000}k`} />
                     <Tooltip 
-                      formatter={(value: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)}
+                      formatter={(value: any) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value))}
                       contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                     />
                     <Legend iconType="circle" wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
@@ -462,7 +462,7 @@ export default function Dashboard() {
                       ))}
                     </Pie>
                     <Tooltip 
-                      formatter={(value: number) => [`${value} almas`, '']}
+                      formatter={(value: any) => [`${value} pessoas`, '']}
                       contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                     />
                     <Legend verticalAlign="bottom" iconType="circle" wrapperStyle={{ fontSize: '12px' }} />
