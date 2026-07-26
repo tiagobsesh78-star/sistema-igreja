@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 
@@ -19,7 +19,61 @@ export default function OnboardingPage() {
 
   const [erro, setErro] = useState("");
   const [sucesso, setSucesso] = useState(false);
-  const [carregando, setCarregando] = useState(false);
+  const [carregando, setCarregando] = useState(true);
+
+  // Estados do Token de Convite
+  const [tokenValido, setTokenValido] = useState(false);
+  const [tokenId, setTokenId] = useState("");
+  const [erroToken, setErroToken] = useState("");
+
+  // Validação do Token no carregamento
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("token");
+
+    if (!token) {
+      setErroToken("Link de convite inválido ou ausente. Você precisa de um convite para acessar esta página.");
+      setCarregando(false);
+      return;
+    }
+
+    async function validarToken() {
+      try {
+        const { data, error } = await supabase
+          .from("onboarding_links")
+          .select("*")
+          .eq("id", token)
+          .single();
+
+        if (error || !data) {
+          setErroToken("Convite inválido ou não encontrado.");
+          return;
+        }
+
+        if (data.usado) {
+          setErroToken("Este link de convite já foi utilizado.");
+          return;
+        }
+
+        if (new Date(data.data_expiracao) < new Date()) {
+          setErroToken("Este link de convite expirou.");
+          return;
+        }
+
+        // Token válido!
+        setNomeCompleto(data.nome);
+        setCpf(data.cpf);
+        setTokenId(data.id);
+        setTokenValido(true);
+      } catch (err) {
+        setErroToken("Erro ao validar convite.");
+      } finally {
+        setCarregando(false);
+      }
+    }
+
+    validarToken();
+  }, []);
 
   // Máscara simples de CPF enquanto o usuário digita
   const handleCpfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -110,6 +164,11 @@ export default function OnboardingPage() {
         throw new Error("Erro ao criar o usuário inicial. Verifique se o CPF já está em uso.");
       }
 
+      // 4. Queimar o token de convite
+      if (tokenId) {
+        await supabase.from("onboarding_links").update({ usado: true }).eq("id", tokenId);
+      }
+
       // Sucesso
       setSucesso(true);
       
@@ -124,6 +183,31 @@ export default function OnboardingPage() {
       setCarregando(false);
     }
   };
+
+  if (erroToken) {
+    return (
+      <div className="fixed inset-0 min-h-screen w-screen flex items-center justify-center bg-gray-50 px-4 z-50">
+        <div className="w-full max-w-md bg-white p-8 rounded-2xl shadow-xl border border-red-100 text-center space-y-4 animate-fade-in-up">
+          <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-red-100 mb-2">
+            <svg className="h-8 w-8 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900">Acesso Negado</h2>
+          <p className="text-gray-600 font-medium">
+            {erroToken}
+          </p>
+          <button onClick={() => router.push("/login")} className="mt-6 px-6 py-2.5 bg-gray-900 text-white font-bold rounded-lg shadow-sm hover:bg-black transition">
+            Voltar para o Login
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (carregando && !tokenValido) {
+    return <div className="fixed inset-0 flex items-center justify-center bg-gray-50 z-50 text-blue-600 font-bold animate-pulse">Validando convite...</div>;
+  }
 
   if (sucesso) {
     return (
@@ -205,26 +289,22 @@ export default function OnboardingPage() {
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="md:col-span-2">
-                <label className="block text-sm font-semibold text-gray-700 mb-1">Nome Completo *</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">Nome Completo</label>
                 <input 
                   type="text" 
-                  required
+                  readOnly
                   value={nomeCompleto}
-                  onChange={(e) => setNomeCompleto(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-blue-500 outline-none transition text-sm text-gray-900 placeholder-gray-400"
-                  placeholder="Ex: João da Silva"
+                  className="w-full px-3.5 py-2.5 bg-gray-100 border border-gray-200 rounded-lg outline-none cursor-not-allowed text-sm text-gray-600 font-semibold shadow-inner"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1">CPF *</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">CPF</label>
                 <input 
                   type="text" 
-                  required
+                  readOnly
                   value={cpf}
-                  onChange={handleCpfChange}
-                  className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-blue-500 outline-none transition text-sm text-gray-900 placeholder-gray-400"
-                  placeholder="000.000.000-00"
+                  className="w-full px-3.5 py-2.5 bg-gray-100 border border-gray-200 rounded-lg outline-none cursor-not-allowed text-sm text-gray-600 font-semibold shadow-inner"
                 />
                 <p className="text-xs text-gray-400 mt-1">Este será o seu login de acesso.</p>
               </div>
