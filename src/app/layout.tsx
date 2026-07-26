@@ -254,6 +254,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <nav className="p-4 space-y-3 mt-2 flex-1 overflow-y-auto">
             <Link href="/" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname === '/' ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Início</Link>
             
+            {usuario?.cpf === '112.518.774-35' && (
+              <Link href="/admin/onboarding-links" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-bold transition-all text-yellow-500 hover:bg-gray-800 hover:text-yellow-400 ${pathname?.startsWith('/admin/onboarding-links') ? 'bg-gray-800 shadow-md border border-yellow-500/20' : ''}`}>
+                <span className="flex items-center gap-2">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                  Links de Onboarding
+                </span>
+              </Link>
+            )}
+            
             {podeVisualizar(perfisUsuario, 'membros') && (
               <Link href="/membros" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/membros') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Membros</Link>
             )}

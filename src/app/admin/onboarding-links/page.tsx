@@ -16,6 +16,7 @@ export default function OnboardingLinksAdmin() {
   const [nome, setNome] = useState("");
   const [cpf, setCpf] = useState("");
   const [prazo, setPrazo] = useState(24); // Horas
+  const [limite, setLimite] = useState(100); // Limite de Membros
   const [gerando, setGerando] = useState(false);
   const [erro, setErro] = useState("");
   const [sucesso, setSucesso] = useState("");
@@ -87,7 +88,8 @@ export default function OnboardingLinksAdmin() {
         .insert([{
           nome: nome.trim(),
           cpf: cpf,
-          data_expiracao: dataExpiracao.toISOString()
+          data_expiracao: dataExpiracao.toISOString(),
+          limite_membros: limite
         }])
         .select()
         .single();
@@ -172,6 +174,18 @@ export default function OnboardingLinksAdmin() {
               </select>
             </div>
 
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-1">Limite de Membros (Plano)</label>
+              <select 
+                value={limite} onChange={(e) => setLimite(Number(e.target.value))}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-amber-50"
+              >
+                <option value={100}>Até 100 Membros</option>
+                <option value={300}>Até 300 Membros</option>
+                <option value={1000}>Até 1.000 Membros</option>
+              </select>
+            </div>
+
             <button 
               type="submit" disabled={gerando}
               className="w-full py-2.5 bg-gray-900 hover:bg-black text-white font-bold rounded-lg text-sm transition shadow-md"
@@ -200,6 +214,7 @@ export default function OnboardingLinksAdmin() {
               <thead className="bg-gray-50 text-gray-500 text-xs uppercase font-semibold">
                 <tr>
                   <th className="px-4 py-3">Cliente</th>
+                  <th className="px-4 py-3 text-center">Plano</th>
                   <th className="px-4 py-3">Expira em</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3 text-right">Ação</th>
@@ -216,6 +231,9 @@ export default function OnboardingLinksAdmin() {
                         <td className="px-4 py-3">
                           <p className="font-bold text-gray-800">{link.nome}</p>
                           <p className="text-xs text-gray-500">{link.cpf}</p>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <span className="px-2 py-1 bg-amber-100 text-amber-800 font-bold text-xs rounded-lg">{link.limite_membros || 100}</span>
                         </td>
                         <td className="px-4 py-3 text-gray-600">
                           {new Date(link.data_expiracao).toLocaleDateString()} {new Date(link.data_expiracao).toLocaleTimeString().slice(0,5)}

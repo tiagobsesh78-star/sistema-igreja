@@ -161,8 +161,37 @@ export default function Visitantes() {
     setModalAberto(false);
   };
 
+  const handleContatoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let value = e.target.value.replace(/\D/g, "");
+
+    if (value.length > 11) {
+      value = value.slice(0, 11);
+    }
+
+    if (value.length > 10) {
+      value = value.replace(/^(\d{2})(\d{5})(\d{4}).*/, "($1) $2-$3");
+    } else if (value.length > 6) {
+      value = value.replace(/^(\d{2})(\d{4})(\d{0,4}).*/, "($1) $2-$3");
+    } else if (value.length > 2) {
+      value = value.replace(/^(\d{2})(\d{0,5})/, "($1) $2");
+    } else if (value.length > 0) {
+      value = value.replace(/^(\d*)/, "($1");
+    }
+
+    setContato(value);
+  };
+
   const salvarVisitante = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (contato.trim()) {
+      const numerosContato = contato.replace(/\D/g, "");
+      if (numerosContato.length < 10) {
+        alert("Por favor, informe o número completo com DDD (ex: 11 98888-7777).");
+        return;
+      }
+    }
+
     if (!igrejaIdLogada) return;
 
     setSalvando(true);
@@ -393,11 +422,22 @@ export default function Visitantes() {
                       {v.contato ? (
                         <div className="flex items-center gap-2">
                           {v.is_whatsapp ? (
-                            <svg className="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>
+                            <a 
+                              href={`https://wa.me/55${v.contato.replace(/\D/g, "")}`} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-2 hover:text-green-600 transition-colors group"
+                              title="Conversar no WhatsApp"
+                            >
+                              <svg className="w-4 h-4 text-green-500 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>
+                              <span className="underline decoration-green-300 underline-offset-2">{v.contato}</span>
+                            </a>
                           ) : (
-                            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/></svg>
+                            <div className="flex items-center gap-2">
+                              <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/></svg>
+                              <span>{v.contato}</span>
+                            </div>
                           )}
-                          <span>{v.contato}</span>
                         </div>
                       ) : (
                         <span className="text-gray-400 italic">Não informado</span>
@@ -572,7 +612,7 @@ export default function Visitantes() {
                       type="text"
                       placeholder="Ex: (00) 90000-0000"
                       value={contato}
-                      onChange={(e) => setContato(e.target.value)}
+                      onChange={handleContatoChange}
                       className="flex-1 px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-teal-500 focus:outline-none dark:text-white"
                     />
                     <label className="flex items-center gap-2 cursor-pointer bg-gray-50 dark:bg-gray-700 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600">

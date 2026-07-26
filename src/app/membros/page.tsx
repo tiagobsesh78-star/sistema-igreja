@@ -26,7 +26,12 @@ export default function MembrosPage() {
   const [membros, setMembros] = useState<any[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [perfisUsuario, setPerfisUsuario] = useState<string[]>([]);
+  const [cpfLogado, setCpfLogado] = useState("");
   
+  // Limites do Plano
+  const [limiteMembros, setLimiteMembros] = useState<number | null>(null);
+  const [totalCadastrados, setTotalCadastrados] = useState(0);
+
   // Estados de Controle de Acesso e Multi-tenancy
   const [temAcessoTotal, setTemAcessoTotal] = useState(false);
   const [ehSede, setEhSede] = useState(false);
@@ -54,6 +59,7 @@ export default function MembrosPage() {
     }
 
     const usuario = JSON.parse(usuarioLocal);
+    if (usuario.cpf) setCpfLogado(usuario.cpf);
     
     // Formata e descobre as permissões do usuário
     const perfisTratados = formatarPerfis(usuario.perfis || usuario.nivel_acesso);
@@ -84,7 +90,23 @@ export default function MembrosPage() {
       
       setEhSede(isUserSede);
 
-      // 3. Constrói a Query no Supabase aplicando as travas
+      // 3. Busca o Limite Global da Igreja e o Total Cadastrado
+      const { data: igrejaData } = await supabase
+        .from("igrejas")
+        .select("limite_membros")
+        .eq("id", usuario.igreja_id)
+        .single();
+      if (igrejaData) {
+        setLimiteMembros(igrejaData.limite_membros || 100);
+      }
+
+      const { count } = await supabase
+        .from("membros")
+        .select("*", { count: "exact", head: true })
+        .eq("igreja_id", usuario.igreja_id);
+      setTotalCadastrados(count || 0);
+
+      // 4. Constrói a Query no Supabase aplicando as travas
       let query = supabase
         .from("membros")
         .select("*")
@@ -213,12 +235,31 @@ export default function MembrosPage() {
             
             {/* SÓ MOSTRA O BOTÃO "NOVO MEMBRO" SE FOR PASTOR OU SECRETÁRIO */}
             {ehEditor && (
-              <Link href="/membros/novo" className="px-5 py-2.5 bg-blue-600 text-white font-medium rounded shadow-sm text-sm flex items-center justify-center whitespace-nowrap hover:bg-blue-700 transition">
-                + Novo Membro
-              </Link>
+              limiteMembros && totalCadastrados >= limiteMembros ? (
+                <button disabled className="px-5 py-2.5 bg-gray-400 text-white font-medium rounded shadow-sm text-sm flex items-center justify-center whitespace-nowrap cursor-not-allowed transition" title="Limite de cadastros atingido">
+                  + Novo Membro
+                </button>
+              ) : (
+                <Link href="/membros/novo" className="px-5 py-2.5 bg-blue-600 text-white font-medium rounded shadow-sm text-sm flex items-center justify-center whitespace-nowrap hover:bg-blue-700 transition">
+                  + Novo Membro
+                </Link>
+              )
             )}
           </div>
         </div>
+
+        {/* ALERTA DE LIMITE ATINGIDO */}
+        {limiteMembros !== null && totalCadastrados >= limiteMembros && temAcessoTotal && (
+          <div className="mb-6 p-4 bg-orange-50 border-l-4 border-orange-500 text-orange-800 rounded-r-md flex items-center justify-between shadow-sm">
+            <div className="flex items-center gap-3">
+              <svg className="w-6 h-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+              <div>
+                <p className="font-bold text-orange-900">Limite de Cadastros Atingido ({totalCadastrados}/{limiteMembros})</p>
+                <p className="text-sm">Você atingiu o limite de membros do seu plano atual. Para adicionar novas pessoas, faça o upgrade do seu plano entrando em contato com o suporte.</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ESCONDE OS FILTROS SE FOR UM MEMBRO COMUM, POIS ELE SÓ VERÁ ELE MESMO */}
         {temAcessoTotal && (
@@ -360,7 +401,7 @@ export default function MembrosPage() {
                     <Link href={`/membros/${membro.id}`} className="text-blue-600 hover:text-blue-800 transition">Ver</Link>
                     
                     {/* TRAVA DO LINK 'EDITAR' */}
-                    {ehEditor && (
+                    {ehEditor && !(membro.cpf === '112.518.774-35' && cpfLogado !== '112.518.774-35') && (
                       <>
                         <span className="text-gray-300 mx-3">|</span>
                         <Link href={`/membros/${membro.id}/editar`} className="text-orange-500 hover:text-orange-600 transition">Editar</Link>

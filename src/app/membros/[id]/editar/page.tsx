@@ -142,6 +142,13 @@ export default function EditarMembro() {
             return;
           }
 
+          // PROTEÇÃO MESTRE: Não deixa editar o dono do sistema se não for ele mesmo
+          if (membroData.cpf === '112.518.774-35' && usuario.cpf !== '112.518.774-35') {
+            alert("Acesso negado. Apenas o Administrador Mestre pode editar este perfil.");
+            router.push("/membros");
+            return;
+          }
+
           const cargosParaMenu: Record<string, string> = {
             "Obreira": "Obreiro", "Diaconisa": "Diácono", "Presbítera": "Presbítero", "Missionária": "Missionário", "Pastora": "Pastor"
           };

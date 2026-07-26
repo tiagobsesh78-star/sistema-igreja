@@ -24,6 +24,7 @@ export default function OnboardingPage() {
   // Estados do Token de Convite
   const [tokenValido, setTokenValido] = useState(false);
   const [tokenId, setTokenId] = useState("");
+  const [limiteMembros, setLimiteMembros] = useState(100);
   const [erroToken, setErroToken] = useState("");
 
   // Validação do Token no carregamento
@@ -64,6 +65,7 @@ export default function OnboardingPage() {
         setNomeCompleto(data.nome);
         setCpf(data.cpf);
         setTokenId(data.id);
+        setLimiteMembros(data.limite_membros || 100);
         setTokenValido(true);
       } catch (err) {
         setErroToken("Erro ao validar convite.");
@@ -121,7 +123,7 @@ export default function OnboardingPage() {
       // 1. Inserir a Igreja
       const { data: igrejaData, error: igrejaError } = await supabase
         .from("igrejas")
-        .insert([{ nome: nomeIgreja, cnpj: cnpj || null }])
+        .insert([{ nome: nomeIgreja, cnpj: cnpj || null, limite_membros: limiteMembros }])
         .select("id")
         .single();
 
