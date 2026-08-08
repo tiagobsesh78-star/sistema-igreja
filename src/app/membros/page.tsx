@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "../../../src/lib/supabase";
 import { podeEditar, formatarPerfis } from "../../../src/lib/permissoes";
+import * as XLSX from "xlsx";
 
 // Dicionários para inteligência dos filtros de cargo
 const paraMasculino: Record<string, string> = {
@@ -214,6 +215,43 @@ export default function MembrosPage() {
   // Usa nossa função oficial para decidir quem vê os botões de edição/criação
   const ehEditor = podeEditar(perfisUsuario, 'membros');
 
+  const exportarParaExcel = () => {
+    if (membrosProcessados.length === 0) {
+      alert("Nenhum membro para exportar.");
+      return;
+    }
+
+    const dadosExportacao = membrosProcessados.map(m => ({
+      "Nome Completo": m.nome_completo || "N/A",
+      "Gênero": m.genero || "N/A",
+      "CPF": m.cpf || "N/A",
+      "Data Nascimento": m.data_nascimento ? new Date(m.data_nascimento).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : "N/A",
+      "Estado Civil": m.estado_civil || "N/A",
+      "Cônjuge": m.nome_conjuge || "N/A",
+      "Responsável (Menor)": m.responsavel || "N/A",
+      "Telefone/WhatsApp": m.telefone || "N/A",
+      "Endereço": m.endereco_rua ? `${m.endereco_rua}, ${m.endereco_numero || 'S/N'} - ${m.endereco_bairro || ''} - ${m.endereco_cidade_uf || ''}` : "N/A",
+      "CEP": m.endereco_cep || "N/A",
+      "Data Batismo": m.data_batismo ? new Date(m.data_batismo).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : "N/A",
+      "Igreja Batismo": m.igreja_batismo || "N/A",
+      "Cargo": m.cargo || "N/A",
+      "Status": m.status || "N/A",
+      "Congregação": m.congregacao || "Sede",
+      "Data Cadastro": m.created_at ? new Date(m.created_at).toLocaleDateString('pt-BR') : "N/A",
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(dadosExportacao);
+    
+    // Auto-ajuste da largura das colunas
+    const colunas = Object.keys(dadosExportacao[0]);
+    const wscols = colunas.map(col => ({ wch: Math.max(col.length, 15) }));
+    worksheet['!cols'] = wscols;
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Membros");
+    XLSX.writeFile(workbook, "Membros_Relatorio.xlsx");
+  };
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 md:p-8">
@@ -231,6 +269,16 @@ export default function MembrosPage() {
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
                 Imprimir Lote ({selecionados.length})
               </Link>
+            )}
+
+            {ehEditor && temAcessoTotal && membrosProcessados.length > 0 && (
+              <button 
+                onClick={exportarParaExcel}
+                className="px-4 py-2 bg-green-600 text-white font-medium rounded shadow-sm text-sm flex items-center justify-center gap-2 whitespace-nowrap hover:bg-green-700 transition"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                Exportar Excel
+              </button>
             )}
             
             {/* SÓ MOSTRA O BOTÃO "NOVO MEMBRO" SE FOR PASTOR OU SECRETÁRIO */}
