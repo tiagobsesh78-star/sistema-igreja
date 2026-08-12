@@ -60,8 +60,8 @@ export default function Dashboard() {
 
   // Estados de Membros
   const [stats, setStats] = useState({
-    membros: 0, cadastrados: 0, criancas: 0, jovens: 0, ativos: 0, 
-    adultos: 0, homens12Mais: 0, mulheres12Mais: 0, visitantesRecentes: 0
+    membros: 0, cadastrados: 0, ativos: 0, 
+    homens12Mais: 0, mulheres12Mais: 0, visitantesRecentes: 0
   });
   const [recentes, setRecentes] = useState<any[]>([]);
   const [aniversariantes, setAniversariantes] = useState<any[]>([]); 
