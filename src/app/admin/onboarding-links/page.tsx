@@ -21,6 +21,10 @@ export default function OnboardingLinksAdmin() {
   const [erro, setErro] = useState("");
   const [sucesso, setSucesso] = useState("");
 
+  const [modalEmailAberto, setModalEmailAberto] = useState(false);
+  const [dadosEmail, setDadosEmail] = useState<any>(null);
+  const [htmlParaCopiar, setHtmlParaCopiar] = useState("");
+
   const [linksAntigos, setLinksAntigos] = useState<any[]>([]);
 
   // Máscara de CPF
@@ -67,7 +71,7 @@ export default function OnboardingLinksAdmin() {
     }
   };
 
-  const gerarLink = async (e: React.FormEvent) => {
+  const gerarLink = async (e: React.FormEvent | React.MouseEvent, paraEmail: boolean = false) => {
     e.preventDefault();
     setErro("");
     setSucesso("");
@@ -97,8 +101,49 @@ export default function OnboardingLinksAdmin() {
       if (error) throw error;
 
       const linkCompleto = `${window.location.origin}/onboarding?token=${data.id}`;
-      setSucesso(linkCompleto);
-      navigator.clipboard.writeText(linkCompleto);
+      
+      if (paraEmail) {
+        const maskedCpf = cpf.substring(0, 3) + ".***.***-" + cpf.substring(12, 14);
+        const dataExpFormatada = dataExpiracao.toLocaleDateString() + " às " + dataExpiracao.toLocaleTimeString().slice(0,5);
+        const urlBase = window.location.origin;
+        
+        const html = `
+<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;">
+  <div style="background-color: #f8fafc; padding: 20px; text-align: center; border-bottom: 1px solid #e5e7eb;">
+    <img src="${urlBase}/LOGOTIPO.png" alt="Sistema Igreja" style="max-height: 50px;" />
+  </div>
+  <div style="padding: 30px; color: #334155;">
+    <h2 style="color: #0f172a; margin-top: 0;">Olá, ${nome.trim()}!</h2>
+    <p>Seja muito bem-vindo(a) ao <strong>Sistema Igreja</strong>.</p>
+    <p>Estamos felizes em ter você conosco! O seu ambiente exclusivo já está pré-configurado e pronto para uso.</p>
+    
+    <div style="background-color: #f1f5f9; padding: 15px; border-radius: 6px; margin: 20px 0;">
+      <p style="margin: 0; font-size: 14px;"><strong>Titular da Conta:</strong> ${nome.trim()}</p>
+      <p style="margin: 5px 0 0 0; font-size: 14px;"><strong>Documento (CPF):</strong> ${maskedCpf}</p>
+      <p style="margin: 5px 0 0 0; font-size: 14px; color: #dc2626;"><strong>O link expira em:</strong> ${dataExpFormatada}</p>
+    </div>
+    
+    <p>Para concluir o seu cadastro, definir sua senha master e acessar o sistema agora mesmo, clique no botão abaixo:</p>
+    
+    <div style="text-align: center; margin: 30px 0;">
+      <a href="${linkCompleto}" style="background-color: #2563eb; color: #ffffff; padding: 14px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Finalizar Meu Cadastro</a>
+    </div>
+    
+    <p style="font-size: 12px; color: #64748b; margin-top: 40px; border-top: 1px solid #e5e7eb; padding-top: 20px;">
+      Se o botão não funcionar, copie e cole o link abaixo no seu navegador:<br/>
+      <a href="${linkCompleto}" style="color: #2563eb;">${linkCompleto}</a>
+    </p>
+  </div>
+</div>
+        `;
+        
+        setHtmlParaCopiar(html);
+        setDadosEmail({ link: linkCompleto, cpfMascarado: maskedCpf, expiracao: dataExpFormatada });
+        setModalEmailAberto(true);
+      } else {
+        setSucesso(linkCompleto);
+        navigator.clipboard.writeText(linkCompleto);
+      }
       
       setNome("");
       setCpf("");
@@ -143,7 +188,7 @@ export default function OnboardingLinksAdmin() {
           
           {erro && <div className="mb-4 p-3 bg-red-50 text-red-600 text-sm rounded-lg border border-red-100">{erro}</div>}
           
-          <form onSubmit={gerarLink} className="space-y-4">
+          <form className="space-y-4">
             <div>
               <label className="block text-sm font-bold text-gray-700 mb-1">Nome do Comprador</label>
               <input 
@@ -186,12 +231,21 @@ export default function OnboardingLinksAdmin() {
               </select>
             </div>
 
-            <button 
-              type="submit" disabled={gerando}
-              className="w-full py-2.5 bg-gray-900 hover:bg-black text-white font-bold rounded-lg text-sm transition shadow-md"
-            >
-              {gerando ? "Gerando..." : "Gerar e Copiar Link"}
-            </button>
+            <div className="flex flex-col gap-3 mt-6">
+              <button 
+                type="button" disabled={gerando} onClick={(e) => gerarLink(e, true)}
+                className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-sm transition shadow-md flex items-center justify-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                {gerando ? "Gerando..." : "Gerar para E-mail (HTML)"}
+              </button>
+              <button 
+                type="button" disabled={gerando} onClick={(e) => gerarLink(e, false)}
+                className="w-full py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-lg text-sm transition"
+              >
+                {gerando ? "..." : "Gerar Apenas Link (Simples)"}
+              </button>
+            </div>
           </form>
 
           {sucesso && (
@@ -266,6 +320,79 @@ export default function OnboardingLinksAdmin() {
         </div>
 
       </div>
+
+      {/* MODAL PRÉVIA DO E-MAIL */}
+      {modalEmailAberto && dadosEmail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="p-4 bg-gray-900 text-white flex justify-between items-center shrink-0">
+              <h3 className="font-bold flex items-center gap-2">
+                <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                E-mail Pronto para Envio
+              </h3>
+              <button onClick={() => setModalEmailAberto(false)} className="text-gray-400 hover:text-white transition">✕</button>
+            </div>
+            
+            <div className="p-0 overflow-y-auto bg-gray-100 flex-1 custom-scrollbar">
+              <div dangerouslySetInnerHTML={{ __html: htmlParaCopiar }} className="shadow-sm mx-auto" />
+            </div>
+            
+            <div className="p-4 bg-white border-t border-gray-100 flex justify-end gap-3 shrink-0">
+              <button onClick={() => setModalEmailAberto(false)} className="px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50 rounded-lg transition">Cancelar</button>
+              <button 
+                onClick={() => {
+                  const fallbackCopy = () => {
+                    const tempDiv = document.createElement("div");
+                    tempDiv.innerHTML = htmlParaCopiar;
+                    tempDiv.style.position = "absolute";
+                    tempDiv.style.left = "-9999px";
+                    document.body.appendChild(tempDiv);
+                    
+                    const range = document.createRange();
+                    range.selectNodeContents(tempDiv);
+                    
+                    const selection = window.getSelection();
+                    if (selection) {
+                      selection.removeAllRanges();
+                      selection.addRange(range);
+                      try {
+                        document.execCommand("copy");
+                        alert("E-mail copiado com sucesso! Cole (Ctrl+V) no seu Gmail, Outlook ou CRM.");
+                        setModalEmailAberto(false);
+                      } catch (err) {
+                        alert("Erro ao copiar automaticamente. Selecione o texto e copie manualmente.");
+                      }
+                      selection.removeAllRanges();
+                    }
+                    document.body.removeChild(tempDiv);
+                  };
+
+                  try {
+                    if (navigator.clipboard && window.ClipboardItem) {
+                      const blobHtml = new Blob([htmlParaCopiar], { type: "text/html" });
+                      const blobText = new Blob([dadosEmail.link], { type: "text/plain" });
+                      const data = [new ClipboardItem({ "text/html": blobHtml, "text/plain": blobText })];
+                      navigator.clipboard.write(data).then(() => {
+                        alert("E-mail copiado com sucesso! Cole (Ctrl+V) no seu Gmail, Outlook ou CRM.");
+                        setModalEmailAberto(false);
+                      }).catch(() => fallbackCopy());
+                    } else {
+                      fallbackCopy();
+                    }
+                  } catch(e) {
+                    fallbackCopy();
+                  }
+                }}
+                className="px-5 py-2 text-sm font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-md flex items-center gap-2 transition"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                Copiar (Pronto para Colar)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
