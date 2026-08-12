@@ -45,6 +45,15 @@ export default function Dashboard() {
   const [programacoesRaw, setProgramacoesRaw] = useState<any[]>([]);
   const [financeiroRaw, setFinanceiroRaw] = useState<any[]>([]);
   const [visitantesRaw, setVisitantesRaw] = useState<any[]>([]);
+  const [departamentosRaw, setDepartamentosRaw] = useState<any[]>([]);
+  const [departamentosFiltrados, setDepartamentosFiltrados] = useState<any[]>([]);
+
+  // Faixas Etárias Dinâmicas
+  const [faixasEtariasConfig, setFaixasEtariasConfig] = useState<any[]>([
+    { nome: "Crianças", min: 0, max: 11 },
+    { nome: "Jovens", min: 12, max: 18 },
+    { nome: "Adultos", min: 19, max: 999 }
+  ]);
 
   // Filtros de Gráficos
   const [periodoFinanceiro, setPeriodoFinanceiro] = useState(6); // 3, 6, 12
@@ -60,6 +69,8 @@ export default function Dashboard() {
   // Estados de Gráficos (Processados)
   const [dadosFinanceiros, setDadosFinanceiros] = useState<any[]>([]);
   const [dadosDemograficos, setDadosDemograficos] = useState<any[]>([]);
+  const [modalDemografico, setModalDemografico] = useState<{ aberto: boolean, titulo: string, membros?: any[], grupos?: any[] }>({ aberto: false, titulo: "" });
+  const [modalDepartamentos, setModalDepartamentos] = useState<{ aberto: boolean }>({ aberto: false });
 
   // Estados de Programação
   const dataAtual = new Date();
@@ -96,13 +107,19 @@ export default function Dashboard() {
       try {
         const { data: resConfig } = await supabase
           .from("configuracao_igreja")
-          .select("chave_pix, qr_code_pix, nome_igreja")
+          .select("chave_pix, qr_code_pix, nome_igreja, faixas_etarias")
           .eq("igreja_id", igrejaId)
           .maybeSingle();
 
         const nomeOficial = resConfig?.nome_igreja?.trim() || "Sede";
         setNomeSedeOficial(nomeOficial);
-        if (resConfig) setPixSede({ chave: resConfig.chave_pix || "", qrCode: resConfig.qr_code_pix || "" });
+        
+        if (resConfig) {
+          setPixSede({ chave: resConfig.chave_pix || "", qrCode: resConfig.qr_code_pix || "" });
+          if (resConfig.faixas_etarias) {
+            setFaixasEtariasConfig(resConfig.faixas_etarias);
+          }
+        }
 
         const congUsuario = usuario.congregacao?.trim() || "";
         const congLow = congUsuario.toLowerCase();
@@ -121,6 +138,7 @@ export default function Dashboard() {
         let queryFilhas = supabase.from("igrejas_filhas").select("nome, chave_pix, qr_code_pix").eq("igreja_id", igrejaId);
         let queryFin = supabase.from("tesouraria_lancamentos").select("data, ofertas, dizimos, oferta_especial, saidas, congregacao").eq("igreja_id", igrejaId).eq("excluido", false).gte("data", dataCorteISO);
         let queryVis = supabase.from("visitantes").select("data_visita, congregacao").eq("igreja_id", igrejaId).gte("data_visita", dataCorteISO);
+        let queryDepto = supabase.from("departamentos").select("id, nome, congregacao").eq("igreja_id", igrejaId);
 
         if (!isUserSede) {
           queryMembros = queryMembros.eq("congregacao", congUsuario);
@@ -128,14 +146,16 @@ export default function Dashboard() {
           queryFilhas = queryFilhas.eq("nome", congUsuario);
           queryFin = queryFin.eq("congregacao", congUsuario);
           queryVis = queryVis.eq("congregacao", congUsuario);
+          queryDepto = queryDepto.eq("congregacao", congUsuario);
         }
 
-        const [resMembros, resProg, resFilhas, resFin, resVis] = await Promise.all([queryMembros, queryProg, queryFilhas, queryFin, queryVis]);
+        const [resMembros, resProg, resFilhas, resFin, resVis, resDepto] = await Promise.all([queryMembros, queryProg, queryFilhas, queryFin, queryVis, queryDepto]);
 
         if (resFilhas.data) setPixFilhas(resFilhas.data);
         if (resProg.data) setProgramacoesRaw(resProg.data);
         if (resFin.data) setFinanceiroRaw(resFin.data);
         if (resVis.data) setVisitantesRaw(resVis.data);
+        if (resDepto.data) setDepartamentosRaw(resDepto.data);
 
         if (resMembros.data) {
           setDadosMembrosRaw(resMembros.data);
@@ -185,6 +205,11 @@ export default function Dashboard() {
       ? visitantesRaw
       : visitantesRaw.filter(v => filtroCongregacao === "Sede" ? isSedeItem(v.congregacao) : v.congregacao?.trim() === filtroCongregacao);
 
+    const deptosFiltrados = filtroCongregacao === "Todas"
+      ? departamentosRaw
+      : departamentosRaw.filter(d => filtroCongregacao === "Sede" ? isSedeItem(d.congregacao) : d.congregacao?.trim() === filtroCongregacao);
+    setDepartamentosFiltrados(deptosFiltrados);
+
     const calcularIdade = (dataNasc: string) => {
       if (!dataNasc) return -1;
       const [ano, mes, dia] = dataNasc.split("-").map(Number);
@@ -194,17 +219,33 @@ export default function Dashboard() {
       return idade;
     };
 
-    let totalMembros = 0, totalCriancas = 0, totalJovens = 0, totalAdultos = 0;
-    let totalHomens12Mais = 0, totalMulheres12Mais = 0;
+    let totalMembros = 0, totalHomens12Mais = 0, totalMulheres12Mais = 0;
+    let semIdadeCount = 0;
+    const membrosSemIdade: any[] = [];
+    
+    // Contadores dinâmicos para as faixas
+    const contadoresFaixas: Record<string, { count: number, membros: any[] }> = {};
+    faixasEtariasConfig.forEach(f => {
+      contadoresFaixas[f.nome] = { count: 0, membros: [] };
+    });
 
     membrosFiltrados.forEach(m => {
       const perfis = formatarPerfis(m.perfis || m.nivel_acesso);
       if (!perfis.includes("Congregado")) totalMembros++;
 
       const idade = calcularIdade(m.data_nascimento);
-      if (idade >= 0 && idade <= 11) totalCriancas++;
-      else if (idade >= 12 && idade <= 18) totalJovens++;
-      if (idade > 18) totalAdultos++;
+      
+      if (idade >= 0) {
+        // Encontra a faixa etária correta
+        const faixa = faixasEtariasConfig.find(f => idade >= f.min && idade <= f.max);
+        if (faixa) {
+          contadoresFaixas[faixa.nome].count++;
+          contadoresFaixas[faixa.nome].membros.push(m);
+        }
+      } else {
+        semIdadeCount++;
+        membrosSemIdade.push(m);
+      }
       
       if (idade >= 12) {
         if (m.genero === "Masculino") totalHomens12Mais++;
@@ -229,21 +270,30 @@ export default function Dashboard() {
     setStats({ 
       membros: totalMembros, 
       cadastrados: membrosFiltrados.length, 
-      criancas: totalCriancas, 
-      jovens: totalJovens, 
       ativos: membrosFiltrados.filter((m) => m.status === "Ativo").length,
-      adultos: totalAdultos,
       homens12Mais: totalHomens12Mais,
       mulheres12Mais: totalMulheres12Mais,
       visitantesRecentes: visRecentesCount
     });
 
     // Gráfico Demográfico
-    setDadosDemograficos([
-      { name: 'Crianças (0-11)', value: totalCriancas },
-      { name: 'Jovens (12-18)', value: totalJovens },
-      { name: 'Adultos (18+)', value: totalAdultos }
-    ].filter(d => d.value > 0));
+    const novosDadosDemograficos = faixasEtariasConfig.map(f => {
+      return { 
+        name: f.nome, 
+        value: contadoresFaixas[f.nome]?.count || 0,
+        membros: contadoresFaixas[f.nome]?.membros || []
+      };
+    }).filter(d => d.value > 0);
+
+    if (semIdadeCount > 0) {
+      novosDadosDemograficos.push({
+        name: "Não Informada (Sem Idade)",
+        value: semIdadeCount,
+        membros: membrosSemIdade
+      });
+    }
+
+    setDadosDemograficos(novosDadosDemograficos);
 
     // Gráfico Financeiro
     const mesesGrafico: {ano: number, mes: number, label: string, entradas: number, saidas: number}[] = [];
@@ -287,7 +337,7 @@ export default function Dashboard() {
 
     setProgramacoes(filtroCongregacao === "Todas" ? programacoesRaw : programacoesRaw.filter(p => filtroCongregacao === "Sede" ? isSedeItem(p.congregacao) : p.congregacao?.trim() === filtroCongregacao));
 
-  }, [filtroCongregacao, dadosMembrosRaw, programacoesRaw, financeiroRaw, visitantesRaw, nomeSedeOficial, periodoFinanceiro]);
+  }, [filtroCongregacao, dadosMembrosRaw, programacoesRaw, financeiroRaw, visitantesRaw, departamentosRaw, nomeSedeOficial, periodoFinanceiro, faixasEtariasConfig]);
 
   // PIX Dinâmico
   let pixAtual = pixSede;
@@ -324,8 +374,12 @@ export default function Dashboard() {
       {/* 1. CABEÇALHO */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white/60 backdrop-blur-md p-6 rounded-2xl shadow-sm border border-gray-100">
         <div>
-          <h1 className="text-3xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-blue-500">Visão Estratégica</h1>
-          <p className="text-gray-500 text-sm mt-1 font-medium">Acompanhe a saúde da sua igreja em tempo real.</p>
+          <h1 className="text-3xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-blue-500">
+            {ehLideranca ? "Visão Estratégica" : "Minha Igreja"}
+          </h1>
+          <p className="text-gray-500 text-sm mt-1 font-medium">
+            {ehLideranca ? "Acompanhe a saúde da sua igreja em tempo real." : "Acompanhe a programação e as novidades da sua congregação."}
+          </p>
         </div>
         
         <div className="mt-4 md:mt-0 flex flex-wrap items-center gap-3 w-full md:w-auto">
@@ -363,16 +417,22 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="bg-white/70 backdrop-blur-md p-5 rounded-2xl shadow-sm border border-blue-50 flex flex-col justify-center relative overflow-hidden group hover:shadow-md transition-all">
+          <div 
+            onClick={() => setModalDemografico({ aberto: true, titulo: "Todos os Cadastrados", grupos: dadosDemograficos })}
+            className="bg-white/70 backdrop-blur-md p-5 rounded-2xl shadow-sm border border-blue-50 flex flex-col justify-center relative overflow-hidden group hover:shadow-md transition-all cursor-pointer"
+          >
             <div className="absolute top-0 right-0 -mr-4 -mt-4 w-16 h-16 rounded-full bg-blue-100/50 group-hover:scale-150 transition-transform duration-500"></div>
             <p className="text-xs font-bold text-gray-400 uppercase tracking-wider relative z-10">Pessoas Cadastradas</p>
             <h3 className="text-4xl font-black text-gray-800 mt-1 relative z-10">{stats.cadastrados}</h3>
           </div>
 
-          <div className="bg-white/70 backdrop-blur-md p-5 rounded-2xl shadow-sm border border-rose-50 flex flex-col justify-center relative overflow-hidden group hover:shadow-md transition-all">
+          <div 
+            onClick={() => setModalDepartamentos({ aberto: true })}
+            className="bg-white/70 backdrop-blur-md p-5 rounded-2xl shadow-sm border border-rose-50 flex flex-col justify-center relative overflow-hidden group hover:shadow-md transition-all cursor-pointer"
+          >
             <div className="absolute top-0 right-0 -mr-4 -mt-4 w-16 h-16 rounded-full bg-rose-100/50 group-hover:scale-150 transition-transform duration-500"></div>
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider relative z-10">Crianças e Jovens</p>
-            <h3 className="text-4xl font-black text-gray-800 mt-1 relative z-10">{stats.criancas + stats.jovens}</h3>
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider relative z-10">Departamentos</p>
+            <h3 className="text-4xl font-black text-gray-800 mt-1 relative z-10">{departamentosFiltrados.length}</h3>
           </div>
 
           <div className="bg-white/70 backdrop-blur-md p-5 rounded-2xl shadow-sm border border-amber-50 flex flex-col justify-center relative overflow-hidden group hover:shadow-md transition-all">
@@ -456,6 +516,13 @@ export default function Dashboard() {
                     <Pie
                       data={dadosDemograficos}
                       cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value"
+                      className="cursor-pointer outline-none"
+                      onClick={(data, index) => {
+                        const item = dadosDemograficos[index];
+                        if (item) {
+                          setModalDemografico({ aberto: true, titulo: item.name, membros: item.membros });
+                        }
+                      }}
                     >
                       {dadosDemograficos.map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={CORES_PIE[index % CORES_PIE.length]} />
@@ -629,7 +696,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* 6. MODAL PIX (Mantido) */}
+      {/* MODAL PIX (Mantido) */}
       {modalPixAberto && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
           <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl flex flex-col relative overflow-hidden">
@@ -660,6 +727,110 @@ export default function Dashboard() {
                 <div className="text-center py-8">
                   <span className="text-4xl block mb-2">💸</span>
                   <p className="text-gray-500 font-medium">PIX não configurado.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DEMOGRÁFICO */}
+      {modalDemografico.aberto && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl flex flex-col relative overflow-hidden max-h-[90vh]">
+            <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+              <h3 className="text-xl font-bold text-gray-900">{modalDemografico.titulo}</h3>
+              <button onClick={() => setModalDemografico({ aberto: false, titulo: "" })} className="text-gray-400 hover:text-gray-600">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto custom-scrollbar flex-1 bg-white">
+              {modalDemografico.membros && modalDemografico.membros.length > 0 && (
+                <div className="space-y-3">
+                  {modalDemografico.membros.map((m: any) => (
+                    <Link key={m.id} href={`/membros/${m.id}`} className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition border border-gray-100">
+                      {m.foto_url ? (
+                        <img src={m.foto_url} alt="Foto" className="w-12 h-12 rounded-full object-cover shadow-sm" />
+                      ) : (
+                        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center shadow-sm">
+                          <span className="text-sm font-bold text-gray-500 uppercase">{m.nome_completo.charAt(0)}</span>
+                        </div>
+                      )}
+                      <div>
+                        <p className="font-bold text-gray-800 text-sm">{m.nome_completo}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded uppercase font-bold">{m.cargo || "Membro"}</span>
+                          <span className="text-[10px] text-gray-500 font-medium">{m.congregacao || "Sede"}</span>
+                        </div>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              )}
+
+              {modalDemografico.grupos && modalDemografico.grupos.length > 0 && (
+                <div className="space-y-8">
+                  {modalDemografico.grupos.map((g: any, idx: number) => (
+                    <div key={idx}>
+                      <h4 className="font-bold text-gray-800 mb-3 border-b border-gray-100 pb-2">{g.name} <span className="text-gray-400 text-sm font-normal">({g.value})</span></h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {g.membros.map((m: any) => (
+                          <Link key={m.id} href={`/membros/${m.id}`} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition border border-gray-100">
+                            {m.foto_url ? (
+                              <img src={m.foto_url} alt="Foto" className="w-10 h-10 rounded-full object-cover shadow-sm" />
+                            ) : (
+                              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center shadow-sm">
+                                <span className="text-xs font-bold text-gray-500 uppercase">{m.nome_completo.charAt(0)}</span>
+                              </div>
+                            )}
+                            <div className="overflow-hidden">
+                              <p className="font-bold text-gray-800 text-sm truncate">{m.nome_completo}</p>
+                              <p className="text-[10px] text-gray-400 font-medium uppercase mt-0.5">{m.cargo || "Membro"}</p>
+                            </div>
+                          </Link>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DEPARTAMENTOS */}
+      {modalDepartamentos.aberto && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl flex flex-col relative overflow-hidden max-h-[90vh]">
+            <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+              <h3 className="text-xl font-bold text-gray-900">Departamentos</h3>
+              <button onClick={() => setModalDepartamentos({ aberto: false })} className="text-gray-400 hover:text-gray-600">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto custom-scrollbar flex-1 bg-white">
+              {departamentosFiltrados.length > 0 ? (
+                <div className="space-y-3">
+                  {departamentosFiltrados.map((d: any) => (
+                    <Link key={d.id} href={`/departamentos`} className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition border border-gray-100">
+                      <div className="w-12 h-12 rounded-full bg-gradient-to-br from-rose-100 to-rose-200 flex items-center justify-center shadow-sm text-rose-600">
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                      </div>
+                      <div>
+                        <p className="font-bold text-gray-800 text-sm">{d.nome}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-[10px] text-gray-500 font-medium uppercase">{d.congregacao || "Sede"}</span>
+                        </div>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <p className="text-gray-500 font-medium text-sm">Nenhum departamento encontrado.</p>
                 </div>
               )}
             </div>

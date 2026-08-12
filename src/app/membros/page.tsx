@@ -39,6 +39,7 @@ export default function MembrosPage() {
   const [nomeSedeOficial, setNomeSedeOficial] = useState("Sede");
   
   const [busca, setBusca] = useState("");
+  const [idadeFiltro, setIdadeFiltro] = useState("");
   const [cargoFiltro, setCargoFiltro] = useState("");
   const [congregacaoFiltro, setCongregacaoFiltro] = useState(""); // Deixamos vazio por padrão para carregar "Todas" na listagem
   
@@ -46,6 +47,16 @@ export default function MembrosPage() {
   const [ordemDirecao, setOrdemDirecao] = useState<"asc" | "desc">("asc");
   
   const [selecionados, setSelecionados] = useState<number[]>([]);
+
+  // Configurações e Modal de Faixas Etárias
+  const [igrejaIdLogada, setIgrejaIdLogada] = useState<string | null>(null);
+  const [modalConfigAberto, setModalConfigAberto] = useState(false);
+  const [salvandoConfig, setSalvandoConfig] = useState(false);
+  const [faixasEtariasConfig, setFaixasEtariasConfig] = useState<any[]>([
+    { nome: "Crianças", min: 0, max: 11 },
+    { nome: "Jovens", min: 12, max: 18 },
+    { nome: "Adultos", min: 19, max: 999 }
+  ]);
 
   useEffect(() => {
     buscarMembros();
@@ -61,6 +72,7 @@ export default function MembrosPage() {
 
     const usuario = JSON.parse(usuarioLocal);
     if (usuario.cpf) setCpfLogado(usuario.cpf);
+    if (usuario.igreja_id) setIgrejaIdLogada(usuario.igreja_id);
     
     // Formata e descobre as permissões do usuário
     const perfisTratados = formatarPerfis(usuario.perfis || usuario.nivel_acesso);
@@ -74,15 +86,19 @@ export default function MembrosPage() {
     setTemAcessoTotal(isAdmin);
 
     try {
-      // 1. Busca o nome oficial da Igreja nas configurações para inteligência de Sede
+      // 1. Busca o nome oficial da Igreja nas configurações para inteligência de Sede e as Faixas Etárias
       const { data: resConfig } = await supabase
         .from("configuracao_igreja")
-        .select("nome_igreja")
+        .select("nome_igreja, faixas_etarias")
         .eq("igreja_id", usuario.igreja_id)
         .maybeSingle();
 
       const nomeOficial = resConfig?.nome_igreja?.trim() || "Sede";
       setNomeSedeOficial(nomeOficial);
+
+      if (resConfig?.faixas_etarias) {
+        setFaixasEtariasConfig(resConfig.faixas_etarias);
+      }
 
       // 2. Descobre se o usuário logado é da Sede
       const congUsuario = usuario.congregacao?.trim() || "";
@@ -142,7 +158,18 @@ export default function MembrosPage() {
     return cong;
   };
 
-  const membrosFiltrados = membros.filter((m) => {
+  const calcularIdade = (dataNasc: string) => {
+    if (!dataNasc) return -1;
+    const [ano, mes, dia] = dataNasc.split("-").map(Number);
+    const hoje = new Date();
+    let idade = hoje.getFullYear() - ano;
+    if (hoje.getMonth() + 1 < mes || (hoje.getMonth() + 1 === mes && hoje.getDate() < dia)) idade--;
+    return idade;
+  };
+
+  const membrosComIdade = membros.map(m => ({ ...m, idade: calcularIdade(m.data_nascimento) }));
+
+  const membrosFiltrados = membrosComIdade.filter((m) => {
     const nome = m.nome_completo || "";
     const cpf = m.cpf || "";
     const matchBusca = nome.toLowerCase().includes(busca.toLowerCase()) || cpf.includes(busca);
@@ -155,7 +182,30 @@ export default function MembrosPage() {
     // Nova Lógica de Filtro: "Todas" vs "Sede" vs "Filiais"
     const matchCongregacao = congregacaoFiltro === "" || normalizarCongregacao(m.congregacao) === congregacaoFiltro;
     
-    return matchBusca && matchCargo && matchCongregacao;
+    // Lógica de Filtro de Idade
+    let matchIdade = true;
+    if (idadeFiltro.trim()) {
+      const filtro = idadeFiltro.trim().toLowerCase();
+      if (m.idade < 0) {
+        matchIdade = false;
+      } else if (filtro.includes("-") || filtro.includes(" a ")) {
+        const parts = filtro.includes("-") ? filtro.split("-") : filtro.split(" a ");
+        const min = parseInt(parts[0]);
+        const max = parseInt(parts[1]);
+        if (!isNaN(min) && !isNaN(max)) matchIdade = m.idade >= min && m.idade <= max;
+      } else if (filtro.startsWith(">") || filtro.endsWith("+")) {
+        const val = parseInt(filtro.replace(">", "").replace("+", ""));
+        if (!isNaN(val)) matchIdade = m.idade >= val;
+      } else if (filtro.startsWith("<") || filtro.startsWith("-") && filtro.length > 1) { // -18 ou <18
+        const val = parseInt(filtro.replace("<", "").replace("-", ""));
+        if (!isNaN(val)) matchIdade = m.idade <= val;
+      } else {
+        const val = parseInt(filtro);
+        if (!isNaN(val)) matchIdade = m.idade === val;
+      }
+    }
+    
+    return matchBusca && matchCargo && matchCongregacao && matchIdade;
   });
 
   const membrosProcessados = [...membrosFiltrados].sort((a, b) => {
@@ -215,6 +265,27 @@ export default function MembrosPage() {
   // Usa nossa função oficial para decidir quem vê os botões de edição/criação
   const ehEditor = podeEditar(perfisUsuario, 'membros');
 
+  const salvarFaixasEtarias = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!igrejaIdLogada) return;
+    setSalvandoConfig(true);
+    try {
+      const { error } = await supabase
+        .from("configuracao_igreja")
+        .update({ faixas_etarias: faixasEtariasConfig })
+        .eq("igreja_id", igrejaIdLogada);
+        
+      if (error) throw error;
+      setModalConfigAberto(false);
+      alert("Faixas etárias atualizadas com sucesso!");
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao salvar configurações.");
+    } finally {
+      setSalvandoConfig(false);
+    }
+  };
+
   const exportarParaExcel = () => {
     if (membrosProcessados.length === 0) {
       alert("Nenhum membro para exportar.");
@@ -226,6 +297,7 @@ export default function MembrosPage() {
       "Gênero": m.genero || "N/A",
       "CPF": m.cpf || "N/A",
       "Data Nascimento": m.data_nascimento ? new Date(m.data_nascimento).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : "N/A",
+      "Idade": m.idade !== undefined && m.idade >= 0 ? m.idade : "N/A",
       "Estado Civil": m.estado_civil || "N/A",
       "Cônjuge": m.nome_conjuge || "N/A",
       "Responsável (Menor)": m.responsavel || "N/A",
@@ -280,6 +352,16 @@ export default function MembrosPage() {
                 Exportar Excel
               </button>
             )}
+
+            {ehEditor && (
+              <button 
+                onClick={() => setModalConfigAberto(true)}
+                className="px-4 py-2 bg-gray-100 text-gray-700 border border-gray-200 font-medium rounded shadow-sm text-sm flex items-center justify-center gap-2 whitespace-nowrap hover:bg-gray-200 transition"
+                title="Configurações (Faixas Etárias)"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+              </button>
+            )}
             
             {/* SÓ MOSTRA O BOTÃO "NOVO MEMBRO" SE FOR PASTOR OU SECRETÁRIO */}
             {ehEditor && (
@@ -326,6 +408,14 @@ export default function MembrosPage() {
                 className="w-full py-2.5 pr-4 bg-transparent border-none outline-none text-sm text-gray-700 placeholder-gray-400"
               />
             </div>
+
+            <input
+              type="text"
+              placeholder="Idade (ex: 25, 18-30, 18+)"
+              value={idadeFiltro}
+              onChange={(e) => setIdadeFiltro(e.target.value)}
+              className="w-full md:w-48 flex-shrink-0 px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-md outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 focus:bg-white transition text-sm text-gray-700 placeholder-gray-400"
+            />
 
             <select 
               value={cargoFiltro}
@@ -386,6 +476,14 @@ export default function MembrosPage() {
                   </div>
                 </th>
                 <th 
+                  className="py-3 px-4 cursor-pointer hover:bg-gray-200 transition group text-center"
+                  onClick={() => handleSort('idade')}
+                >
+                  <div className="flex items-center justify-center gap-1">
+                    Idade {renderIconeOrdenacao('idade')}
+                  </div>
+                </th>
+                <th 
                   className="py-3 px-4 hidden md:table-cell cursor-pointer hover:bg-gray-200 transition group"
                   onClick={() => handleSort('telefone')}
                 >
@@ -438,6 +536,9 @@ export default function MembrosPage() {
                     {membro.cargo || "-"}
                     <div className="text-xs text-gray-500 hidden md:block font-normal">{membro.congregacao || "Sede"}</div>
                   </td>
+                  <td className="py-4 px-4 text-center text-gray-600">
+                    {membro.idade >= 0 ? `${membro.idade} anos` : "-"}
+                  </td>
                   <td className="py-4 px-4 hidden md:table-cell text-gray-500">{membro.telefone || "-"}</td>
                   <td className="py-4 px-4 text-center">
                     <span className={`px-2.5 py-1 rounded-full text-xs font-semibold inline-block ${membro.status === 'Ativo' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
@@ -467,6 +568,108 @@ export default function MembrosPage() {
           </table>
         </div>
       </div>
+
+      {/* MODAL CONFIGURAÇÃO DE FAIXAS ETÁRIAS */}
+      {modalConfigAberto && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl flex flex-col relative overflow-hidden max-h-[90vh]">
+            <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+              <h3 className="text-xl font-bold text-gray-900">Configurar Faixas Etárias</h3>
+              <button onClick={() => setModalConfigAberto(false)} className="text-gray-400 hover:text-gray-600">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+              </button>
+            </div>
+            
+            <form onSubmit={salvarFaixasEtarias} className="p-6 overflow-y-auto custom-scrollbar flex-1">
+              <p className="text-sm text-gray-500 mb-6">
+                Defina como o sistema deve agrupar as idades na tela inicial. 
+                Os gráficos e contadores demográficos lerão estas regras.
+              </p>
+
+              <div className="space-y-4 mb-6">
+                {faixasEtariasConfig.map((faixa, index) => (
+                  <div key={index} className="flex gap-3 items-start bg-gray-50 p-4 rounded-xl border border-gray-200">
+                    <div className="flex-1">
+                      <label className="block text-xs font-semibold text-gray-500 mb-1">Nome da Faixa</label>
+                      <input 
+                        type="text" 
+                        required
+                        value={faixa.nome} 
+                        onChange={e => {
+                          const novaConfig = [...faixasEtariasConfig];
+                          novaConfig[index].nome = e.target.value;
+                          setFaixasEtariasConfig(novaConfig);
+                        }}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 outline-none focus:border-blue-500 text-sm" 
+                        placeholder="Ex: Jovens" 
+                      />
+                    </div>
+                    <div className="w-20">
+                      <label className="block text-xs font-semibold text-gray-500 mb-1">Mín.</label>
+                      <input 
+                        type="number" 
+                        required
+                        min="0"
+                        value={faixa.min} 
+                        onChange={e => {
+                          const novaConfig = [...faixasEtariasConfig];
+                          novaConfig[index].min = Number(e.target.value);
+                          setFaixasEtariasConfig(novaConfig);
+                        }}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 outline-none focus:border-blue-500 text-sm" 
+                      />
+                    </div>
+                    <div className="w-20">
+                      <label className="block text-xs font-semibold text-gray-500 mb-1">Máx.</label>
+                      <input 
+                        type="number" 
+                        required
+                        min="0"
+                        value={faixa.max} 
+                        onChange={e => {
+                          const novaConfig = [...faixasEtariasConfig];
+                          novaConfig[index].max = Number(e.target.value);
+                          setFaixasEtariasConfig(novaConfig);
+                        }}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 outline-none focus:border-blue-500 text-sm" 
+                      />
+                    </div>
+                    <div className="pt-6">
+                      <button 
+                        type="button" 
+                        onClick={() => {
+                          setFaixasEtariasConfig(faixasEtariasConfig.filter((_, i) => i !== index));
+                        }}
+                        className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition"
+                        title="Remover Faixa"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <button 
+                type="button"
+                onClick={() => setFaixasEtariasConfig([...faixasEtariasConfig, { nome: "Nova Faixa", min: 0, max: 99 }])}
+                className="w-full py-2.5 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl font-medium text-sm hover:border-blue-400 hover:text-blue-600 transition flex items-center justify-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" /></svg>
+                Adicionar Faixa Etária
+              </button>
+
+              <div className="mt-8 pt-4 border-t border-gray-100 flex justify-end gap-3">
+                <button type="button" onClick={() => setModalConfigAberto(false)} className="px-5 py-2.5 rounded-xl font-medium text-gray-600 hover:bg-gray-100 transition">Cancelar</button>
+                <button type="submit" disabled={salvandoConfig} className="px-5 py-2.5 bg-blue-600 text-white font-medium rounded-xl shadow-md hover:bg-blue-700 transition flex items-center gap-2 disabled:opacity-70">
+                  {salvandoConfig ? "Salvando..." : "Salvar Configurações"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

@@ -26,6 +26,8 @@ interface Departamento {
   estado_civil: string;
   congregacao: string;
   anotacoes?: string | null;
+  lider_id?: string | null;
+  vice_id?: string | null;
 }
 
 interface DepartamentoMembro {
@@ -95,6 +97,7 @@ export default function DepartamentosPage() {
   const [nomeIgrejaSede, setNomeIgrejaSede] = useState<string>("Sede"); 
   const [perfisUsuario, setPerfisUsuario] = useState<string[]>([]);
   const [congregacaoUsuario, setCongregacaoUsuario] = useState("");
+  const [usuarioLogadoId, setUsuarioLogadoId] = useState<string>("");
   
   // Dados
   const [departamentos, setDepartamentos] = useState<Departamento[]>([]);
@@ -108,7 +111,7 @@ export default function DepartamentosPage() {
 
   // Modais e Formulários
   const [modalDeptAberto, setModalDeptAberto] = useState(false);
-  const [formDept, setFormDept] = useState<any>({ id: null, nome: "", faixa_etaria_min: "", faixa_etaria_max: "", genero: "", estado_civil: "" });
+  const [formDept, setFormDept] = useState<any>({ id: null, nome: "", faixa_etaria_min: "", faixa_etaria_max: "", genero: "", estado_civil: "", lider_id: "", vice_id: "" });
   
   const [modalMembrosAberto, setModalMembrosAberto] = useState(false);
   const [deptSelecionado, setDeptSelecionado] = useState<Departamento | null>(null);
@@ -142,13 +145,7 @@ export default function DepartamentosPage() {
     const usuario = JSON.parse(userLocal);
     const perfis = formatarPerfis(usuario.perfis || usuario.nivel_acesso);
     setPerfisUsuario(perfis);
-
-    const temAcesso = perfis.includes("Secretário") || perfis.includes("Pastor/Presbítero") || perfis.includes("Líder") || perfis.includes("Administrador");
-    if (!temAcesso) {
-      alert("Você não tem permissão para acessar os Departamentos.");
-      router.push("/");
-      return;
-    }
+    setUsuarioLogadoId(usuario.id);
 
     const idIgreja = usuario.igreja_id;
     setIgrejaIdLogada(idIgreja);
@@ -192,8 +189,8 @@ export default function DepartamentosPage() {
     const { data: depts } = await supabase.from("departamentos").select("*").eq("igreja_id", idIgreja).order("nome");
     if (depts) setDepartamentos(depts);
 
-    const { data: membs } = await supabase.from("membros").select("id, nome_completo, data_nascimento, genero, estado_civil, congregacao, responsavel, nome_conjuge").eq("igreja_id", idIgreja).order("nome_completo");
-    if (membs) setMembros(membs);
+    const { data: membs } = await supabase.from("membros").select("id, nome_completo, data_nascimento, genero, estado_civil, congregacao, responsavel, nome_conjuge, perfis").eq("igreja_id", idIgreja).order("nome_completo");
+    if (membs) setMembros(membs as any);
 
     const { data: vincs } = await supabase.from("departamento_membros").select("*, membros(id, nome_completo, data_nascimento, genero, estado_civil, congregacao, responsavel, nome_conjuge)").eq("igreja_id", idIgreja);
     if (vincs) setVinculos(vincs as any);
@@ -261,7 +258,9 @@ export default function DepartamentosPage() {
       faixa_etaria_min: formDept.faixa_etaria_min ? parseInt(formDept.faixa_etaria_min) : null,
       faixa_etaria_max: formDept.faixa_etaria_max ? parseInt(formDept.faixa_etaria_max) : null,
       genero: formDept.genero || null,
-      estado_civil: formDept.estado_civil || null
+      estado_civil: formDept.estado_civil || null,
+      lider_id: formDept.lider_id || null,
+      vice_id: formDept.vice_id || null
     };
 
     if (formDept.id) {
@@ -370,20 +369,39 @@ export default function DepartamentosPage() {
   };
 
   // Preparação de Visualização
-  const departamentosDaCongregacao = departamentos.filter(d => pertenceAoFiltroAtual(d.congregacao, filtroCongregacao));
-  const departamentosVisiveis = departamentosDaCongregacao.filter(d => deptFiltros.length === 0 || deptFiltros.includes(d.id));
-  const podeMudarFiltro = perfisUsuario.includes("Pastor/Presbítero") || perfisUsuario.includes("Secretário") || perfisUsuario.includes("Administrador");
+  const isGlobal = perfisUsuario.includes("Pastor/Presbítero") || perfisUsuario.includes("Secretário") || perfisUsuario.includes("Administrador");
+  const podeCriar = isGlobal;
 
-  let gridClasses = "grid gap-6 w-full ";
-  if (departamentosVisiveis.length === 1) {
-    gridClasses += "grid-cols-1 md:max-w-4xl md:mx-auto";
-  } else if (departamentosVisiveis.length === 2) {
-    gridClasses += "grid-cols-1 md:grid-cols-2 md:max-w-5xl md:mx-auto";
-  } else {
-    gridClasses += "grid-cols-1 md:grid-cols-2 xl:grid-cols-3";
+  let departamentosDaCongregacao = departamentos.filter(d => pertenceAoFiltroAtual(d.congregacao, filtroCongregacao));
+  
+  if (!isGlobal && usuarioLogadoId) {
+    const meusDeptosIds = vinculos.filter(v => v.membro_id === usuarioLogadoId).map(v => v.departamento_id);
+    departamentosDaCongregacao = departamentosDaCongregacao.filter(d => 
+      d.lider_id === usuarioLogadoId || 
+      d.vice_id === usuarioLogadoId || 
+      meusDeptosIds.includes(d.id)
+    );
   }
 
+  const departamentosVisiveis = departamentosDaCongregacao.filter(d => deptFiltros.length === 0 || deptFiltros.includes(d.id));
+  const podeMudarFiltro = isGlobal;
+
+  // Layout forçado para 1 coluna conforme solicitado
+  let gridClasses = "grid gap-6 w-full grid-cols-1 md:max-w-4xl md:mx-auto";
+
   if (carregando) return <div className="p-8 text-center text-gray-500">Carregando departamentos...</div>;
+
+  if (!isGlobal && departamentosDaCongregacao.length === 0) {
+    return (
+      <div className="p-4 md:p-8 max-w-7xl mx-auto flex flex-col items-center justify-center min-h-[50vh]">
+        <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 text-center max-w-md w-full">
+          <span className="text-4xl block mb-4">📭</span>
+          <h2 className="text-xl font-bold text-gray-800 mb-2">Sem Departamentos</h2>
+          <p className="text-gray-500 text-sm">Você ainda não foi cadastrado em nenhum departamento.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-6">
@@ -414,15 +432,17 @@ export default function DepartamentosPage() {
             </div>
           )}
 
-          <button 
-            onClick={() => {
-              setFormDept({ id: null, nome: "", faixa_etaria_min: "", faixa_etaria_max: "", genero: "", estado_civil: "" });
-              setModalDeptAberto(true);
-            }}
-            className="bg-gray-900 hover:bg-black text-white px-5 py-2 rounded-lg font-medium shadow-md transition-colors"
-          >
-            + Cadastrar Departamento
-          </button>
+          {podeCriar && (
+            <button 
+              onClick={() => {
+                setFormDept({ id: null, nome: "", faixa_etaria_min: "", faixa_etaria_max: "", genero: "", estado_civil: "", lider_id: "", vice_id: "" });
+                setModalDeptAberto(true);
+              }}
+              className="bg-gray-900 hover:bg-black text-white px-5 py-2 rounded-lg font-medium shadow-md transition-colors"
+            >
+              + Cadastrar Departamento
+            </button>
+          )}
         </div>
       </div>
 
@@ -458,8 +478,13 @@ export default function DepartamentosPage() {
 
       <div className={gridClasses}>
         {departamentosVisiveis.map(dept => {
-          const liderados = vinculos.filter(v => v.departamento_id === dept.id);
+          const liderados = vinculos.filter(v => v.departamento_id === dept.id && String(v.membro_id) !== String(dept.lider_id) && String(v.membro_id) !== String(dept.vice_id));
           const paleta = getPaleta(dept.id);
+          const podeEditarDept = isGlobal || dept.lider_id === usuarioLogadoId || dept.vice_id === usuarioLogadoId;
+          const isReadOnly = !podeEditarDept;
+          
+          const lider = dept.lider_id ? membros.find(m => String(m.id) === String(dept.lider_id)) : null;
+          const vice = dept.vice_id ? membros.find(m => String(m.id) === String(dept.vice_id)) : null;
           
           return (
             <div key={dept.id} className="bg-white rounded-2xl shadow-md border border-gray-100 overflow-hidden flex flex-col transition-all hover:shadow-lg">
@@ -468,23 +493,56 @@ export default function DepartamentosPage() {
                 <div className="flex justify-between items-start">
                   <div>
                     <h3 className={`text-xl font-black ${paleta.titulo}`}>{dept.nome}</h3>
-                    <div className={`text-xs ${paleta.sub} mt-1.5 space-y-0.5 font-medium`}>
-                      {dept.faixa_etaria_min && dept.faixa_etaria_max && <p>Idade: {dept.faixa_etaria_min} a {dept.faixa_etaria_max} anos</p>}
-                      {dept.faixa_etaria_min && !dept.faixa_etaria_max && <p>A partir de {dept.faixa_etaria_min} anos</p>}
-                      {dept.genero && <p>Gênero: {dept.genero}</p>}
-                      {dept.estado_civil && <p>Estado Civil: {dept.estado_civil}</p>}
-                      {!dept.faixa_etaria_min && !dept.genero && !dept.estado_civil && <p>Aberto para todos.</p>}
+                    <div className={`text-xs ${paleta.sub} mt-2 space-y-1 font-medium`}>
+                      {lider ? (
+                        <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                          <span className="bg-white/20 px-1.5 py-0.5 rounded font-bold text-[10px] uppercase tracking-wide">👑 Líder:</span> 
+                          <span className="font-bold text-sm leading-none">{lider.nome_completo}</span>
+                          <span className="text-[10px] opacity-80 bg-black/10 px-1.5 py-0.5 rounded whitespace-nowrap">
+                            {calcularIdade(lider.data_nascimento)} anos{lider.data_nascimento ? ` • Niver: ${formatarDataAniversario(lider.data_nascimento)}` : ""}
+                            {isHoje(lider.data_nascimento) && <span className="text-[10px] ml-1 uppercase font-bold text-yellow-300">Hoje! 🎉</span>}
+                          </span>
+                        </p>
+                      ) : (
+                        <div className="flex items-center gap-2 text-red-200 font-bold">
+                          ⚠️ Sem Líder Associado 
+                          {isGlobal && (
+                            <button onClick={() => { setFormDept({ ...dept, faixa_etaria_min: dept.faixa_etaria_min ?? "", faixa_etaria_max: dept.faixa_etaria_max ?? "", genero: dept.genero ?? "", estado_civil: dept.estado_civil ?? "", lider_id: dept.lider_id ?? "", vice_id: dept.vice_id ?? "" }); setModalDeptAberto(true); }} className="bg-red-500/30 hover:bg-red-500/50 px-2 py-0.5 rounded transition-colors underline">Vincular Agora</button>
+                          )}
+                        </div>
+                      )}
+                      
+                      {vice && (
+                        <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 mt-1.5">
+                          <span className="bg-white/20 px-1.5 py-0.5 rounded font-bold text-[10px] uppercase tracking-wide">⭐ Vice:</span> 
+                          <span className="font-bold text-sm leading-none">{vice.nome_completo}</span>
+                          <span className="text-[10px] opacity-80 bg-black/10 px-1.5 py-0.5 rounded whitespace-nowrap">
+                            {calcularIdade(vice.data_nascimento)} anos{vice.data_nascimento ? ` • Niver: ${formatarDataAniversario(vice.data_nascimento)}` : ""}
+                            {isHoje(vice.data_nascimento) && <span className="text-[10px] ml-1 uppercase font-bold text-yellow-300">Hoje! 🎉</span>}
+                          </span>
+                        </p>
+                      )}
                     </div>
                   </div>
                   
-                  <div className="flex gap-1.5 bg-black/10 p-1 rounded-lg backdrop-blur-sm shadow-inner border border-black/10 shrink-0 ml-2">
-                    <button onClick={() => { setFormDept({ ...dept, faixa_etaria_min: dept.faixa_etaria_min ?? "", faixa_etaria_max: dept.faixa_etaria_max ?? "", genero: dept.genero ?? "", estado_civil: dept.estado_civil ?? "" }); setModalDeptAberto(true); }} className="text-white/80 hover:text-white px-1.5 py-0.5 rounded hover:bg-white/20 transition-all" title="Editar Filtros">✎</button>
-                    <button onClick={() => excluirDepartamento(dept.id)} className="text-white/80 hover:text-red-200 px-1.5 py-0.5 rounded hover:bg-white/20 transition-all" title="Excluir">✕</button>
-                  </div>
+                  {isGlobal && (
+                    <div className="flex gap-1.5 bg-black/10 p-1 rounded-lg backdrop-blur-sm shadow-inner border border-black/10 shrink-0 ml-2 h-fit">
+                      <button onClick={() => { setFormDept({ ...dept, faixa_etaria_min: dept.faixa_etaria_min ?? "", faixa_etaria_max: dept.faixa_etaria_max ?? "", genero: dept.genero ?? "", estado_civil: dept.estado_civil ?? "", lider_id: dept.lider_id ?? "", vice_id: dept.vice_id ?? "" }); setModalDeptAberto(true); }} className="text-white/80 hover:text-white px-1.5 py-0.5 rounded hover:bg-white/20 transition-all" title="Editar Filtros">✎</button>
+                      <button onClick={() => excluirDepartamento(dept.id)} className="text-white/80 hover:text-red-200 px-1.5 py-0.5 rounded hover:bg-white/20 transition-all" title="Excluir">✕</button>
+                    </div>
+                  )}
+                </div>
+
+                <div className={`text-[10px] ${paleta.sub} mt-3 pt-3 border-t border-white/20 flex flex-wrap gap-x-4 gap-y-1`}>
+                  {dept.faixa_etaria_min && dept.faixa_etaria_max && <span>• Idade: {dept.faixa_etaria_min} a {dept.faixa_etaria_max}</span>}
+                  {dept.faixa_etaria_min && !dept.faixa_etaria_max && <span>• A partir de {dept.faixa_etaria_min} anos</span>}
+                  {dept.genero && <span>• Gênero: {dept.genero}</span>}
+                  {dept.estado_civil && <span>• Estado Civil: {dept.estado_civil}</span>}
+                  {!dept.faixa_etaria_min && !dept.genero && !dept.estado_civil && <span>• Sem filtros demográficos</span>}
                 </div>
 
                 <div className="mt-1">
-                  {editandoAnotacaoId === dept.id ? (
+                  {editandoAnotacaoId === dept.id && !isReadOnly ? (
                     <div className="flex flex-col gap-2">
                       <textarea
                         value={anotacaoTexto || ""}
@@ -501,35 +559,38 @@ export default function DepartamentosPage() {
                     </div>
                   ) : (
                     <div 
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => { setEditandoAnotacaoId(dept.id); setAnotacaoTexto(dept.anotacoes || ""); }}
+                      role={!isReadOnly ? "button" : undefined}
+                      tabIndex={!isReadOnly ? 0 : undefined}
+                      onClick={() => { if(!isReadOnly) { setEditandoAnotacaoId(dept.id); setAnotacaoTexto(dept.anotacoes || ""); } }}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
+                        if (!isReadOnly && (e.key === 'Enter' || e.key === ' ')) {
                           setEditandoAnotacaoId(dept.id);
                           setAnotacaoTexto(dept.anotacoes || "");
                         }
                       }}
-                      className={`w-full text-xs p-3 rounded-lg border transition-all cursor-pointer select-none group relative
+                      className={`w-full text-xs p-3 rounded-lg border transition-all select-none group relative
+                        ${!isReadOnly ? 'cursor-pointer' : ''}
                         ${dept.anotacoes 
-                          ? `bg-black/10 border-black/10 hover:bg-black/20 text-white` 
-                          : `bg-transparent border-dashed border-white/30 text-white/60 hover:text-white/90 hover:bg-white/5 hover:border-white/50`
+                          ? `bg-black/10 border-black/10 ${!isReadOnly ? 'hover:bg-black/20' : ''} text-white` 
+                          : `bg-transparent border-dashed border-white/30 text-white/60 ${!isReadOnly ? 'hover:text-white/90 hover:bg-white/5 hover:border-white/50' : ''}`
                         }
                       `}
-                      title={dept.anotacoes ? "Clique para editar as anotações" : "Clique para adicionar anotações ao departamento"}
+                      title={dept.anotacoes ? (!isReadOnly ? "Clique para editar as anotações" : "") : (!isReadOnly ? "Clique para adicionar anotações" : "")}
                     >
                       {dept.anotacoes ? (
                         <div className="whitespace-pre-wrap leading-relaxed pr-6">
                           {formatarTextoComLinks(dept.anotacoes, "text-white underline hover:text-white/80 font-bold decoration-2")}
                         </div>
                       ) : (
-                        <div className="flex items-center gap-1.5 italic">
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                          Adicionar anotações (links suportados)...
-                        </div>
+                        !isReadOnly && (
+                          <div className="flex items-center gap-1.5 italic">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                            Adicionar anotações (links suportados)...
+                          </div>
+                        )
                       )}
                       
-                      {dept.anotacoes && (
+                      {dept.anotacoes && !isReadOnly && (
                         <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
                           <svg className="w-3.5 h-3.5 text-white/70" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                         </div>
@@ -544,9 +605,11 @@ export default function DepartamentosPage() {
                   <span className="text-sm font-bold text-gray-700 bg-gray-100 px-3 py-1 rounded-full border border-gray-200">
                     👥 Liderados: {liderados.length}
                   </span>
-                  <button onClick={() => abrirModalMembros(dept)} className={`text-sm font-bold ${paleta.textoForte} hover:underline decoration-2 underline-offset-4`}>
-                    + Gerenciar
-                  </button>
+                  {!isReadOnly && (
+                    <button onClick={() => abrirModalMembros(dept)} className={`text-sm font-bold ${paleta.textoForte} hover:underline decoration-2 underline-offset-4`}>
+                      + Gerenciar
+                    </button>
+                  )}
                 </div>
 
                 <div className={`space-y-3 overflow-y-auto pr-2 custom-scrollbar flex-1 ${departamentosVisiveis.length === 1 ? 'max-h-[60vh] min-h-[300px]' : 'max-h-[320px]'}`}>
@@ -594,27 +657,31 @@ export default function DepartamentosPage() {
                               )}
                             </div>
                             <div className="flex gap-1.5 shrink-0 ml-2">
-                              <button 
-                                onClick={() => { setVinculoAcao(vinculo); setTipoAcao("Copiar"); setDeptDestinoId(""); setModalAcaoAberto(true); }}
-                                className="text-xs bg-gray-100 hover:bg-gray-200 p-1.5 rounded text-gray-700 font-bold border border-gray-200 transition-colors" title="Copiar/Transferir para outro lugar"
-                              >
-                                ⇄
-                              </button>
-                              <button 
-                                onClick={() => {
-                                  if(confirm(`Tem certeza que deseja remover ${m.nome_completo} deste departamento?`)) {
-                                    supabase.from("departamento_membros").delete().eq("id", vinculo.id).then(() => carregarDadosBasicos(igrejaIdLogada!));
-                                  }
-                                }}
-                                className="text-xs bg-red-50 hover:bg-red-100 p-1.5 rounded text-red-600 font-bold border border-red-100 transition-colors" title="Remover"
-                              >
-                                ✕
-                              </button>
+                              {!isReadOnly && (
+                                <>
+                                  <button 
+                                    onClick={() => { setVinculoAcao(vinculo); setTipoAcao("Copiar"); setDeptDestinoId(""); setModalAcaoAberto(true); }}
+                                    className="text-xs bg-gray-100 hover:bg-gray-200 p-1.5 rounded text-gray-700 font-bold border border-gray-200 transition-colors" title="Copiar/Transferir para outro lugar"
+                                  >
+                                    ⇄
+                                  </button>
+                                  <button 
+                                    onClick={() => {
+                                      if(confirm(`Tem certeza que deseja remover ${m.nome_completo} deste departamento?`)) {
+                                        supabase.from("departamento_membros").delete().eq("id", vinculo.id).then(() => carregarDadosBasicos(igrejaIdLogada!));
+                                      }
+                                    }}
+                                    className="text-xs bg-red-50 hover:bg-red-100 p-1.5 rounded text-red-600 font-bold border border-red-100 transition-colors" title="Remover"
+                                  >
+                                    ✕
+                                  </button>
+                                </>
+                              )}
                             </div>
                           </div>
                           
                           <div className="mt-2.5">
-                            {editandoFuncao ? (
+                            {editandoFuncao && !isReadOnly ? (
                               <div className="flex items-center gap-1.5 w-full max-w-[240px]">
                                 <input 
                                   type="text" 
@@ -634,24 +701,25 @@ export default function DepartamentosPage() {
                               </div>
                             ) : (
                               <div 
-                                role="button"
-                                tabIndex={0}
-                                onClick={() => { setEditandoFuncaoId(vinculo.id); setFuncaoTexto(vinculo.funcao || ""); }}
+                                role={!isReadOnly ? "button" : undefined}
+                                tabIndex={!isReadOnly ? 0 : undefined}
+                                onClick={() => { if(!isReadOnly) { setEditandoFuncaoId(vinculo.id); setFuncaoTexto(vinculo.funcao || ""); } }}
                                 onKeyDown={(e) => {
-                                  if (e.key === 'Enter' || e.key === ' ') {
+                                  if (!isReadOnly && (e.key === 'Enter' || e.key === ' ')) {
                                     setEditandoFuncaoId(vinculo.id);
                                     setFuncaoTexto(vinculo.funcao || "");
                                   }
                                 }}
-                                className={`flex items-center gap-1.5 text-[11px] px-2 py-1 rounded transition-colors border max-w-full truncate cursor-pointer select-none
-                                  ${vinculo.funcao ? 'bg-gray-100 border-gray-200 text-gray-700 hover:bg-gray-200' : 'bg-transparent border-dashed border-gray-300 text-gray-400 hover:text-gray-600 hover:bg-gray-50 hover:border-gray-400'}
+                                className={`flex items-center gap-1.5 text-[11px] px-2 py-1 rounded transition-colors border max-w-full truncate select-none
+                                  ${!isReadOnly ? 'cursor-pointer' : ''}
+                                  ${vinculo.funcao ? `bg-gray-100 border-gray-200 text-gray-700 ${!isReadOnly ? 'hover:bg-gray-200' : ''}` : `bg-transparent border-dashed border-gray-300 text-gray-400 ${!isReadOnly ? 'hover:text-gray-600 hover:bg-gray-50 hover:border-gray-400' : ''}`}
                                 `}
-                                title={vinculo.funcao ? "Clique para editar a descrição" : "Clique para adicionar descrição"}
+                                title={vinculo.funcao ? (!isReadOnly ? "Clique para editar a descrição" : "") : (!isReadOnly ? "Clique para adicionar descrição" : "")}
                               >
                                 <span className="truncate max-w-[150px]">
-                                  {vinculo.funcao ? formatarTextoComLinks(vinculo.funcao) : "+ Adicionar descrição"}
+                                  {vinculo.funcao ? formatarTextoComLinks(vinculo.funcao) : (!isReadOnly ? "+ Adicionar descrição" : "")}
                                 </span>
-                                <svg className={`w-3 h-3 shrink-0 ${vinculo.funcao ? 'text-gray-400' : 'text-gray-300'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                                {!isReadOnly && <svg className={`w-3 h-3 shrink-0 ${vinculo.funcao ? 'text-gray-400' : 'text-gray-300'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>}
                               </div>
                             )}
                           </div>
@@ -683,14 +751,36 @@ export default function DepartamentosPage() {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
             <div className="bg-gray-900 p-5 text-white flex justify-between items-center shrink-0">
-              <h2 className="font-bold text-lg">{formDept.id ? "Editar as Regras do Departamento" : "Novo Departamento"}</h2>
+              <h2 className="font-bold text-lg">{formDept.id ? "Editar Departamento" : "Novo Departamento"}</h2>
               <button type="button" onClick={() => setModalDeptAberto(false)} className="text-gray-400 hover:text-white transition-colors">✕</button>
             </div>
             <form onSubmit={salvarDepartamento} className="p-6 space-y-5 overflow-y-auto flex-1">
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-1.5">Nome do Departamento *</label>
-                {/* Aqui está a blindagem do || "" contra o valor null no Edit */}
                 <input type="text" required value={formDept.nome || ""} onChange={e => setFormDept({...formDept, nome: e.target.value})} placeholder="Ex: Grupo de Jovens, Casais..." className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-gray-800 outline-none transition-shadow" />
+              </div>
+
+              <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 space-y-4">
+                <h4 className="text-xs font-black text-blue-800 uppercase tracking-wider">Liderança do Departamento</h4>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">Líder Oficial</label>
+                  <select value={formDept.lider_id || ""} onChange={e => setFormDept({...formDept, lider_id: e.target.value})} className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-600 outline-none bg-white font-medium">
+                    <option value="">-- Sem líder associado --</option>
+                    {membros.filter(m => formatarPerfis((m as any).perfis).includes("Líder")).map(lider => (
+                      <option key={lider.id} value={lider.id}>{lider.nome_completo}</option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-gray-500 mt-1">Apenas pessoas com perfil de "Líder" aparecem nesta lista.</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">Vice-Líder <span className="font-normal text-gray-400">(Opcional)</span></label>
+                  <select value={formDept.vice_id || ""} onChange={e => setFormDept({...formDept, vice_id: e.target.value})} className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-600 outline-none bg-white font-medium">
+                    <option value="">-- Sem vice associado --</option>
+                    {membros.filter(m => formatarPerfis((m as any).perfis).includes("Líder")).map(lider => (
+                      <option key={lider.id} value={lider.id}>{lider.nome_completo}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
               
               <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4">

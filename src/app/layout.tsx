@@ -302,16 +302,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <Link href="/visitantes" onClick={fecharMenu} className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/visitantes') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>Visitantes</Link>
             
 
-            {/* LINK DEPARTAMENTOS */}
-            {(perfisUsuario.includes('Secretário') || perfisUsuario.includes('Pastor/Presbítero') || perfisUsuario.includes('Líder') || perfisUsuario.includes('Administrador')) && (
-              <Link 
-                href="/departamentos" 
-                onClick={fecharMenu} 
-                className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/departamentos') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}
-              >
-                Departamentos
-              </Link>
-            )}
+            {/* LINK DEPARTAMENTOS (Visível para todos) */}
+            <Link 
+              href="/departamentos" 
+              onClick={fecharMenu} 
+              className={`block px-4 py-3 rounded-lg font-medium transition-all ${pathname?.startsWith('/departamentos') ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}
+            >
+              Departamentos
+            </Link>
             
             {/* TRAVA HIERÁRQUICA CONFIGURAÇÕES */}
             {(perfisUsuario.includes('Secretário') || perfisUsuario.includes('Pastor/Presbítero') || perfisUsuario.includes('Administrador')) && isSede && (
