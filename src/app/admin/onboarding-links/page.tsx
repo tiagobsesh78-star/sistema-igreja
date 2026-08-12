@@ -110,11 +110,11 @@ export default function OnboardingLinksAdmin() {
         const html = `
 <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;">
   <div style="background-color: #f8fafc; padding: 20px; text-align: center; border-bottom: 1px solid #e5e7eb;">
-    <img src="${urlBase}/LOGOTIPO.png" alt="Sistema Igreja" style="max-height: 50px;" />
+    <img src="${urlBase}/LOGOTIPO.png" alt="Doxohub" style="max-height: 50px;" />
   </div>
   <div style="padding: 30px; color: #334155;">
     <h2 style="color: #0f172a; margin-top: 0;">Olá, ${nome.trim()}!</h2>
-    <p>Seja muito bem-vindo(a) ao <strong>Sistema Igreja</strong>.</p>
+    <p>Seja muito bem-vindo(a) ao <strong>Doxohub</strong>.</p>
     <p>Estamos felizes em ter você conosco! O seu ambiente exclusivo já está pré-configurado e pronto para uso.</p>
     
     <div style="background-color: #f1f5f9; padding: 15px; border-radius: 6px; margin: 20px 0;">
@@ -161,6 +161,19 @@ export default function OnboardingLinksAdmin() {
     const linkCompleto = `${window.location.origin}/onboarding?token=${token}`;
     navigator.clipboard.writeText(linkCompleto);
     alert("Link copiado para a área de transferência!");
+  };
+
+  const excluirLink = async (id: string) => {
+    if (!confirm("Tem certeza que deseja apagar esse link de Onboarding definitivamente?")) return;
+    
+    try {
+      const { error } = await supabase.from("onboarding_links").delete().eq("id", id);
+      if (error) throw error;
+      carregarLinks();
+    } catch (err: any) {
+      alert("Erro ao excluir link.");
+      console.error(err);
+    }
   };
 
   if (carregando) return <div className="flex h-screen items-center justify-center">Verificando autorização...</div>;
@@ -301,13 +314,20 @@ export default function OnboardingLinksAdmin() {
                             <span className="px-2 py-1 bg-yellow-100 text-yellow-700 text-xs font-bold rounded-full">Pendente</span>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-right">
+                        <td className="px-4 py-3 text-right flex justify-end gap-1">
                           <button 
                             onClick={() => copiarLinkAntigo(link.id)}
-                            className="text-blue-600 hover:text-blue-800 font-semibold p-1"
+                            className="text-blue-600 hover:bg-blue-50 rounded p-1.5 transition-colors"
                             title="Copiar Link"
                           >
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>
+                          </button>
+                          <button 
+                            onClick={() => excluirLink(link.id)}
+                            className="text-red-500 hover:bg-red-50 rounded p-1.5 transition-colors"
+                            title="Excluir Definitivamente"
+                          >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                           </button>
                         </td>
                       </tr>
